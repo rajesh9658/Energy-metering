@@ -56,7 +56,7 @@ export default function OverviewScreen() {
         <View style={styles.separator} />
 
         {/* Today's Consumption */}
-        <Text style={styles.sectionTitle}>Today's Consumption</Text>
+        <Text style={styles.sectionTitle}>Today{"'"}s Consumption</Text>
         <View style={styles.consumptionCard}>
           <View style={styles.consumptionRow}>
             <View style={styles.consumptionColumn}>

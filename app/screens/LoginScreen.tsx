@@ -122,7 +122,7 @@ const LoginScreen = ({ navigation, setIsLoggedIn }: any) => {
 
             {/* Sign Up */}
             <View style={styles.signupContainer}>
-              <Text style={styles.signupText}>Don't have an account? </Text>
+              <Text style={styles.signupText}>Don{"'"}t have an account? </Text>
               <TouchableOpacity>
                 <Text style={styles.signupLink}>Sign Up</Text>
               </TouchableOpacity>
