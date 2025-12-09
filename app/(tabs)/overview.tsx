@@ -175,10 +175,9 @@ export default function OverviewScreen() {
         {/* HEADER SECTION */}
         <View style={styles.header}>
           <View style={styles.headerTop}>
-            <Text style={styles.meterId}># B-0001</Text>
-            <Text style={styles.logout}>↪︎</Text>
+            
           </View>
-          <Text style={styles.customer}>Sanjay Gupta</Text>
+          <Text style={styles.customer}>Energy-Metering.!</Text>
         </View>
 
         {/* SWIPER SECTION - Smart Auto-Slide with User Override */}
@@ -408,21 +407,7 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   },
 
-  // HEADER STYLES
-  header: {
-    backgroundColor: "#0b63a8",
-    paddingTop: 50,
-    paddingBottom: 20,
-    paddingHorizontal: 20,
-    borderBottomLeftRadius: 20,
-    borderBottomRightRadius: 20,
-    marginBottom: 20,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 8,
-  },
+  
   headerTop: {
     flexDirection: "row",
     justifyContent: "space-between",

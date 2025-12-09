@@ -1,17 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  TextInput,
-  Modal,
-  Animated,
-  Dimensions,
-  Alert,
-  Keyboard,
-  TouchableWithoutFeedback,
+    Alert,
+    Animated,
+    Dimensions,
+    Modal,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    TouchableWithoutFeedback,
+    View
 } from 'react-native';
 
 const { width, height } = Dimensions.get('window');
@@ -29,7 +28,7 @@ export default function RechargeScreen() {
   // Customer details from uploaded image
   const customerDetails = {
     accountId: '0129665248',
-    name: 'SHALANI DWIVEDI',
+    name: 'Sanjay Gupta',
     meterNo: '9549678',
     availableBalance: '₹ 1,250.50' // You can update this dynamically
   };
@@ -157,8 +156,7 @@ export default function RechargeScreen() {
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         {/* HEADER SECTION */}
         <View style={styles.header}>
-          <Text style={styles.headerTitle}>Recharge</Text>
-          <Text style={styles.headerSubtitle}>Online Recharge Portal</Text>
+          
         </View>
 
         <View style={styles.content}>

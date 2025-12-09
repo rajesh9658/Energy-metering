@@ -1,19 +1,19 @@
-import React, { useState, useRef, useEffect } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  Dimensions,
-  Modal,
-  Alert,
-  Platform,
-  ActivityIndicator,
-} from 'react-native';
+import * as FileSystem from 'expo-file-system';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import * as FileSystem from 'expo-file-system';
+import React, { useEffect, useState } from 'react';
+import {
+    ActivityIndicator,
+    Alert,
+    Dimensions,
+    Modal,
+    Platform,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
+} from 'react-native';
 
 const { width, height } = Dimensions.get('window');
 
@@ -349,7 +349,7 @@ export default function ReportScreen() {
             <div class="info">
               <h3>Consumer Information</h3>
               <p><strong>Meter ID:</strong> B-0001</p>
-              <p><strong>Name:</strong> SHALANI DWIVEDI</p>
+              <p><strong>Name:</strong> Sanjay Gupta</p>
               <p><strong>Period:</strong> ${unitData.period}</p>
               <p><strong>Report Type:</strong> ${timeView === 'daily' ? 'Daily' : 'Monthly'}</p>
             </div>
@@ -432,7 +432,7 @@ export default function ReportScreen() {
       const csvContent = `Energy Consumption Report
 Generated: ${new Date().toLocaleDateString()}
 Meter ID: B-0001
-Consumer: SHALANI DWIVEDI
+Consumer: Sanjay Gupta
 Period: ${unitData.period}
 Report Type: ${timeView === 'daily' ? 'Daily' : 'Monthly'}
 
@@ -492,7 +492,7 @@ Current Amount,${amountData.currentValue}`;
       <View style={styles.header}>
         <View style={styles.headerContent}>
           <Text style={styles.meterId}>B-0001</Text>
-          <Text style={styles.consumerName}>SHALANI DWIVEDI</Text>
+          <Text style={styles.consumerName}>Sanjay Gupta</Text>
         </View>
       </View>
 

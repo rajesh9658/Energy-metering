@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
   ScrollView,
-  TouchableOpacity,
+  StyleSheet,
   Switch,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 
 export default function MoreScreen() {
@@ -37,7 +37,7 @@ export default function MoreScreen() {
             <Text style={styles.avatarText}>SD</Text>
           </View>
           <View style={styles.profileInfo}>
-            <Text style={styles.profileName}>SHALANI DWIVEDI</Text>
+            <Text style={styles.profileName}>Sanjay Gupta</Text>
             <Text style={styles.profileMeter}>Meter: #B-0001</Text>
             <Text style={styles.profileEmail}>customer@example.com</Text>
           </View>
