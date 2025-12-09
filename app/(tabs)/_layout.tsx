@@ -10,28 +10,102 @@ export default function TabLayout() {
 
   return (
     <>
-      {/* Header */}
-      <View
-        style={{
-          paddingTop: 40,
-          paddingBottom: 12,
-          backgroundColor: "#1E88E5",
-          flexDirection: "row",
-          justifyContent: "space-between",
-          paddingHorizontal: 15,
-        }}
-      >
-        <Text style={{ color: "white", fontSize: 20, fontWeight: "700" }}>
-          Welcome, {user.name}
-        </Text>
+      {/* =================== 3D HEADER WITH SHADOW =================== */}
+      <View style={{ position: "relative" }}>
+        
+        {/* Shadow Layer (behind header) */}
+        <View
+          style={{
+            position: "absolute",
+            top: 10,
+            left: 0,
+            right: 0,
+            height: "100%",
+            backgroundColor: "#1565C0",
+            borderBottomLeftRadius: 16,
+            borderBottomRightRadius: 16,
+            elevation: 14,
+          }}
+        />
 
-        <TouchableOpacity onPress={logout}>
-          <Text style={{ color: "white", fontSize: 16 }}>Logout</Text>
-        </TouchableOpacity>
+        {/* Main Header */}
+        <View
+          style={{
+            paddingTop: 45,
+            paddingBottom: 16,
+            backgroundColor: "#1E88E5",
+            flexDirection: "row",
+            justifyContent: "space-between",
+            alignItems: "center",
+            paddingHorizontal: 18,
+            borderBottomLeftRadius: 16,
+            borderBottomRightRadius: 16,
+
+            // 3D border effect
+            borderWidth: 2,
+            borderColor: "#1565C0",
+            borderTopColor: "rgba(255, 255, 255, 0.25)",
+            borderLeftColor: "#1565C0",
+            borderRightColor: "#1565C0",
+            borderBottomColor: "#0D47A1",
+
+            // Down shadow
+            shadowColor: "#000",
+            shadowOffset: { width: 0, height: 6 },
+            shadowOpacity: 0.25,
+            shadowRadius: 10,
+            elevation: 12,
+          }}
+        >
+          <Text
+            style={{
+              color: "white",
+              fontSize: 20,
+              fontWeight: "700",
+              textShadowColor: "rgba(0, 0, 0, 0.3)",
+              textShadowOffset: { width: 0, height: 2 },
+              textShadowRadius: 3,
+            }}
+          >
+            Welcome, {user.name}
+          </Text>
+
+          <TouchableOpacity
+            onPress={logout}
+            style={{
+              backgroundColor: "rgba(255, 255, 255, 0.2)",
+              paddingHorizontal: 14,
+              paddingVertical: 8,
+              borderRadius: 10,
+              borderWidth: 1,
+              borderColor: "rgba(255, 255, 255, 0.3)",
+              borderTopColor: "rgba(255, 255, 255, 0.4)",
+              borderBottomColor: "rgba(0, 0, 0, 0.25)",
+            }}
+          >
+            <Text
+              style={{
+                color: "white",
+                fontSize: 16,
+                fontWeight: "600",
+                textShadowColor: "rgba(0, 0, 0, 0.25)",
+                textShadowOffset: { width: 0, height: 1 },
+                textShadowRadius: 2,
+              }}
+            >
+              Logout
+            </Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
-      {/* Tabs */}
-      <Tabs screenOptions={{ headerShown: false, tabBarActiveTintColor: "#1E88E5" }}>
+      {/* =================== TABS =================== */}
+      <Tabs
+        screenOptions={{
+          headerShown: false,
+          tabBarActiveTintColor: "#1E88E5",
+        }}
+      >
         <Tabs.Screen
           name="overview"
           options={{
