@@ -177,7 +177,7 @@ export default function OverviewScreen() {
           <View style={styles.headerTop}>
             
           </View>
-          <Text style={styles.customer}>Energy-Metering.!</Text>
+          <Text style={styles.customer}></Text>
         </View>
 
         {/* SWIPER SECTION - Smart Auto-Slide with User Override */}

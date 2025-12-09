@@ -25,10 +25,7 @@ export default function MoreScreen() {
 
   return (
     <ScrollView style={styles.scrollView}>
-      <View style={styles.header}>
-        <Text style={styles.title}>More Options</Text>
-        <Text style={styles.subtitle}>Manage your account and settings</Text>
-      </View>
+      
 
       <View style={styles.content}>
         {/* User Profile Section */}
@@ -124,7 +121,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#f5f5f5',
   },
   header: {
-    backgroundColor: '#2e7d32',
+    // backgroundColor: '#2e7d32',
     padding: 20,
     alignItems: 'center',
   },

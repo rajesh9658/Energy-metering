@@ -490,10 +490,7 @@ Current Amount,${amountData.currentValue}`;
     <View style={styles.container}>
       {/* Compact Header */}
       <View style={styles.header}>
-        <View style={styles.headerContent}>
-          <Text style={styles.meterId}>B-0001</Text>
-          <Text style={styles.consumerName}>Sanjay Gupta</Text>
-        </View>
+        
       </View>
 
       {/* Compact Controls */}
@@ -825,15 +822,7 @@ const styles = StyleSheet.create({
     color: '#666',
   },
   // Header - Compact
-  header: {
-    backgroundColor: '#1E88E5',
-    paddingTop: 50,
-    paddingBottom: 15,
-    paddingHorizontal: 20,
-    borderBottomLeftRadius: 15,
-    borderBottomRightRadius: 15,
-    elevation: 3,
-  },
+  
   headerContent: {
     alignItems: 'center',
   },
