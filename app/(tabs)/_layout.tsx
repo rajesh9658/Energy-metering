@@ -1,12 +1,30 @@
 import { Tabs, Redirect } from "expo-router";
-import { View, Text, TouchableOpacity } from "react-native";
+import { View, Text, TouchableOpacity, ActivityIndicator } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "../context/AuthContext";
 
 export default function TabLayout() {
-  const { user, logout } = useAuth();
+  const { user, loading, logout } = useAuth();
 
-  if (!user) return <Redirect href="/login" />;
+  // Show loading indicator while checking authentication status
+  if (loading) {
+    return (
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+        <ActivityIndicator size="large" color="#1E88E5" />
+        <Text style={{ marginTop: 10, color: "#555" }}>Checking authentication...</Text>
+      </View>
+    );
+  }
+
+  // Redirect to login if not authenticated
+  if (!user) {
+    return <Redirect href="/login" />;
+  }
+
+  const handleLogout = async () => {
+    await logout();
+    // Redirect will happen automatically because user state will become null
+  };
 
   return (
     <>
@@ -57,21 +75,34 @@ export default function TabLayout() {
             elevation: 12,
           }}
         >
-          <Text
-            style={{
-              color: "white",
-              fontSize: 20,
-              fontWeight: "700",
-              textShadowColor: "rgba(0, 0, 0, 0.3)",
-              textShadowOffset: { width: 0, height: 2 },
-              textShadowRadius: 3,
-            }}
-          >
-            Welcome, {user.name}
-          </Text>
+          <View>
+            <Text
+              style={{
+                color: "white",
+                fontSize: 20,
+                fontWeight: "700",
+                textShadowColor: "rgba(0, 0, 0, 0.3)",
+                textShadowOffset: { width: 0, height: 2 },
+                textShadowRadius: 3,
+              }}
+            >
+              Welcome, {user.name}
+            </Text>
+            {user.site_name && (
+              <Text
+                style={{
+                  color: "rgba(255, 255, 255, 0.9)",
+                  fontSize: 12,
+                  marginTop: 2,
+                }}
+              >
+                Site: {user.site_name}
+              </Text>
+            )}
+          </View>
 
           <TouchableOpacity
-            onPress={logout}
+            onPress={handleLogout}
             style={{
               backgroundColor: "rgba(255, 255, 255, 0.2)",
               paddingHorizontal: 14,
