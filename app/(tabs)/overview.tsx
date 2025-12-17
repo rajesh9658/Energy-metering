@@ -6,8 +6,11 @@ import {
   ScrollView,
   SafeAreaView,
   TouchableOpacity,
+  Dimensions
 } from "react-native";
 import Swiper from "react-native-swiper";
+
+const { width: screenWidth } = Dimensions.get('window');
 
 export default function OverviewScreen() {
   // SWIPER DATA
@@ -89,7 +92,7 @@ export default function OverviewScreen() {
   const active = slides[activeIndex];
   
   // AUTO-SLIDE CONFIGURATION
-  const AUTO_SLIDE_INTERVAL = 4000; // 4 seconds
+  const AUTO_SLIDE_INTERVAL = 5000; // Increased to 5 seconds for slower sliding
   const RESUME_DELAY = 8000; // Resume auto-slide after 8 seconds of inactivity
 
   // STATIC DATA
@@ -200,8 +203,16 @@ export default function OverviewScreen() {
             removeClippedSubviews={false}
             loadMinimal={true}
             loadMinimalSize={1}
+            // SLOW SLIDE TRANSITION PROPERTIES
+            autoplayTimeout={4} // Transition delay
+            autoplayDirection={true}
+            showsButtons={false}
+            // For better slide animation
+            animationDuration={500} // Slower animation (500ms instead of default)
+            // Add horizontal margin for gap between slides
+            style={styles.swiperStyle}
           >
-            {slides.map((item) => (
+            {slides.map((item, index) => (
               <View key={item.key} style={styles.swiperCard}>
                 {/* CARD HEADER */}
                 <View style={styles.cardHeader}>
@@ -390,10 +401,16 @@ export default function OverviewScreen() {
             </View>
           </View>
         </View>
+
+        {/* BOTTOM GAP */}
+        <View style={styles.bottomGap} />
       </ScrollView>
     </SafeAreaView>
   );
 }
+
+const CARD_WIDTH = screenWidth - 48; // Screen width minus side gaps (24 + 24)
+const CARD_MARGIN = 8; // Gap between cards
 
 const styles = StyleSheet.create({
   safe: { 
@@ -404,40 +421,48 @@ const styles = StyleSheet.create({
     flex: 1 
   },
   scrollContent: {
-    paddingBottom: 40,
+    paddingBottom: 20,
   },
-
   
-  headerTop: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 8,
-  },
-  meterId: { 
-    color: "#fff", 
-    fontSize: 28, 
-    fontWeight: "800",
-    letterSpacing: 0.5,
-  },
-  customer: { 
-    color: "#fff", 
-    fontSize: 18, 
-    fontWeight: "600",
-    opacity: 0.9,
-  },
-  logout: { 
-    color: "#fff", 
-    fontSize: 28, 
-    fontWeight: "600" 
+  // SWIPER WRAPPER - FIXED FOR CENTER ALIGNMENT
+  swiperWrapper: {
+    height: 400,
+    marginBottom: 20,
+    paddingHorizontal: 16, // Add padding to see shadows clearly
+    // Remove negative margins
   },
 
-  // SWIPER WRAPPER
-  swiperWrapper: {
-    height: 400, // Increased to accommodate all controls
-    marginBottom: 20,
-    marginHorizontal: 16,
+  // SWIPER STYLE - CENTERED WITH VISIBLE GAPS
+  swiperStyle: {
+    // Add overflow visible to show shadows outside bounds
+    overflow: 'visible',
   },
+
+  // SWIPER CARD - PERFECTLY CENTERED WITH VISIBLE GAPS AND SHADOWS
+  swiperCard: {
+    backgroundColor: "#fff",
+    borderRadius: 20,
+    padding: 20,
+    width: CARD_WIDTH, // Fixed width
+    marginHorizontal: CARD_MARGIN, // Gap between cards
+    // IMPROVED SHADOW EFFECT - NO CUTTING
+    shadowColor: "rgba(0, 0, 0, 0.35) 0px 5px 15px",
+   
+    shadowOffset: { 
+      width: 0, 
+      height: 8 
+    },
+    shadowOpacity: 0.15,
+    shadowRadius: 15,
+    elevation: 12,
+    height: 340,
+    // Soft border for better look
+    borderWidth: 1,
+    borderColor: "rgba(11, 99, 168, 0.1)",
+    // Ensure card is centered
+    alignSelf: 'center',
+  },
+
   dot: { 
     backgroundColor: "#cbd5e1", 
     width: 8, 
@@ -453,13 +478,13 @@ const styles = StyleSheet.create({
     marginHorizontal: 4,
   },
 
-  // CONTROL CONTAINER
+  // CONTROL CONTAINER - CENTERED
   controlContainer: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     marginTop: 15,
-    paddingHorizontal: 10,
+    paddingHorizontal: 16, // Match swiper padding
   },
 
   // AUTO-PLAY CONTROL
@@ -501,11 +526,13 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     justifyContent: "center",
     alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowColor: "#0b63a8",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 5,
+    borderWidth: 1,
+    borderColor: "rgba(11, 99, 168, 0.1)",
   },
   navButtonText: {
     fontSize: 22,
@@ -518,6 +545,8 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 20,
     marginHorizontal: 12,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
   },
   pageIndicatorText: {
     color: "#64748b",
@@ -525,18 +554,7 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
 
-  // SWIPER CARD
-  swiperCard: {
-    backgroundColor: "#fff",
-    borderRadius: 20,
-    padding: 20,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 10,
-    height: 340,
-  },
+  // CARD STYLES
   cardHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -550,6 +568,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     marginRight: 12,
+    // shadowColor: "#0b63a8",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 5,
   },
   cardIconText: {
     fontSize: 20,
@@ -605,6 +628,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "#dcfce7",
   },
   statusDot: {
     width: 8,
@@ -613,18 +638,23 @@ const styles = StyleSheet.create({
     marginRight: 6,
   },
 
-  // TILE CONTAINER (Dynamic & Static Tiles)
+  // TILE CONTAINER (Dynamic & Static Tiles) WITH IMPROVED SHADOW
   tileContainer: {
     backgroundColor: "#fff",
     borderRadius: 20,
     padding: 20,
     marginHorizontal: 16,
-    marginBottom: 20,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 6,
+    marginBottom: 16,
+    // IMPROVED SHADOW - NO CUTTING
+    // shadowColor: "#0b63a8",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    elevation: 8,
+    borderWidth: 1,
+    borderColor: "rgba(11, 99, 168, 0.08)",
+    // Ensure shadow is visible
+    overflow: 'visible',
   },
   tileHeader: {
     flexDirection: "row",
@@ -639,6 +669,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     marginRight: 12,
+    shadowColor: "#0b63a8",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.3,
+    shadowRadius: 5,
+    elevation: 4,
   },
   tileTitle: {
     color: "#0b63a8",
@@ -659,16 +694,21 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginHorizontal: 6,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 3,
   },
   gridBox: {
     backgroundColor: "#f0fdf4",
-    borderWidth: 1,
-    borderColor: "#bbf7d0",
+    borderWidth: 1.5,
+    borderColor: "#86efac",
   },
   dgBox: {
     backgroundColor: "#fef2f2",
-    borderWidth: 1,
-    borderColor: "#fecaca",
+    borderWidth: 1.5,
+    borderColor: "#fca5a5",
   },
   consumptionLabel: {
     fontSize: 14,
@@ -691,12 +731,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
   },
   gridPill: {
-    backgroundColor: "rgba(34, 197, 94, 0.1)",
+    backgroundColor: "rgba(34, 197, 94, 0.15)",
+    borderWidth: 1,
+    borderColor: "rgba(34, 197, 94, 0.3)",
   },
   dgPill: {
-    backgroundColor: "rgba(239, 68, 68, 0.1)",
+    backgroundColor: "rgba(239, 68, 68, 0.15)",
+    borderWidth: 1,
+    borderColor: "rgba(239, 68, 68, 0.3)",
   },
   percentageText: {
     fontSize: 12,
@@ -711,6 +760,8 @@ const styles = StyleSheet.create({
     padding: 12,
     flexDirection: "row",
     justifyContent: "space-around",
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
   },
   totalItem: {
     alignItems: "center",
@@ -732,7 +783,9 @@ const styles = StyleSheet.create({
   sanctionedCard: {
     backgroundColor: "#f8fafc",
     borderRadius: 12,
-    padding: 16,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
   },
   sanctionedRow: {
     flexDirection: "row",
@@ -749,8 +802,9 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#2e7d32",
   },
+
+  // BOTTOM GAP
+  bottomGap: {
+    height: 40,
+  },
 });
-
-
-
-// sanjay
