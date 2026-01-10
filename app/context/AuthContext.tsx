@@ -1,8 +1,17 @@
+
 import React, { createContext, useContext, useState, useEffect } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { getApiUrl } from "../config";
+import { Alert } from "react-native";
+import { getApiUrl } from "../config"; 
 
-const AuthContext = createContext();
+const AuthContext = createContext({
+  user: null,
+  loading: true,
+  error: "",
+  login: async (userid, password) => ({ success: false, message: "" }), 
+  logout: async () => {},
+  setError: (msg) => {},
+});
 
 export const useAuth = () => useContext(AuthContext);
 
@@ -28,62 +37,18 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const login = async (name, password) => {
-    // Validation
-    if (!name.trim() || !password.trim()) {
-      setError("Please fill all fields");
-      return { success: false, message: "Please fill all fields" };
+  const login = async (userid, password) => { 
+    if (!userid.trim() || !password.trim()) {
+      const msg = "Please fill all fields";
+      setError(msg);
+      return { success: false, message: msg };
     }
-
-    console.log("🔄 Login attempt...");
 
     try {
       setError("");
       
-      // Use the correct URL for Android
       const apiUrl = getApiUrl("/api/mobile-login");
       
-      console.log("🌐 Calling:", apiUrl);
-      console.log("📤 Data:", { name: name.trim(), password: "***" });
-      
-      // FOR DEVELOPMENT: Temporary mock response
-      // Comment this block when real API is working
-      console.log("🎭 USING MOCK RESPONSE FOR NOW");
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      const mockResponse = {
-        status: true,
-        message: "Login successful (Mock Mode)",
-        site_id: 1,
-        site_name: "Test Site",
-        slug: "test-site",
-        device_id: `mock-${Date.now()}`,
-        clusterID: "mock-cluster"
-      };
-      
-      // Save mock data
-      await AsyncStorage.setItem("authToken", mockResponse.device_id);
-      await AsyncStorage.setItem("userData", JSON.stringify({
-        name: name,
-        site_id: mockResponse.site_id,
-        site_name: mockResponse.site_name,
-        slug: mockResponse.slug,
-        device_id: mockResponse.device_id,
-        clusterID: mockResponse.clusterID
-      }));
-
-      setUser({
-        name: name,
-        site_id: mockResponse.site_id,
-        site_name: mockResponse.site_name,
-        slug: mockResponse.slug,
-        device_id: mockResponse.device_id,
-        clusterID: mockResponse.clusterID
-      });
-
-      return { success: true, message: mockResponse.message };
-      
-      /* UNCOMMENT WHEN REAL API IS WORKING:
       const response = await fetch(apiUrl, {
         method: "POST",
         headers: {
@@ -91,50 +56,43 @@ export const AuthProvider = ({ children }) => {
           "Accept": "application/json",
         },
         body: JSON.stringify({
-          name: name.trim(),
+          
+          userid: userid.trim(), 
           password: password.trim()
         }),
       });
-
-      console.log("📥 Response status:", response.status);
+      
       
       const data = await response.json();
-      console.log("✅ Response data:", data);
 
       if (data.status === true) {
+        const userToStore = {
+          name: userid, 
+          site_id: data.site_id,
+          site_name: data.site_name,
+          slug: data.slug,
+          device_id: data.device_id,
+          clusterID: data.clusterID
+        };
+
         await AsyncStorage.setItem("authToken", data.device_id);
-        await AsyncStorage.setItem("userData", JSON.stringify({
-          name: name,
-          site_id: data.site_id,
-          site_name: data.site_name,
-          slug: data.slug,
-          device_id: data.device_id,
-          clusterID: data.clusterID
-        }));
+        await AsyncStorage.setItem("userData", JSON.stringify(userToStore));
 
-        setUser({
-          name: name,
-          site_id: data.site_id,
-          site_name: data.site_name,
-          slug: data.slug,
-          device_id: data.device_id,
-          clusterID: data.clusterID
-        });
-
+        setUser(userToStore);
         return { success: true, message: data.message };
+        
       } else {
-        setError(data.message || "Invalid credentials");
-        return { success: false, message: data.message };
+        
+        const errorMsg = data.message || `Login failed. Status: ${response.status}`;
+        setError(errorMsg);
+        return { success: false, message: errorMsg };
       }
-      */
       
-    } catch (error) {
-      console.error("❌ Login error:", error);
+    } catch (e) {
       
-      const errorMsg = `Network Error!\n\nFor Android Emulator:\nUse: http://10.0.2.2:8000\n\nCurrent: http://127.0.0.1:8000\n\nFix:\n1. Change URL to 10.0.2.2\n2. Or test on iOS\n3. Or use mock mode (currently active)`;
-      
+      const errorMsg = `A network error occurred. Please ensure your API is running and accessible at ${apiUrl}. Error: ${e.message}`;
       setError(errorMsg);
-      return { success: false, message: errorMsg };
+      return { success: false, message: "A network error occurred." };
     }
   };
 
@@ -144,6 +102,7 @@ export const AuthProvider = ({ children }) => {
       await AsyncStorage.removeItem("userData");
       setUser(null);
       setError("");
+      Alert.alert("Logout", "You have been successfully logged out.");
     } catch (error) {
       console.error("Logout error:", error);
     }
@@ -165,7 +124,6 @@ export const AuthProvider = ({ children }) => {
   );
 };
 
-// Default export to fix warning
 export default function AuthContextWrapper() {
   return null;
 }

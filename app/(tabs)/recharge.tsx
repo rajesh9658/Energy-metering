@@ -34,12 +34,12 @@ export default function RechargeScreen() {
   };
 
   const rechargeOptions = [
-    { amount: 100, description: 'Quick Top-up' },
-    { amount: 250, description: 'Daily Use' },
-    { amount: 500, description: 'Weekly Pack' },
-    { amount: 1000, description: 'Monthly Pack' },
-    { amount: 2000, description: 'Family Pack' },
-    { amount: 5000, description: 'Heavy Usage' },
+    { amount: 1000, description: 'Quick Top-up' },
+    { amount: 2000, description: 'Daily Use' },
+    { amount: 3000, description: 'Weekly Pack' },
+    { amount: 4000, description: 'Monthly Pack' },
+    { amount: 5000, description: 'Family Pack' },
+    { amount: 10000, description: 'Heavy Usage' },
   ];
 
   const paymentGateways = [
@@ -195,7 +195,7 @@ export default function RechargeScreen() {
                     styles.rechargeOptionCard,
                     selectedAmount === option.amount && styles.selectedCard
                   ]}
-                  onPress={() => setSelectedAmount(option.amount)}
+                  onPress={() => setSelectedAmount(selectedAmount === option.amount ? null : option.amount)}
                   activeOpacity={0.7}
                 >
                   <View style={styles.amountContainer}>
@@ -246,23 +246,27 @@ export default function RechargeScreen() {
             </View>
           )}
 
-          {/* SLIDE TO PAY */}
+          {/* SLIDE TO PAY - DISABLED WHEN NO AMOUNT SELECTED */}
           <View style={styles.sectionContainer}>
             <Text style={styles.sectionTitle}>Slide to Pay</Text>
             <View style={styles.slideContainer}>
-              <View style={styles.slideTrack}>
+              <View style={[styles.slideTrack, !selectedAmount && styles.disabledSlideTrack]}>
                 <Animated.View 
                   style={[
                     styles.slideThumb,
-                    { transform: [{ translateX: slideAnimation }] }
+                    { transform: [{ translateX: slideAnimation }] },
+                    !selectedAmount && styles.disabledSlideThumb
                   ]}
                 />
                 <TouchableOpacity
                   style={styles.slideArea}
-                  onPressIn={handleSlideToPay}
+                  onPressIn={selectedAmount ? handleSlideToPay : null}
                   activeOpacity={1}
+                  disabled={!selectedAmount}
                 >
-                  <Text style={styles.slideText}>Slide to Recharge →</Text>
+                  <Text style={[styles.slideText, !selectedAmount && styles.disabledSlideText]}>
+                    {selectedAmount ? 'Slide to Recharge →' : 'Select Amount First'}
+                  </Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -303,6 +307,9 @@ export default function RechargeScreen() {
               </View>
             )}
           </View>
+
+          {/* BOTTOM GAP */}
+          <View style={styles.bottomGap} />
         </View>
       </ScrollView>
 
@@ -664,12 +671,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#f8fafc',
   },
   header: {
-    // backgroundColor: '#1e88e5',
-    // paddingTop: 60,
-    // paddingBottom: 25,
-    // paddingHorizontal: 20,
-    // borderBottomLeftRadius: 25,
-    // borderBottomRightRadius: 25,
+   
     marginBottom: 25,
     // shadowColor: '#1e88e5',
     shadowOffset: { width: 0, height: 6 },
@@ -927,6 +929,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#bbdefb',
   },
+  disabledSlideTrack: {
+    backgroundColor: '#f5f5f5',
+    borderColor: '#e0e0e0',
+  },
   slideArea: {
     width: '100%',
     height: '100%',
@@ -946,11 +952,18 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     elevation: 6,
   },
+  disabledSlideThumb: {
+    backgroundColor: '#bdbdbd',
+    shadowColor: '#9e9e9e',
+  },
   slideText: {
     fontSize: 18,
     fontWeight: '700',
     color: '#1e88e5',
     letterSpacing: 1.5,
+  },
+  disabledSlideText: {
+    color: '#9e9e9e',
   },
   payButton: {
     backgroundColor: '#1e88e5',
@@ -1288,6 +1301,11 @@ const styles = StyleSheet.create({
     color: '#558b2f',
     marginBottom: 6,
     fontWeight: '500',
+  },
+
+  // BOTTOM GAP
+  bottomGap: {
+    height: 30, // Extra gap at bottom
   },
 
   // Numpad Styles

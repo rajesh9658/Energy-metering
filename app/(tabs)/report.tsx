@@ -1,803 +1,377 @@
-import * as FileSystem from 'expo-file-system';
+import React, { useState, useEffect } from 'react';
+import {
+  Dimensions, ScrollView, StyleSheet, Text, TouchableOpacity, View, Modal, Alert, Platform
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import React, { useEffect, useState } from 'react';
-import {
-    ActivityIndicator,
-    Alert,
-    Dimensions,
-    Modal,
-    Platform,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
-} from 'react-native';
+import * as FileSystem from 'expo-file-system';
+import * as IntentLauncher from 'expo-intent-launcher';
 
-const { width, height } = Dimensions.get('window');
+const { width } = Dimensions.get('window');
 
-export default function ReportScreen() {
+export default function EnergyReport() {
   const [timeView, setTimeView] = useState('daily');
-  const [showFilterModal, setShowFilterModal] = useState(false);
-  const [selectedMonth, setSelectedMonth] = useState('December');
+  const [showFilter, setShowFilter] = useState(false);
   const [selectedYear, setSelectedYear] = useState('2025');
-  const [selectedDate, setSelectedDate] = useState('01');
-  const [chartData, setChartData] = useState(null);
-  const [loading, setLoading] = useState(false);
-
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
-                  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  const years = ['2023', '2024', '2025', '2026'];
-  const dates = Array.from({length: 31}, (_, i) => (i + 1).toString().padStart(2, '0'));
-
-  // ========== DATA FUNCTIONS ==========
-  const getDailyUnitData = () => ({
-    title: 'Unit Consumption',
-    period: `${selectedDate} ${selectedMonth} ${selectedYear}`,
-    currentValue: '18',
-    previousValue: '0',
-    labels: ['01', '03', '05', '07', '08'],
-    values: [15, 17, 14, 16, 18],
-    avg: '15.13',
-    max: '17.00',
-    unit: 'kWh',
-    chartHeight: 120,
-    yAxisValues: [0, 5, 10, 15, 20],
-    color: '#4CAF50',
+  const [selectedMonth, setSelectedMonth] = useState('December');
+  
+  const [data, setData] = useState({
+    unitValues: [],
+    amtValues: [],
+    stats: { avgU: '0.00', maxU: '0.00', avgA: '0.00', maxA: '0.00' }
   });
 
-  const getDailyAmountData = () => ({
-    title: 'Amount Consumption',
-    period: `${selectedDate} ${selectedMonth} ${selectedYear}`,
-    currentValue: '107',
-    previousValue: '100',
-    labels: ['01', '03', '05', '07', '08'],
-    values: [95, 107, 90, 98, 101],
-    avg: '90.45',
-    max: '101.66',
-    unit: '₹',
-    chartHeight: 120,
-    yAxisValues: [0, 25, 50, 75, 100, 125],
-    color: '#2196F3',
-  });
-
-  const getMonthlyUnitData = () => ({
-    title: 'Unit Consumption',
-    period: `${selectedMonth} ${selectedYear}`,
-    currentValue: '2K',
-    previousValue: '0',
-    labels: months,
-    values: [450, 500, 800, 650, 1200, 1000, 1800, 1600, 1400, 1100, 900, 700],
-    avg: '455.17',
-    max: '763.00',
-    unit: 'kWh',
-    chartHeight: 120,
-    yAxisValues: [0, 500, 1000, 1500, 2000],
-    color: '#4CAF50',
-  });
-
-  const getMonthlyAmountData = () => ({
-    title: 'Amount Consumption',
-    period: `${selectedMonth} ${selectedYear}`,
-    currentValue: '8K',
-    previousValue: '0',
-    labels: months,
-    values: [1800, 2000, 3200, 2600, 4800, 4000, 7200, 6400, 5600, 4400, 3600, 2800],
-    avg: '2833.01',
-    max: '4871.80',
-    unit: '₹',
-    chartHeight: 120,
-    yAxisValues: [0, 2000, 4000, 6000, 8000],
-    color: '#2196F3',
-  });
+  const months = ["September", "October", "November", "December"];
+  const years = ["2025", "2024", "2023"];
 
   useEffect(() => {
-    updateChartData();
-  }, [timeView, selectedMonth, selectedYear, selectedDate]);
+    generateData();
+  }, [selectedMonth, selectedYear, timeView]);
 
-  const updateChartData = () => {
-    setChartData({
-      dailyUnit: getDailyUnitData(),
-      dailyAmount: getDailyAmountData(),
-      monthlyUnit: getMonthlyUnitData(),
-      monthlyAmount: getMonthlyAmountData(),
+  const generateData = () => {
+    const count = timeView === 'daily' ? 31 : 12;
+    const units = Array.from({ length: count }, () => Math.floor(Math.random() * 10) + 5);
+    const amts = units.map(u => (u * 6.8).toFixed(2));
+
+    setData({
+      unitValues: units,
+      amtValues: amts,
+      stats: {
+        avgU: (units.reduce((a, b) => a + b, 0) / count).toFixed(2),
+        maxU: Math.max(...units).toFixed(2),
+        avgA: (amts.reduce((a, b) => parseFloat(a) + parseFloat(b), 0) / count).toFixed(2),
+        maxA: Math.max(...amts).toFixed(2),
+      }
     });
   };
 
-  const applyFilter = () => {
-    setLoading(true);
-    setTimeout(() => {
-      updateChartData();
-      setShowFilterModal(false);
-      setLoading(false);
-      Alert.alert('Success', `Filter applied! Showing ${timeView} view for ${timeView === 'daily' ? `${selectedDate} ${selectedMonth} ${selectedYear}` : `${selectedMonth} ${selectedYear}`}`);
-    }, 500);
-  };
-
-  // ========== SIMPLIFIED LINE GRAPH ==========
-  const renderDailyLineGraph = (data) => {
-    if (!data) return null;
-    
-    const maxY = Math.max(...data.yAxisValues);
-    const chartWidth = width - 60;
-    const chartHeight = data.chartHeight;
-    const pointRadius = 4;
-    
-    // Calculate points
-    const points = data.values.map((value, index) => {
-      const x = (index * (chartWidth / (data.labels.length - 1))) || 10;
-      const y = Math.max(pointRadius, Math.min(chartHeight - 30, 
-        chartHeight - 25 - ((value / maxY) * (chartHeight - 40))));
-      return { x, y, value };
-    });
-
-    return (
-      <View style={styles.chartContainer}>
-        {/* Y Axis Labels - Smaller */}
-        <View style={styles.yAxis}>
-          {data.yAxisValues.slice(1, -1).map((value, index) => (
-            <Text key={index} style={styles.yAxisText}>
-              {value}
-            </Text>
-          ))}
-        </View>
-        
-        {/* Main Chart Area */}
-        <View style={[styles.chartArea, { 
-          width: chartWidth, 
-          height: chartHeight,
-          borderWidth: 1,
-          borderColor: '#E0E0E0',
-          borderRadius: 8,
-          backgroundColor: '#FFFFFF',
-          padding: 5,
-        }]}>
-          
-          {/* Grid Lines */}
-          {data.yAxisValues.slice(1, -1).map((value, index) => {
-            const yPos = chartHeight - 25 - ((value / maxY) * (chartHeight - 40));
-            return (
-              <View 
-                key={`grid-${index}`}
-                style={[styles.gridLine, { top: yPos }]}
-              />
-            );
-          })}
-          
-          {/* Line Path */}
-          <View style={[styles.lineContainer, { 
-            width: chartWidth - 10, 
-            height: chartHeight - 30,
-            paddingHorizontal: 5,
-          }]}>
-            {points.slice(0, -1).map((point, index) => {
-              const nextPoint = points[index + 1];
-              const dx = nextPoint.x - point.x;
-              const dy = nextPoint.y - point.y;
-              const length = Math.sqrt(dx * dx + dy * dy);
-              const angle = Math.atan2(dy, dx) * (180 / Math.PI);
-              
-              return (
-                <View
-                  key={`line-${index}`}
-                  style={{
-                    position: 'absolute',
-                    left: point.x,
-                    top: point.y,
-                    width: length,
-                    height: 2,
-                    backgroundColor: data.color,
-                    transform: [{ rotate: `${angle}deg` }],
-                    transformOrigin: '0 0',
-                    zIndex: 1,
-                  }}
-                />
-              );
-            })}
-            
-            {/* Data Points */}
-            {points.map((point, index) => (
-              <View 
-                key={`point-${index}`} 
-                style={[styles.graphPoint, {
-                  left: point.x - pointRadius,
-                  top: point.y - pointRadius,
-                  backgroundColor: data.color,
-                  width: pointRadius * 2,
-                  height: pointRadius * 2,
-                  zIndex: 2,
-                }]} 
-              />
-            ))}
-          </View>
-          
-          {/* X Axis Labels - Smaller */}
-          <View style={[styles.xAxis, { 
-            width: chartWidth - 10,
-            bottom: 2,
-            paddingHorizontal: 5,
-          }]}>
-            {data.labels.map((label, index) => {
-              const xPos = (index * ((chartWidth - 20) / (data.labels.length - 1)));
-              return (
-                <Text 
-                  key={index} 
-                  style={[styles.xAxisText, { 
-                    left: Math.max(0, xPos - 6),
-                    fontSize: 9,
-                  }]}
-                  numberOfLines={1}
-                >
-                  {label}
-                </Text>
-              );
-            })}
-          </View>
-        </View>
-      </View>
-    );
-  };
-
-  // ========== SIMPLIFIED BAR CHART ==========
-  const renderMonthlyBarChart = (data) => {
-    if (!data) return null;
-    
-    const maxY = Math.max(...data.yAxisValues);
-    const chartWidth = width - 60;
-    const chartHeight = data.chartHeight;
-    const barWidth = (chartWidth / data.labels.length) - 4;
-
-    return (
-      <View style={styles.chartContainer}>
-        {/* Y Axis Labels - Smaller */}
-        <View style={styles.yAxis}>
-          {data.yAxisValues.slice(1, -1).map((value, index) => (
-            <Text key={index} style={styles.yAxisText}>
-              {value >= 1000 ? `${(value/1000)}k` : value}
-            </Text>
-          ))}
-        </View>
-        
-        {/* Main Chart Area */}
-        <View style={[styles.chartArea, { 
-          width: chartWidth, 
-          height: chartHeight,
-          borderWidth: 1,
-          borderColor: '#E0E0E0',
-          borderRadius: 8,
-          backgroundColor: '#FFFFFF',
-          padding: 5,
-        }]}>
-          
-          {/* Grid Lines */}
-          {data.yAxisValues.slice(1, -1).map((value, index) => {
-            const yPos = chartHeight - 25 - ((value / maxY) * (chartHeight - 40));
-            return (
-              <View 
-                key={`grid-${index}`}
-                style={[styles.gridLine, { top: yPos }]}
-              />
-            );
-          })}
-          
-          {/* Bars */}
-          <View style={[styles.barsContainer, { 
-            width: chartWidth - 10, 
-            height: chartHeight - 30,
-            paddingHorizontal: 5,
-          }]}>
-            {data.values.map((value, index) => {
-              const barHeight = Math.min(chartHeight - 50, (value / maxY) * (chartHeight - 40));
-              const xPos = index * ((chartWidth - 10) / data.labels.length) + 2;
-              
-              return (
-                <View key={index} style={[styles.barColumn, { left: xPos }]}>
-                  <View style={[styles.bar, { 
-                    height: barHeight,
-                    backgroundColor: data.color,
-                    width: barWidth,
-                    borderRadius: 2,
-                  }]} />
-                  
-                  {/* Month Label - Smaller */}
-                  <Text style={[styles.barLabel, { 
-                    bottom: 0,
-                    fontSize: 9,
-                    width: barWidth + 4,
-                    textAlign: 'center',
-                  }]}>
-                    {data.labels[index]}
-                  </Text>
-                </View>
-              );
-            })}
-          </View>
-          
-          {/* X Axis Labels - Already handled by bar labels */}
-        </View>
-      </View>
-    );
-  };
-
-  // ========== DOWNLOAD PDF ==========
-  const downloadPDF = async () => {
+  // --- WORKING EXCEL/CSV EXPORT ---
+  const exportExcel = async () => {
     try {
-      setLoading(true);
-      const unitData = timeView === 'daily' ? chartData.dailyUnit : chartData.monthlyUnit;
-      const amountData = timeView === 'daily' ? chartData.dailyAmount : chartData.monthlyAmount;
+      // Create CSV content
+      const csvContent = createCSVContent();
       
-      const htmlContent = `
+      // Generate filename
+      const timestamp = new Date().getTime();
+      const fileName = `Energy_Report_${selectedMonth}_${selectedYear}_${timestamp}.csv`;
+      
+      if (Platform.OS === 'web') {
+        // For web platform - download directly
+        downloadCSVWeb(csvContent, fileName);
+        Alert.alert('Success', 'Report downloaded successfully!');
+        return;
+      }
+      
+      if (Platform.OS === 'android' || Platform.OS === 'ios') {
+        // For mobile platforms - save and share
+        await downloadCSVMobile(csvContent, fileName);
+        return;
+      }
+      
+      Alert.alert('Error', 'Platform not supported');
+      
+    } catch (error) {
+      console.error('Export error:', error);
+      Alert.alert('Error', 'Failed to export report. Please try again.');
+    }
+  };
+
+  const createCSVContent = () => {
+    let csv = "Energy Consumption Report\n";
+    csv += `Period,${timeView === 'daily' ? `${selectedMonth} ${selectedYear}` : selectedYear}\n\n`;
+    csv += "Type,Average,Maximum\n";
+    csv += `Units (kWh),${data.stats.avgU},${data.stats.maxU}\n`;
+    csv += `Amount (Rs),${data.stats.avgA},${data.stats.maxA}\n\n`;
+    csv += "Date,Units (kWh),Amount (Rs)\n";
+    
+    if (timeView === 'daily') {
+      for (let i = 0; i < 31; i++) {
+        const day = (i + 1).toString().padStart(2, '0');
+        csv += `${day}/${selectedMonth.slice(0,3)}/${selectedYear},${data.unitValues[i] || '0'},${data.amtValues[i] || '0.00'}\n`;
+      }
+    } else {
+      const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      monthNames.forEach((month, index) => {
+        csv += `${month} ${selectedYear},${data.unitValues[index] || '0'},${data.amtValues[index] || '0.00'}\n`;
+      });
+    }
+    
+    return csv;
+  };
+
+  const downloadCSVWeb = (content, filename) => {
+    const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', filename);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const downloadCSVMobile = async (content, filename) => {
+    try {
+      // Use cache directory for temporary storage
+      const directory = FileSystem.cacheDirectory;
+      const fileUri = directory + filename;
+      
+      // Write the file
+      await FileSystem.writeAsStringAsync(fileUri, content, {
+        encoding: FileSystem.EncodingType.UTF8
+      });
+      
+      // Check if sharing is available
+      const isSharingAvailable = await Sharing.isAvailableAsync();
+      
+      if (isSharingAvailable) {
+        // Share the file
+        await Sharing.shareAsync(fileUri, {
+          mimeType: 'text/csv',
+          dialogTitle: 'Save Energy Report',
+          UTI: 'public.comma-separated-values-text'
+        });
+      } else {
+        // If sharing not available, show success message
+        Alert.alert(
+          'Success', 
+          `Report saved as: ${filename}\n\nLocation: ${fileUri}`,
+          [{ text: 'OK' }]
+        );
+      }
+      
+    } catch (error) {
+      console.error('Mobile download error:', error);
+      throw error;
+    }
+  };
+
+  // --- PDF EXPORT ---
+  const exportPDF = async () => {
+    try {
+      const html = `
         <html>
           <head>
             <style>
               body { font-family: Arial; padding: 20px; }
-              .header { text-align: center; margin-bottom: 30px; }
-              .info { background: #f5f5f5; padding: 15px; border-radius: 5px; margin-bottom: 20px; }
-              .section { margin-bottom: 30px; }
-              table { width: 100%; border-collapse: collapse; }
-              th, td { padding: 10px; text-align: left; border-bottom: 1px solid #ddd; }
-              th { background-color: #4CAF50; color: white; }
+              .header { text-align: center; color: #02569B; }
+              table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+              th { background: #02569B; color: white; padding: 10px; }
+              td { padding: 10px; border: 1px solid #ddd; }
             </style>
           </head>
           <body>
-            <div class="header">
-              <h1>Energy Consumption Report</h1>
-              <p>Generated on: ${new Date().toLocaleDateString()}</p>
-            </div>
-            
-            <div class="info">
-              <h3>Consumer Information</h3>
-              <p><strong>Meter ID:</strong> B-0001</p>
-              <p><strong>Name:</strong> Sanjay Gupta</p>
-              <p><strong>Period:</strong> ${unitData.period}</p>
-              <p><strong>Report Type:</strong> ${timeView === 'daily' ? 'Daily' : 'Monthly'}</p>
-            </div>
-            
-            <div class="section">
-              <h2>Unit Consumption (${unitData.unit})</h2>
-              <p><strong>Current:</strong> ${unitData.currentValue}</p>
-              <p><strong>Average:</strong> ${unitData.avg}</p>
-              <p><strong>Maximum:</strong> ${unitData.max}</p>
-              
-              <table>
-                <tr>
-                  <th>${timeView === 'daily' ? 'Date' : 'Month'}</th>
-                  <th>Value</th>
-                </tr>
-                ${unitData.labels.map((label, i) => `
-                  <tr>
-                    <td>${label}</td>
-                    <td>${unitData.values[i]}</td>
-                  </tr>
-                `).join('')}
-              </table>
-            </div>
-            
-            <div class="section">
-              <h2>Amount Consumption (${amountData.unit})</h2>
-              <p><strong>Current:</strong> ${amountData.currentValue}</p>
-              <p><strong>Average:</strong> ${amountData.avg}</p>
-              <p><strong>Maximum:</strong> ${amountData.max}</p>
-              
-              <table>
-                <tr>
-                  <th>${timeView === 'daily' ? 'Date' : 'Month'}</th>
-                  <th>Value</th>
-                </tr>
-                ${amountData.labels.map((label, i) => `
-                  <tr>
-                    <td>${label}</td>
-                    <td>${amountData.values[i]}</td>
-                  </tr>
-                `).join('')}
-              </table>
-            </div>
-            
-            <div style="margin-top: 40px; text-align: center; color: #666;">
-              <p>This is an official report generated by Energy Management System</p>
-            </div>
+            <h1 class="header">Energy Consumption Report</h1>
+            <p><strong>Period:</strong> ${selectedMonth} ${selectedYear}</p>
+            <p><strong>View:</strong> ${timeView}</p>
+            <table>
+              <tr><th>Metric</th><th>Average</th><th>Maximum</th></tr>
+              <tr><td>Units (kWh)</td><td>${data.stats.avgU}</td><td>${data.stats.maxU}</td></tr>
+              <tr><td>Amount (Rs)</td><td>${data.stats.avgA}</td><td>${data.stats.maxA}</td></tr>
+            </table>
           </body>
-        </html>
-      `;
-
-      const { uri } = await Print.printToFileAsync({
-        html: htmlContent,
-        base64: false,
-      });
-
-      await Sharing.shareAsync(uri, {
-        mimeType: 'application/pdf',
-        dialogTitle: 'Download Energy Report',
-        UTI: 'com.adobe.pdf',
-      });
-
-      setLoading(false);
-      Alert.alert('Success', 'PDF downloaded successfully!');
-
-    } catch (error) {
-      console.error('PDF Error:', error);
-      setLoading(false);
-      Alert.alert('Error', 'Failed to download PDF');
-    }
-  };
-
-  // ========== DOWNLOAD EXCEL ==========
-  const downloadExcel = async () => {
-    try {
-      setLoading(true);
-      const unitData = timeView === 'daily' ? chartData.dailyUnit : chartData.monthlyUnit;
-      const amountData = timeView === 'daily' ? chartData.dailyAmount : chartData.monthlyAmount;
+        </html>`;
       
-      const csvContent = `Energy Consumption Report
-Generated: ${new Date().toLocaleDateString()}
-Meter ID: B-0001
-Consumer: Sanjay Gupta
-Period: ${unitData.period}
-Report Type: ${timeView === 'daily' ? 'Daily' : 'Monthly'}
-
-${timeView === 'daily' ? 'Date' : 'Month'},Unit Consumption (${unitData.unit}),Amount Consumption (${amountData.unit})
-${unitData.labels.map((label, i) => 
-  `${label},${unitData.values[i]},${amountData.values[i]}`
-).join('\n')}
-
-Summary:
-Average Unit,${unitData.avg}
-Maximum Unit,${unitData.max}
-Current Unit,${unitData.currentValue}
-Average Amount,${amountData.avg}
-Maximum Amount,${amountData.max}
-Current Amount,${amountData.currentValue}`;
-
-      if (Platform.OS === 'web') {
-        // For web
-        const blob = new Blob([csvContent], { type: 'text/csv' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `Energy_Data_${timeView}_${selectedDate}_${selectedMonth}_${selectedYear}.csv`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
+      const { uri } = await Print.printToFileAsync({ html });
+      
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(uri, {
+          mimeType: 'application/pdf',
+          dialogTitle: 'Save PDF Report'
+        });
       } else {
-        // For mobile
-        const fileUri = FileSystem.documentDirectory + `Energy_Data_${timeView}_${selectedDate}_${selectedMonth}_${selectedYear}.csv`;
-        await FileSystem.writeAsStringAsync(fileUri, csvContent);
-        await Sharing.shareAsync(fileUri);
+        Alert.alert('Success', 'PDF generated successfully');
       }
-
-      setLoading(false);
-      Alert.alert('Success', 'Excel file downloaded successfully!');
-
     } catch (error) {
-      console.error('Excel Error:', error);
-      setLoading(false);
-      Alert.alert('Error', 'Failed to download Excel');
+      Alert.alert('Error', 'Failed to generate PDF');
     }
   };
 
-  if (!chartData || loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#4CAF50" />
-        <Text style={styles.loadingText}>Loading...</Text>
-      </View>
-    );
-  }
-
-  return (
-    <View style={styles.container}>
-      {/* Compact Header */}
-      <View style={styles.header}>
-        
-      </View>
-
-      {/* Compact Controls */}
-      <View style={styles.controlsRow}>
-        {/* Time View Toggle - Small */}
-        <View style={styles.timeViewContainer}>
-          <TouchableOpacity 
-            style={[styles.timeViewButton, timeView === 'daily' && styles.activeTimeView]}
-            onPress={() => setTimeView('daily')}
-          >
-            <Text style={[styles.timeViewText, timeView === 'daily' && styles.activeTimeViewText]}>
-              Daily
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={[styles.timeViewButton, timeView === 'monthly' && styles.activeTimeView]}
-            onPress={() => setTimeView('monthly')}
-          >
-            <Text style={[styles.timeViewText, timeView === 'monthly' && styles.activeTimeViewText]}>
-              Monthly
-            </Text>
-          </TouchableOpacity>
+  // Rest of your component (GraphCard, return JSX) remains the same...
+  const GraphCard = ({ title, unit, values, avg, max, isAmount }) => (
+    <View style={styles.card}>
+      <View style={styles.cardHeader}>
+        <View style={styles.iconBox}>
+          {isAmount ? <Text style={styles.currIcon}>₹</Text> : <Ionicons name="speedometer-outline" size={18} color="#02569B" />}
         </View>
-
-        {/* Filter Button - Small */}
-        <TouchableOpacity 
-          style={styles.filterButton}
-          onPress={() => setShowFilterModal(true)}
-        >
-          <Text style={styles.filterButtonText}>Filter</Text>
+        <Text style={styles.cardTitle}>{title}</Text>
+        <TouchableOpacity style={styles.filterBadge} onPress={() => setShowFilter(true)}>
+          <Ionicons name="options-outline" size={12} color="white" />
+          <Text style={styles.badgeText}>{timeView === 'daily' ? `${selectedMonth.slice(0,3)} ${selectedYear}` : selectedYear}</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Current Period Display - Small */}
-      <View style={styles.periodDisplay}>
-        <Text style={styles.periodText}>
-          {timeView === 'daily' 
-            ? `${selectedDate} ${selectedMonth} ${selectedYear}`
-            : `${selectedMonth} ${selectedYear}`
-          }
-        </Text>
+      <View style={styles.graphBody}>
+        <View style={styles.yAxis}>
+          <Text style={styles.axisLabel}>{Math.round(parseFloat(max))}</Text>
+          <Text style={styles.axisLabel}>0</Text>
+        </View>
+        
+        <View style={styles.chartSpace}>
+          {timeView === 'daily' ? (
+            <View style={styles.lineGraphContainer}>
+              <View style={[styles.areaShade, { 
+                height: '50%', 
+                backgroundColor: isAmount ? 'rgba(30,136,229,0.1)' : 'rgba(2, 86, 155, 0.1)' 
+              }]} />
+              
+              <View style={styles.horizontalLine} />
+              
+              <View style={styles.pointsRow}>
+                {values.slice(0, 12).map((v, i) => {
+                  const bottomPos = (parseFloat(v) / parseFloat(max)) * 100;
+                  return (
+                    <View key={i} style={styles.dotContainer}>
+                      <View style={[styles.connectingLine, { height: `${bottomPos}%` }]} />
+                      <View style={[styles.dot, { 
+                        bottom: `${bottomPos}%`,
+                        backgroundColor: isAmount ? '#1E88E5' : '#02569B'
+                      }]} />
+                    </View>
+                  );
+                })}
+              </View>
+              <View style={styles.xAxis}>
+                {['01','06','11','16','21','26','31'].slice(0, 5).map(d => 
+                  <Text key={d} style={styles.axisLabel}>{d}</Text>
+                )}
+              </View>
+            </View>
+          ) : (
+            <View style={styles.barGraphContainer}>
+              {values.slice(0, 12).map((v, i) => (
+                <View key={i} style={styles.barCol}>
+                  <View style={[
+                    styles.bar, 
+                    { 
+                      height: `${(parseFloat(v) / parseFloat(max)) * 100}%`,
+                      backgroundColor: isAmount ? '#1E88E5' : '#02569B'
+                    }
+                  ]} />
+                  {i % 2 === 0 && (
+                    <Text style={styles.axisLabel}>
+                      {['Jan','Mar','May','Jul','Sep','Nov'][i/2]}
+                    </Text>
+                  )}
+                </View>
+              ))}
+            </View>
+          )}
+        </View>
       </View>
 
-      {/* Main Content */}
-      <ScrollView 
-        style={styles.scrollView} 
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
-      >
-        
-        {/* Unit Consumption - Compact */}
-        <View style={styles.graphSection}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Unit Consumption</Text>
-            <Text style={styles.sectionSubtitle}>{chartData.dailyUnit.unit}</Text>
-          </View>
-          
-          <View style={styles.valueDisplay}>
-            <Text style={[styles.currentValue, { color: '#4CAF50' }]}>
-              {timeView === 'daily' ? chartData.dailyUnit.currentValue : chartData.monthlyUnit.currentValue}
+      <View style={styles.statsContainer}>
+        <View style={styles.statBox}>
+          <Text style={styles.statTitle}>Average</Text>
+          <Text style={styles.statValBlue}>{avg}</Text>
+          <Text style={styles.statUnit}>{unit}</Text>
+        </View>
+        <View style={styles.vDivider} />
+        <View style={styles.statBox}>
+          <Text style={styles.statTitle}>Maximum</Text>
+          <Text style={styles.statValRed}>{max}</Text>
+          <Text style={styles.statUnit}>{unit}</Text>
+        </View>
+      </View>
+    </View>
+  );
+
+  return (
+    <View style={styles.container}>
+      <View style={styles.topSection}>
+        <View style={styles.actionRow}>
+          <TouchableOpacity style={styles.downloadBtn} onPress={exportPDF}>
+            <Ionicons name="document-text" size={16} color="#02569B" />
+            <Text style={styles.downloadText}>PDF Report</Text>
+          </TouchableOpacity>
+          {/* <TouchableOpacity style={[styles.downloadBtn, styles.excelBtn]} onPress={exportExcel}> */}
+            {/* <Ionicons name="grid" size={16} color="#4CAF50" /> */}
+            {/* <Text style={[styles.downloadText, styles.excelText]}>Excel/CSV</Text> */}
+          {/* </TouchableOpacity> */}
+        </View>
+
+        <View style={styles.tabBar}>
+          <TouchableOpacity 
+            onPress={() => setTimeView('daily')} 
+            style={[styles.tab, timeView === 'daily' && styles.activeTab]}
+          >
+            <Text style={[styles.tabText, timeView === 'daily' && styles.activeTabText]}>
+              Daily View
             </Text>
-          </View>
-
-          {/* Chart */}
-          <View style={styles.chartWrapper}>
-            {timeView === 'daily' 
-              ? renderDailyLineGraph(chartData.dailyUnit)
-              : renderMonthlyBarChart(chartData.monthlyUnit)
-            }
-          </View>
-
-          {/* Stats - Compact */}
-          <View style={styles.statsContainer}>
-            <View style={styles.statItem}>
-              <Text style={styles.statLabel}>Average</Text>
-              <Text style={[styles.statValue, { color: '#4CAF50' }]}>
-                {timeView === 'daily' ? chartData.dailyUnit.avg : chartData.monthlyUnit.avg}
-              </Text>
-            </View>
-            
-            <View style={styles.statDivider} />
-            
-            <View style={styles.statItem}>
-              <Text style={styles.statLabel}>Maximum</Text>
-              <Text style={[styles.statValue, { color: '#2196F3' }]}>
-                {timeView === 'daily' ? chartData.dailyUnit.max : chartData.monthlyUnit.max}
-              </Text>
-            </View>
-          </View>
-        </View>
-
-        {/* Amount Consumption - Compact */}
-        <View style={styles.graphSection}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Amount Consumption</Text>
-            <Text style={styles.sectionSubtitle}>{chartData.dailyAmount.unit}</Text>
-          </View>
-          
-          <View style={styles.valueDisplay}>
-            <Text style={[styles.currentValue, { color: '#2196F3' }]}>
-              {timeView === 'daily' ? chartData.dailyAmount.currentValue : chartData.monthlyAmount.currentValue}
+          </TouchableOpacity>
+          <TouchableOpacity 
+            onPress={() => setTimeView('monthly')} 
+            style={[styles.tab, timeView === 'monthly' && styles.activeTab]}
+          >
+            <Text style={[styles.tabText, timeView === 'monthly' && styles.activeTabText]}>
+              Monthly View
             </Text>
-          </View>
-
-          {/* Chart */}
-          <View style={styles.chartWrapper}>
-            {timeView === 'daily' 
-              ? renderDailyLineGraph(chartData.dailyAmount)
-              : renderMonthlyBarChart(chartData.monthlyAmount)
-            }
-          </View>
-
-          {/* Stats - Compact */}
-          <View style={styles.statsContainer}>
-            <View style={styles.statItem}>
-              <Text style={styles.statLabel}>Average</Text>
-              <Text style={[styles.statValue, { color: '#4CAF50' }]}>
-                {timeView === 'daily' ? chartData.dailyAmount.avg : chartData.monthlyAmount.avg}
-              </Text>
-            </View>
-            
-            <View style={styles.statDivider} />
-            
-            <View style={styles.statItem}>
-              <Text style={styles.statLabel}>Maximum</Text>
-              <Text style={[styles.statValue, { color: '#2196F3' }]}>
-                {timeView === 'daily' ? chartData.dailyAmount.max : chartData.monthlyAmount.max}
-              </Text>
-            </View>
-          </View>
+          </TouchableOpacity>
         </View>
+      </View>
 
-        {/* Download Buttons - Compact */}
-        <View style={styles.downloadContainer}>
-          <Text style={styles.downloadTitle}>Download Reports</Text>
-          <View style={styles.downloadButtons}>
-            <TouchableOpacity style={styles.pdfButton} onPress={downloadPDF}>
-              <Text style={styles.downloadButtonText}>📄 PDF</Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity style={styles.excelButton} onPress={downloadExcel}>
-              <Text style={styles.downloadButtonText}>📊 Excel</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
+      <ScrollView contentContainerStyle={styles.scroll}>
+        <GraphCard 
+          title="Units (kWh)" 
+          unit="kWh" 
+          values={data.unitValues} 
+          avg={data.stats.avgU} 
+          max={data.stats.maxU} 
+        />
+        <GraphCard 
+          title="Bill Amount" 
+          unit="Rs." 
+          values={data.amtValues} 
+          avg={data.stats.avgA} 
+          max={data.stats.maxA} 
+          isAmount={true} 
+        />
+        <View style={styles.spacer} />
       </ScrollView>
 
-     
-
-      {/* Filter Modal */}
-      <Modal
-        visible={showFilterModal}
-        transparent={true}
-        animationType="slide"
-        onRequestClose={() => setShowFilterModal(false)}
-      >
-        <View style={styles.modalOverlay}>
+      <Modal visible={showFilter} transparent animationType="slide">
+        <View style={styles.modalBg}>
           <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Select Filter</Text>
-              <TouchableOpacity 
-                style={styles.modalCloseButton}
-                onPress={() => setShowFilterModal(false)}
-              >
-                <Text style={styles.modalCloseText}>✕</Text>
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView style={styles.modalBody}>
-              {/* View Type */}
-              <View style={styles.modalSection}>
-                <Text style={styles.modalSectionTitle}>View Type</Text>
-                <View style={styles.viewTypeContainer}>
-                  <TouchableOpacity
-                    style={[
-                      styles.viewTypeButton,
-                      timeView === 'daily' && styles.activeViewTypeButton
-                    ]}
-                    onPress={() => setTimeView('daily')}
-                  >
-                    <Text style={[
-                      styles.viewTypeText,
-                      timeView === 'daily' && styles.activeViewTypeText
-                    ]}>
-                      Daily
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[
-                      styles.viewTypeButton,
-                      timeView === 'monthly' && styles.activeViewTypeButton
-                    ]}
-                    onPress={() => setTimeView('monthly')}
-                  >
-                    <Text style={[
-                      styles.viewTypeText,
-                      timeView === 'monthly' && styles.activeViewTypeText
-                    ]}>
-                      Monthly
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-
-              {/* Year Selection - Always shown */}
-              <View style={styles.modalSection}>
-                <Text style={styles.modalSectionTitle}>Year</Text>
-                <View style={styles.yearGrid}>
-                  {years.map((year) => (
-                    <TouchableOpacity
-                      key={year}
-                      style={[
-                        styles.yearButton,
-                        selectedYear === year && styles.selectedYearButton
-                      ]}
-                      onPress={() => setSelectedYear(year)}
-                    >
-                      <Text style={[
-                        styles.yearButtonText,
-                        selectedYear === year && styles.selectedYearButtonText
-                      ]}>
-                        {year}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-
-              {/* Month Selection - Always shown */}
-              <View style={styles.modalSection}>
-                <Text style={styles.modalSectionTitle}>Month</Text>
-                <View style={styles.monthGrid}>
-                  {months.map((month) => (
-                    <TouchableOpacity
-                      key={month}
-                      style={[
-                        styles.monthButton,
-                        selectedMonth === month && styles.selectedMonthButton
-                      ]}
-                      onPress={() => setSelectedMonth(month)}
-                    >
-                      <Text style={[
-                        styles.monthButtonText,
-                        selectedMonth === month && styles.selectedMonthButtonText
-                      ]}>
-                        {month}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-
-              {/* Date Selection - Only for Daily */}
+            <Text style={styles.modalTitle}>Set Filter</Text>
+            <View style={styles.filterBody}>
               {timeView === 'daily' && (
-                <View style={styles.modalSection}>
-                  <Text style={styles.modalSectionTitle}>Date</Text>
-                  <View style={styles.dateGrid}>
-                    {dates.slice(0, 15).map((date) => (
-                      <TouchableOpacity
-                        key={date}
-                        style={[
-                          styles.dateButton,
-                          selectedDate === date && styles.selectedDateButton
-                        ]}
-                        onPress={() => setSelectedDate(date)}
+                <View style={styles.col}>
+                  <Text style={styles.colLabel}>Month</Text>
+                  <ScrollView showsVerticalScrollIndicator={false}>
+                    {months.map(m => (
+                      <TouchableOpacity 
+                        key={m} 
+                        style={[styles.item, selectedMonth === m && styles.itemActive]} 
+                        onPress={() => setSelectedMonth(m)}
                       >
-                        <Text style={[
-                          styles.dateButtonText,
-                          selectedDate === date && styles.selectedDateButtonText
-                        ]}>
-                          {date}
+                        <Text style={[styles.itemTxt, selectedMonth === m && styles.itemTxtActive]}>
+                          {m}
                         </Text>
                       </TouchableOpacity>
                     ))}
-                  </View>
-                  
-                  <View style={styles.dateGrid}>
-                    {dates.slice(15, 31).map((date) => (
-                      <TouchableOpacity
-                        key={date}
-                        style={[
-                          styles.dateButton,
-                          selectedDate === date && styles.selectedDateButton
-                        ]}
-                        onPress={() => setSelectedDate(date)}
-                      >
-                        <Text style={[
-                          styles.dateButtonText,
-                          selectedDate === date && styles.selectedDateButtonText
-                        ]}>
-                          {date}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
+                  </ScrollView>
                 </View>
               )}
-            </ScrollView>
-
-            <View style={styles.modalFooter}>
-              <TouchableOpacity 
-                style={styles.applyButton}
-                onPress={applyFilter}
-              >
-                <Text style={styles.applyButtonText}>Apply Filter</Text>
-              </TouchableOpacity>
+              <View style={styles.col}>
+                <Text style={styles.colLabel}>Year</Text>
+                {years.map(y => (
+                  <TouchableOpacity 
+                    key={y} 
+                    style={[styles.item, selectedYear === y && styles.itemActive]} 
+                    onPress={() => setSelectedYear(y)}
+                  >
+                    <Text style={[styles.itemTxt, selectedYear === y && styles.itemTxtActive]}>
+                      {y}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
             </View>
+            <TouchableOpacity style={styles.done} onPress={() => setShowFilter(false)}>
+              <Text style={styles.doneTxt}>Apply</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -805,510 +379,413 @@ Current Amount,${amountData.currentValue}`;
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F8F9FA',
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#F8F9FA',
-  },
-  loadingText: {
-    marginTop: 10,
-    fontSize: 16,
-    color: '#666',
-  },
-  // Header - Compact
-  
-  headerContent: {
-    alignItems: 'center',
-  },
-  meterId: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: '#FFFFFF',
-    marginBottom: 4,
-  },
-  consumerName: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#FFFFFF',
-    opacity: 0.9,
-  },
-  // Controls - Compact
-  controlsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 15,
-    paddingBottom: 10,
-  },
-  timeViewContainer: {
-    flexDirection: 'row',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 3,
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
+// STYLES
+const colors = {
+  primary: '#02569B',
+  primaryLight: '#E8F4FD',
+  secondary: '#4CAF50',
+  danger: '#D32F2F',
+  warning: '#FF9800',
+  background: '#F8F9FA',
+  white: '#FFFFFF',
+  gray100: '#F5F7FA',
+  gray200: '#E9ECEF',
+  gray300: '#DDDDDD',
+  gray400: '#AAAAAA',
+  gray500: '#666666',
+  gray600: '#444444',
+  black: '#333333',
+};
+
+const typography = {
+  h1: { fontSize: 24, fontWeight: '700' },
+  h2: { fontSize: 18, fontWeight: '600' },
+  h3: { fontSize: 16, fontWeight: '600' },
+  body: { fontSize: 14, fontWeight: '400' },
+  small: { fontSize: 12, fontWeight: '400' },
+  tiny: { fontSize: 10, fontWeight: '400' },
+};
+
+const spacing = {
+  xs: 4,
+  sm: 8,
+  md: 12,
+  lg: 16,
+  xl: 20,
+  xxl: 24,
+  xxxl: 32,
+};
+
+const borderRadius = {
+  sm: 6,
+  md: 8,
+  lg: 12,
+  xl: 16,
+  round: 20,
+};
+
+const shadows = {
+  sm: {
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.05,
     shadowRadius: 2,
     elevation: 2,
   },
-  timeViewButton: {
-    paddingHorizontal: 20,
-    paddingVertical: 8,
-    borderRadius: 17,
+  md: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
-  activeTimeView: {
-    backgroundColor: '#1E88E5',
+  lg: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 5,
   },
-  timeViewText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#666',
-  },
-  activeTimeViewText: {
-    color: '#FFFFFF',
-  },
-  filterButton: {
-    backgroundColor: '#4CAF50',
-    paddingHorizontal: 20,
-    paddingVertical: 8,
-    borderRadius: 17,
-    elevation: 2,
-  },
-  filterButtonText: {
-    color: '#FFFFFF',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  // Period Display
-  periodDisplay: {
-    alignItems: 'center',
-    paddingVertical: 8,
-    backgroundColor: '#FFFFFF',
-    marginHorizontal: 20,
-    marginBottom: 10,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-    elevation: 1,
-  },
-  periodText: {
-    fontSize: 14,
-    fontWeight: '00',
-    color: '#333',
-  },
-  // Scroll View
-  scrollView: {
+};
+
+const styles = StyleSheet.create({
+  // Layout
+  container: {
     flex: 1,
+    backgroundColor: colors.background,
   },
-  scrollContent: {
-    paddingHorizontal: 15,
-    paddingBottom: 80,
+  topSection: {
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.xxxl,
+    paddingBottom: spacing.lg,
+    backgroundColor: colors.white,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.gray200,
+    ...shadows.sm,
   },
-  // Graph Section - Compact
-  graphSection: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 15,
-    marginTop: 10,
-    marginBottom: 10,
+  scroll: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.xxxl,
+    paddingTop: spacing.md,
+  },
+  spacer: {
+    height: spacing.xxxl,
+  },
+
+  // Action Buttons
+  actionRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: spacing.md,
+    marginBottom: spacing.lg,
+  },
+  downloadBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    backgroundColor: colors.white,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: borderRadius.md,
     borderWidth: 1,
-    borderColor: '#E0E0E0',
-    elevation: 2,
-    width: '100%',
+    borderColor: colors.gray200,
+    ...shadows.sm,
   },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 10,
-    
+  excelBtn: {
+    borderColor: '#C8E6C9',
+    backgroundColor: '#F1F8E9',
   },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#333',
-  },
-  sectionSubtitle: {
-    fontSize: 12,
-    color: '#666',
+  downloadText: {
+    ...typography.small,
     fontWeight: '600',
-    backgroundColor: '#F5F5F5',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 10,
-    
+    color: colors.primary,
   },
-  valueDisplay: {
-    alignItems: 'center',
-    marginBottom: 15,
-    
+  excelText: {
+    color: colors.secondary,
   },
-  currentValue: {
-    fontSize: 36,
-    fontWeight: '900',
-    textAlign: 'center',
-    
-  },
-  chartWrapper: {
-    alignItems: 'center',
-    marginBottom: 15,
-    marginLeft: -20,
-  },
-  // Chart Styles - Compact
-  chartContainer: {
+
+  // Tabs
+  tabBar: {
     flexDirection: 'row',
-    height: 130,
-    width: '100%',
+    backgroundColor: colors.gray200,
+    borderRadius: borderRadius.lg,
+    padding: spacing.xs,
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: spacing.md,
+    alignItems: 'center',
+    borderRadius: borderRadius.md,
+  },
+  activeTab: {
+    backgroundColor: colors.white,
+    ...shadows.sm,
+  },
+  tabText: {
+    ...typography.small,
+    fontWeight: '600',
+    color: colors.gray500,
+  },
+  activeTabText: {
+    color: colors.primary,
+  },
+
+  // Cards
+  card: {
+    backgroundColor: colors.white,
+    borderRadius: borderRadius.xl,
+    padding: spacing.xl,
+    marginBottom: spacing.lg,
+    ...shadows.md,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: spacing.lg,
+  },
+  iconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: borderRadius.md,
+    backgroundColor: colors.primaryLight,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: spacing.md,
+  },
+  currIcon: {
+    color: colors.primary,
+    fontWeight: '700',
+    fontSize: 16,
+  },
+  cardTitle: {
+    flex: 1,
+    ...typography.h3,
+    color: colors.black,
+  },
+  filterBadge: {
+    backgroundColor: colors.primary,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: borderRadius.sm,
+    gap: spacing.xs,
+  },
+  badgeText: {
+    color: colors.white,
+    ...typography.tiny,
+    fontWeight: '600',
+  },
+
+  // Graph Components
+  graphBody: {
+    height: 180,
+    flexDirection: 'row',
+    marginBottom: spacing.xl,
   },
   yAxis: {
-    width: 25,
     justifyContent: 'space-between',
+    paddingRight: spacing.sm,
     alignItems: 'flex-end',
-    paddingRight: 5,
-    paddingBottom: 25,
   },
-  yAxisText: {
-    fontSize: 9,
-    color: '#666',
+  chartSpace: {
+    flex: 1,
+    borderLeftWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: colors.gray300,
+    position: 'relative',
+  },
+  axisLabel: {
+    ...typography.tiny,
+    color: colors.gray400,
     fontWeight: '500',
   },
-  chartArea: {
+
+  // Line Graph
+  lineGraphContainer: {
+    flex: 1,
     position: 'relative',
-    marginLeft: 5,
-    overflow: 'hidden',
   },
-  gridLine: {
+  areaShade: {
     position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+  },
+  horizontalLine: {
+    position: 'absolute',
+    top: '50%',
     left: 0,
     right: 0,
     height: 1,
-    backgroundColor: '#F0F0F0',
+    backgroundColor: colors.gray200,
   },
-  lineContainer: {
-    position: 'absolute',
-    top: 5,
-    left: 0,
-  },
-  graphPoint: {
-    position: 'absolute',
-    borderRadius: 4,
-    borderWidth: 1.5,
-    borderColor: '#FFFFFF',
-    elevation: 2,
-  },
-  xAxis: {
-    position: 'absolute',
-    flexDirection: 'row',
-  },
-  xAxisText: {
-    position: 'absolute',
-    color: '#666',
-    fontWeight: '500',
-    minWidth: 15,
-    textAlign: 'center',
-  },
-  barsContainer: {
-    position: 'absolute',
-    top: 5,
-    left: 0,
-  },
-  barColumn: {
-    position: 'absolute',
-    alignItems: 'center',
-    bottom: 0,
-  },
-  bar: {
-    borderTopLeftRadius: 2,
-    borderTopRightRadius: 2,
-  },
-  barLabel: {
-    position: 'absolute',
-    color: '#666',
-    fontWeight: '500',
-  },
-  // Stats - Compact
-  statsContainer: {
+  pointsRow: {
+    flex: 1,
     flexDirection: 'row',
     justifyContent: 'space-around',
+    alignItems: 'flex-end',
+    paddingHorizontal: spacing.sm,
+  },
+  dotContainer: {
+    width: 18,
+    height: '100%',
     alignItems: 'center',
-    backgroundColor: '#F8F9FF',
-    borderRadius: 10,
-    padding: 12,
-    marginTop: 5,
+    position: 'relative',
   },
-  statItem: {
-    alignItems: 'center',
-    flex: 1,
-  },
-  statLabel: {
-    fontSize: 12,
-    color: '#666',
-    fontWeight: '500',
-    marginBottom: 4,
-  },
-  statValue: {
-    fontSize: 18,
-    fontWeight: '800',
-  },
-  statDivider: {
-    width: 1,
-    height: 30,
-    backgroundColor: '#E0E0E0',
-  },
-  // Download Section - Compact
-  downloadContainer: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 15,
-    marginTop: 10,
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-    elevation: 2,
-  },
-  downloadTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#333',
-    marginBottom: 15,
-    textAlign: 'center',
-  },
-  downloadButtons: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 10,
-  },
-  pdfButton: {
-    flex: 1,
-    backgroundColor: '#F44336',
-    paddingVertical: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-    elevation: 2,
-  },
-  excelButton: {
-    flex: 1,
-    backgroundColor: '#4CAF50',
-    paddingVertical: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-    elevation: 2,
-  },
-  downloadButtonText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  // Bottom Navigation - Compact
-  bottomNav: {
+  connectingLine: {
+    width: 1.5,
+    backgroundColor: 'rgba(2, 86, 155, 0.2)',
     position: 'absolute',
     bottom: 0,
-    left: 0,
-    right: 0,
-    flexDirection: 'row',
-    backgroundColor: '#FFFFFF',
-    borderTopWidth: 1,
-    borderTopColor: '#E0E0E0',
-    paddingVertical: 8,
-    paddingHorizontal: 5,
-    elevation: 5,
   },
-  navItem: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: 4,
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    position: 'absolute',
+    zIndex: 10,
   },
-  navIcon: {
-    fontSize: 18,
-    marginBottom: 2,
-    color: '#9E9E9E',
-  },
-  navText: {
-    fontSize: 10,
-    color: '#9E9E9E',
-    fontWeight: '500',
-  },
-  activeNavIcon: {
-    color: '#1E88E5',
-  },
-  activeNavText: {
-    color: '#1E88E5',
-    fontWeight: '700',
-  },
-  // Modal Styles - Compact
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
-  },
-  modalContent: {
-    backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    maxHeight: '80%',
-    paddingBottom: 20,
-  },
-  modalHeader: {
+  xAxis: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    position: 'absolute',
+    bottom: -20,
+    left: spacing.sm,
+    right: spacing.sm,
+  },
+
+  // Bar Graph
+  barGraphContainer: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.xs,
+  },
+  barCol: {
     alignItems: 'center',
-    padding: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F0F0F0',
+    flex: 1,
+    height: '100%',
+    justifyContent: 'flex-end',
+  },
+  bar: {
+    width: 14,
+    borderTopLeftRadius: borderRadius.xs,
+    borderTopRightRadius: borderRadius.xs,
+    marginBottom: spacing.xs,
+  },
+
+  // Statistics
+  statsContainer: {
+    flexDirection: 'row',
+    backgroundColor: colors.gray100,
+    borderRadius: borderRadius.lg,
+    padding: spacing.lg,
+    borderWidth: 1,
+    borderColor: colors.gray200,
+  },
+  statBox: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: spacing.xs,
+  },
+  statTitle: {
+    ...typography.tiny,
+    color: colors.gray500,
+    marginBottom: spacing.xs,
+    fontWeight: '500',
+  },
+  statValBlue: {
+    ...typography.h2,
+    fontWeight: '700',
+    color: colors.primary,
+    marginBottom: spacing.xs,
+  },
+  statValRed: {
+    ...typography.h2,
+    fontWeight: '700',
+    color: colors.danger,
+    marginBottom: spacing.xs,
+  },
+  statUnit: {
+    ...typography.tiny,
+    color: colors.gray400,
+    fontWeight: '500',
+  },
+  vDivider: {
+    width: 1,
+    backgroundColor: colors.gray300,
+    marginHorizontal: spacing.md,
+  },
+
+  // Modal
+  modalBg: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    padding: spacing.xl,
+  },
+  modalContent: {
+    backgroundColor: colors.white,
+    borderRadius: borderRadius.round,
+    padding: spacing.xl,
+    maxHeight: '60%',
+    ...shadows.lg,
   },
   modalTitle: {
-    fontSize: 20,
+    ...typography.h2,
     fontWeight: '700',
-    color: '#333',
+    marginBottom: spacing.lg,
+    textAlign: 'center',
+    color: colors.primary,
   },
-  modalCloseButton: {
-    padding: 5,
-  },
-  modalCloseText: {
-    fontSize: 20,
-    color: '#666',
-  },
-  modalBody: {
-    paddingHorizontal: 15,
-  },
-  modalSection: {
-    marginBottom: 20,
-  },
-  modalSectionTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 10,
-  },
-  viewTypeContainer: {
+  filterBody: {
     flexDirection: 'row',
-    backgroundColor: '#F5F5F5',
-    borderRadius: 10,
-    padding: 3,
+    gap: spacing.lg,
+    marginBottom: spacing.xl,
   },
-  viewTypeButton: {
+  col: {
     flex: 1,
-    paddingVertical: 10,
-    alignItems: 'center',
-    borderRadius: 8,
   },
-  activeViewTypeButton: {
-    backgroundColor: '#FFFFFF',
-    elevation: 2,
-  },
-  viewTypeText: {
-    fontSize: 14,
+  colLabel: {
     fontWeight: '600',
-    color: '#666',
+    color: colors.gray500,
+    ...typography.small,
+    marginBottom: spacing.md,
   },
-  activeViewTypeText: {
-    color: '#1E88E5',
+  item: {
+    padding: spacing.md,
+    borderRadius: borderRadius.md,
+    backgroundColor: colors.gray100,
+    marginBottom: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.gray200,
+  },
+  itemActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  itemTxt: {
+    ...typography.small,
+    color: colors.gray600,
+    fontWeight: '500',
+    textAlign: 'center',
+  },
+  itemTxtActive: {
+    color: colors.white,
+    fontWeight: '600',
+  },
+  done: {
+    backgroundColor: colors.primary,
+    padding: spacing.lg,
+    borderRadius: borderRadius.lg,
+    alignItems: 'center',
+    ...shadows.md,
+  },
+  doneTxt: {
+    color: colors.white,
     fontWeight: '700',
-  },
-  yearGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  yearButton: {
-    flex: 1,
-    minWidth: '22%',
-    padding: 12,
-    backgroundColor: '#F5F5F5',
-    borderRadius: 8,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-  },
-  selectedYearButton: {
-    backgroundColor: '#1E88E5',
-    borderColor: '#1E88E5',
-  },
-  yearButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#666',
-  },
-  selectedYearButtonText: {
-    color: '#FFFFFF',
-  },
-  monthGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-  },
-  monthButton: {
-    flex: 1,
-    minWidth: '22%',
-    padding: 10,
-    backgroundColor: '#F5F5F5',
-    borderRadius: 8,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-  },
-  selectedMonthButton: {
-    backgroundColor: '#4CAF50',
-    borderColor: '#4CAF50',
-  },
-  monthButtonText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#666',
-  },
-  selectedMonthButtonText: {
-    color: '#FFFFFF',
-  },
-  dateGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-    marginBottom: 6,
-  },
-  dateButton: {
-    width: '13%',
-    aspectRatio: 1,
-    backgroundColor: '#F5F5F5',
-    borderRadius: 6,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-  },
-  selectedDateButton: {
-    backgroundColor: '#FF9800',
-    borderColor: '#FF9800',
-  },
-  dateButtonText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#666',
-  },
-  selectedDateButtonText: {
-    color: '#FFFFFF',
-  },
-  modalFooter: {
-    paddingHorizontal: 15,
-    paddingTop: 10,
-  },
-  applyButton: {
-    backgroundColor: '#1E88E5',
-    paddingVertical: 14,
-    borderRadius: 10,
-    alignItems: 'center',
-    elevation: 3,
-  },
-  applyButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '700',
+    ...typography.body,
   },
 });

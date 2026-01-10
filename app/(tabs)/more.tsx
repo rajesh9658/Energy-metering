@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ScrollView,
   StyleSheet,
@@ -6,286 +6,1040 @@ import {
   Text,
   TouchableOpacity,
   View,
+  Dimensions,
+  ActivityIndicator,
+  RefreshControl
 } from 'react-native';
+import { Ionicons, MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
+import axios from 'axios';
+import { getSiteDataUrl } from '../config';
+
+const { width } = Dimensions.get('window');
 
 export default function MoreScreen() {
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [darkModeEnabled, setDarkModeEnabled] = useState(false);
+  const [siteData, setSiteData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   const menuItems = [
-    { title: 'Profile Settings', icon: '👤', description: 'Manage your profile' },
-    { title: 'Notification Settings', icon: '🔔', description: 'Configure alerts' },
-    { title: 'Billing Information', icon: '💳', description: 'Payment methods' },
-    { title: 'Usage History', icon: '📊', description: 'Past consumption' },
-    { title: 'Device Management', icon: '🔧', description: 'Manage meters' },
-    { title: 'Support & Help', icon: '🆘', description: 'Get assistance' },
-    { title: 'About App', icon: 'ℹ️', description: 'Version & info' },
-    { title: 'Logout', icon: '🚪', description: 'Sign out', color: '#ff4444' },
+    { 
+      title: 'Profile', 
+      icon: '👤', 
+      description: 'Manage profile' 
+    },
+    { 
+      title: 'Notifications', 
+      icon: '🔔', 
+      description: 'Alert settings' 
+    },
+    { 
+      title: 'Devices', 
+      icon: '🔧', 
+      description: 'Manage meters' 
+    },
+    { 
+      title: 'Support', 
+      icon: '🆘', 
+      description: 'Help center' 
+    },
+    { 
+      title: 'About', 
+      icon: 'ℹ️', 
+      description: 'App info' 
+    },
   ];
 
-  return (
-    <ScrollView style={styles.scrollView}>
-      
+  useEffect(() => {
+    fetchSiteData();
+  }, []);
 
-      <View style={styles.content}>
-        {/* User Profile Section */}
-        <View style={styles.profileCard}>
-          <View style={styles.profileAvatar}>
-            <Text style={styles.avatarText}>SD</Text>
+  const fetchSiteData = async () => {
+    try {
+      const response = await axios.get(getSiteDataUrl("neelkanth-1"));
+      if (response.data && response.data.success) {
+        setSiteData(response.data);
+      }
+    } catch (err) {
+      console.error("Error fetching site data:", err);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    fetchSiteData();
+  };
+
+  const getConnectionStatus = () => {
+    if (!siteData) return 'UNKNOWN';
+    const relayStatus = siteData?.asset_information?.site_values?.relay_status;
+    return relayStatus !== undefined ? 
+      (relayStatus ? 'CONNECTED' : 'DISCONNECTED') : 'UNKNOWN';
+  };
+
+  const renderAPIDataTile = () => {
+    if (!siteData || !siteData.asset_information) {
+      return (
+        <View style={styles.errorContainer}>
+          <Ionicons name="alert-circle-outline" size={50} color="#6b7280" />
+          <Text style={styles.errorText}>No data available</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={fetchSiteData}>
+            <Ionicons name="refresh" size={18} color="#fff" />
+            <Text style={styles.retryButtonText}> Try Again</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+
+    const { asset_information } = siteData;
+    const electricParams = asset_information.electric_parameters || {};
+    const siteValues = asset_information.site_values || {};
+    const connectionStatus = getConnectionStatus();
+    const isConnected = connectionStatus === 'CONNECTED';
+
+    return (
+      <View style={styles.contentContainer}>
+        {/* Site Header */}
+        <View style={styles.siteHeader}>
+          <View style={styles.siteHeaderLeft}>
+            <View style={styles.siteIcon}>
+              <FontAwesome5 name="building" size={24} color="#0b63a8" />
+            </View>
+            <View>
+              <Text style={styles.siteName}>{asset_information.site_name || 'Site Name'}</Text>
+              <View style={styles.siteLocation}>
+                <Ionicons name="location-outline" size={14} color="#6b7280" />
+                <Text style={styles.locationText}> {asset_information.location || 'Location'}</Text>
+              </View>
+            </View>
           </View>
-          <View style={styles.profileInfo}>
-            <Text style={styles.profileName}>Sanjay Gupta</Text>
-            <Text style={styles.profileMeter}>Meter: #B-0001</Text>
-            <Text style={styles.profileEmail}>customer@example.com</Text>
+          <View style={[styles.statusBadge, isConnected ? styles.connected : styles.disconnected]}>
+            <View style={[styles.statusDot, isConnected ? styles.dotConnected : styles.dotDisconnected]} />
+            <Text style={styles.statusText}>{isConnected ? 'Connected' : 'Disconnected'}</Text>
           </View>
         </View>
 
-        {/* Settings Section */}
-        <Text style={styles.sectionTitle}>Settings</Text>
-        
-        <View style={styles.settingsCard}>
-          <View style={styles.settingItem}>
-            <View style={styles.settingLeft}>
-              <Text style={styles.settingIcon}>🔔</Text>
-              <View>
-                <Text style={styles.settingTitle}>Push Notifications</Text>
-                <Text style={styles.settingDescription}>Receive alerts and updates</Text>
+        {/* Key Metrics */}
+        <View style={styles.keyMetricsContainer}>
+          <Text style={styles.sectionHeaderText}>Key Metrics</Text>
+          
+          <View style={styles.metricsGrid}>
+            <View style={[styles.metricCard, styles.gridCard]}>
+              <View style={styles.metricHeader}>
+                <Ionicons name="flash-outline" size={20} color="#10b981" />
+                <Text style={styles.metricLabel}>Grid Load</Text>
               </View>
+              <Text style={styles.metricValue}>{asset_information.grid_kw || 0} kW</Text>
             </View>
-            <Switch
-              value={notificationsEnabled}
-              onValueChange={setNotificationsEnabled}
-              trackColor={{ false: '#767577', true: '#81c784' }}
-              thumbColor={notificationsEnabled ? '#2e7d32' : '#f4f3f4'}
-            />
-          </View>
-
-          <View style={styles.settingDivider} />
-
-          <View style={styles.settingItem}>
-            <View style={styles.settingLeft}>
-              <Text style={styles.settingIcon}>🌙</Text>
-              <View>
-                <Text style={styles.settingTitle}>Dark Mode</Text>
-                <Text style={styles.settingDescription}>Switch to dark theme</Text>
+            
+            <View style={[styles.metricCard, styles.dgCard]}>
+              <View style={styles.metricHeader}>
+                <Ionicons name="flash-outline" size={20} color="#f59e0b" />
+                <Text style={styles.metricLabel}>DG Load</Text>
               </View>
+              <Text style={styles.metricValue}>{asset_information.dg_kw || 0} kW</Text>
             </View>
-            <Switch
-              value={darkModeEnabled}
-              onValueChange={setDarkModeEnabled}
-              trackColor={{ false: '#767577', true: '#81c784' }}
-              thumbColor={darkModeEnabled ? '#2e7d32' : '#f4f3f4'}
-            />
+            
+            <View style={[styles.metricCard, styles.balanceCard]}>
+              <View style={styles.metricHeader}>
+                <Ionicons name="wallet-outline" size={20} color="#0b63a8" />
+                <Text style={styles.metricLabel}>Grid Balance</Text>
+              </View>
+              <Text style={styles.metricValue}>₹{electricParams.balance || 0}</Text>
+            </View>
+            
+            <View style={[styles.metricCard, styles.powerCard]}>
+              <View style={styles.metricHeader}>
+                <Ionicons name="battery-charging-outline" size={20} color="#8b5cf6" />
+                <Text style={styles.metricLabel}>Active Power</Text>
+              </View>
+              <Text style={styles.metricValue}>{electricParams.active_power_kw?.toFixed(2) || '0.00'} kW</Text>
+            </View>
           </View>
         </View>
 
-        {/* Menu Items */}
-        <Text style={styles.sectionTitle}>Menu</Text>
-        
-        <View style={styles.menuGrid}>
-          {menuItems.map((item, index) => (
-            <TouchableOpacity 
-              key={index} 
-              style={[
-                styles.menuCard,
-                item.color && { borderColor: item.color, borderWidth: 1 }
-              ]}
-            >
-              <Text style={styles.menuIcon}>{item.icon}</Text>
-              <Text style={[
-                styles.menuTitle,
-                item.color && { color: item.color }
-              ]}>
-                {item.title}
+        {/* Electric Parameters */}
+        <View style={styles.parametersContainer}>
+          <Text style={styles.sectionHeaderText}>Electric Parameters</Text>
+          
+          <View style={styles.parametersRow}>
+            <View style={styles.parameterItem}>
+              <Text style={styles.parameterLabel}>Power Factor</Text>
+              <Text style={styles.parameterValue}>{electricParams.power_factor?.toFixed(2) || '0.00'}</Text>
+            </View>
+            
+            <View style={styles.parameterDivider} />
+            
+            <View style={styles.parameterItem}>
+              <Text style={styles.parameterLabel}>Total kVAh</Text>
+              <Text style={styles.parameterValue}>{electricParams.total_kvah?.toFixed(2) || '0.00'}</Text>
+            </View>
+            
+            <View style={styles.parameterDivider} />
+            
+            <View style={styles.parameterItem}>
+              <Text style={styles.parameterLabel}>Grid Unit</Text>
+              <Text style={styles.parameterValue}>{electricParams.unit?.toFixed(2) || '0.00'} kWh</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Voltage & Current */}
+        <View style={styles.voltageCurrentContainer}>
+          <View style={styles.vcSection}>
+            <View style={styles.vcHeader}>
+              <MaterialIcons name="offline-bolt" size={20} color="#0b63a8" />
+              <Text style={styles.vcTitle}>Voltage (L-L)</Text>
+            </View>
+            
+            <View style={styles.vcGrid}>
+              <View style={styles.vcItem}>
+                <Text style={styles.vcLabel}>Phase R</Text>
+                <Text style={styles.vcValue}>{electricParams.voltage_l_l?.r?.toFixed(1) || '0.0'} V</Text>
+              </View>
+              
+              <View style={styles.vcItem}>
+                <Text style={styles.vcLabel}>Phase Y</Text>
+                <Text style={styles.vcValue}>{electricParams.voltage_l_l?.y?.toFixed(1) || '0.0'} V</Text>
+              </View>
+              
+              <View style={styles.vcItem}>
+                <Text style={styles.vcLabel}>Phase B</Text>
+                <Text style={styles.vcValue}>{electricParams.voltage_l_l?.b?.toFixed(1) || '0.0'} V</Text>
+              </View>
+            </View>
+          </View>
+          
+          <View style={styles.vcDivider} />
+          
+          <View style={styles.vcSection}>
+            <View style={styles.vcHeader}>
+              <MaterialIcons name="power" size={20} color="#0b63a8" />
+              <Text style={styles.vcTitle}>Current</Text>
+            </View>
+            
+            <View style={styles.vcGrid}>
+              <View style={styles.vcItem}>
+                <Text style={styles.vcLabel}>Phase R</Text>
+                <Text style={styles.vcValue}>{electricParams.current?.r?.toFixed(3) || '0.000'} A</Text>
+              </View>
+              
+              <View style={styles.vcItem}>
+                <Text style={styles.vcLabel}>Phase Y</Text>
+                <Text style={styles.vcValue}>{electricParams.current?.y?.toFixed(3) || '0.000'} A</Text>
+              </View>
+              
+              <View style={styles.vcItem}>
+                <Text style={styles.vcLabel}>Phase B</Text>
+                <Text style={styles.vcValue}>{electricParams.current?.b?.toFixed(3) || '0.000'} A</Text>
+              </View>
+            </View>
+          </View>
+        </View>
+
+        {/* Charges Information */}
+        <View style={styles.chargesContainer}>
+          <Text style={styles.sectionHeaderText}>Charges</Text>
+          
+          <View style={styles.chargesGrid}>
+            <View style={styles.chargeCard}>
+              <View style={styles.chargeIcon}>
+                <Ionicons name="receipt-outline" size={18} color="#0b63a8" />
+              </View>
+              <View style={styles.chargeContent}>
+                <Text style={styles.chargeLabel}>Meter Unit Charge</Text>
+                <Text style={styles.chargeValue}>₹{asset_information.m_unit_charge?.toFixed(2) || '0.00'}</Text>
+              </View>
+            </View>
+            
+            <View style={styles.chargeCard}>
+              <View style={styles.chargeIcon}>
+                <Ionicons name="calendar-outline" size={18} color="#0b63a8" />
+              </View>
+              <View style={styles.chargeContent}>
+                <Text style={styles.chargeLabel}>Meter Fixed Charge</Text>
+                <Text style={styles.chargeValue}>₹{asset_information.m_fixed_charge?.toFixed(2) || '0.00'}</Text>
+              </View>
+            </View>
+            
+            <View style={styles.chargeCard}>
+              <View style={styles.chargeIcon}>
+                <Ionicons name="flash-outline" size={18} color="#f59e0b" />
+              </View>
+              <View style={styles.chargeContent}>
+                <Text style={styles.chargeLabel}>DG Unit Charge</Text>
+                <Text style={styles.chargeValue}>₹{asset_information.dg_unit_charge?.toFixed(2) || '0.00'}</Text>
+              </View>
+            </View>
+            
+            <View style={styles.chargeCard}>
+              <View style={styles.chargeIcon}>
+                <Ionicons name="time-outline" size={18} color="#f59e0b" />
+              </View>
+              <View style={styles.chargeContent}>
+                <Text style={styles.chargeLabel}>DG Fixed Charge</Text>
+                <Text style={styles.chargeValue}>₹{asset_information.dg_fixed_charge?.toFixed(2) || '0.00'}</Text>
+              </View>
+            </View>
+          </View>
+        </View>
+
+        {/* Site Status */}
+        <View style={styles.statusContainer}>
+          <Text style={styles.sectionHeaderText}>Site Status</Text>
+          
+          <View style={styles.statusGrid}>
+            <View style={[styles.statusCard, !siteValues.low_balance_cut && styles.statusOk]}>
+              <MaterialIcons 
+                name={siteValues.low_balance_cut ? "warning" : "check-circle"} 
+                size={20} 
+                color={siteValues.low_balance_cut ? "#ef4444" : "#10b981"} 
+              />
+              <Text style={styles.statusTextSmall}>Low Balance</Text>
+              <Text style={[styles.statusValueSmall, siteValues.low_balance_cut && styles.statusError]}>
+                {siteValues.low_balance_cut ? 'Cut' : 'Normal'}
               </Text>
-              <Text style={styles.menuDescription}>{item.description}</Text>
-            </TouchableOpacity>
-          ))}
+            </View>
+            
+            <View style={[styles.statusCard, !siteValues.dg_overload_trip && styles.statusOk]}>
+              <Ionicons 
+                name={siteValues.dg_overload_trip ? "alert-circle-outline" : "checkmark-circle-outline"} 
+                size={20} 
+                color={siteValues.dg_overload_trip ? "#ef4444" : "#10b981"} 
+              />
+              <Text style={styles.statusTextSmall}>DG Overload</Text>
+              <Text style={[styles.statusValueSmall, siteValues.dg_overload_trip && styles.statusError]}>
+                {siteValues.dg_overload_trip ? 'Tripped' : 'Normal'}
+              </Text>
+            </View>
+            
+            <View style={[styles.statusCard, !siteValues.overload_limit_reached && styles.statusOk]}>
+              <MaterialIcons 
+                name={siteValues.overload_limit_reached ? "error-outline" : "done-outline"} 
+                size={20} 
+                color={siteValues.overload_limit_reached ? "#ef4444" : "#10b981"} 
+              />
+              <Text style={styles.statusTextSmall}>Overload Limit</Text>
+              <Text style={[styles.statusValueSmall, siteValues.overload_limit_reached && styles.statusError]}>
+                {siteValues.overload_limit_reached ? 'Reached' : 'Normal'}
+              </Text>
+            </View>
+            
+            <View style={[styles.statusCard, !siteValues.force_off && styles.statusOk]}>
+              <MaterialIcons 
+                name={siteValues.force_off ? "power-off" : "power-settings-new"} 
+                size={20} 
+                color={siteValues.force_off ? "#ef4444" : "#10b981"} 
+              />
+              <Text style={styles.statusTextSmall}>Supply</Text>
+              <Text style={[styles.statusValueSmall, siteValues.force_off && styles.statusError]}>
+                {siteValues.force_off ? 'Force Off' : 'Normal'}
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Meter Information */}
+        <View style={styles.meterContainer}>
+          <Text style={styles.sectionHeaderText}>Meter Details</Text>
+          
+          <View style={styles.meterCard}>
+            <View style={styles.meterRow}>
+              <View style={styles.meterIcon}>
+                <Ionicons name="hardware-chip-outline" size={18} color="#6b7280" />
+              </View>
+              <View style={styles.meterContent}>
+                <Text style={styles.meterLabel}>Meter Name</Text>
+                <Text style={styles.meterValue}>{asset_information.meter_name || 'N/A'}</Text>
+              </View>
+            </View>
+            
+            <View style={styles.divider} />
+            
+            <View style={styles.meterRow}>
+              <View style={styles.meterIcon}>
+                <MaterialIcons name="developer-board" size={18} color="#6b7280" />
+              </View>
+              <View style={styles.meterContent}>
+                <Text style={styles.meterLabel}>Controller</Text>
+                <Text style={styles.meterValue}>{asset_information.controller || 'N/A'}</Text>
+              </View>
+            </View>
+            
+            <View style={styles.divider} />
+            
+            <View style={styles.meterRow}>
+              <View style={styles.meterIcon}>
+                <Ionicons name="person-circle-outline" size={18} color="#6b7280" />
+              </View>
+              <View style={styles.meterContent}>
+                <Text style={styles.meterLabel}>Custom Name</Text>
+                <Text style={styles.meterValue}>{asset_information.custom_name || 'N/A'}</Text>
+              </View>
+            </View>
+          </View>
+        </View>
+      </View>
+    );
+  };
+
+  if (loading && !refreshing) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#0b63a8" />
+        <Text style={styles.loadingText}>Loading site information...</Text>
+      </View>
+    );
+  }
+
+  return (
+    <ScrollView 
+      style={styles.container}
+      showsVerticalScrollIndicator={false}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          colors={['#0b63a8']}
+          tintColor="#0b63a8"
+        />
+      }
+    >
+      {/* Page Header */}
+      <View style={styles.pageHeader}>
+        <Text style={styles.pageTitle}>Site Details</Text>
+        <TouchableOpacity style={styles.refreshBtn} onPress={onRefresh}>
+          <Ionicons name="refresh-outline" size={22} color="#0b63a8" />
+        </TouchableOpacity>
+      </View>
+
+      {/* Main Content */}
+      <View style={styles.mainContent}>
+        {renderAPIDataTile()}
+        
+        {/* Settings */}
+        <View style={styles.settingsSection}>
+          <Text style={styles.sectionTitle}>Settings</Text>
+          
+          <View style={styles.settingsCard}>
+            <View style={styles.settingItem}>
+              <View style={styles.settingLeft}>
+                <View style={styles.settingIconContainer}>
+                  <Ionicons name="notifications-outline" size={22} color="#0b63a8" />
+                </View>
+                <View>
+                  <Text style={styles.settingTitle}>Notifications</Text>
+                  <Text style={styles.settingDesc}>Receive alerts and updates</Text>
+                </View>
+              </View>
+              <Switch
+                value={notificationsEnabled}
+                onValueChange={setNotificationsEnabled}
+                trackColor={{ false: '#d1d5db', true: '#a7f3d0' }}
+                thumbColor={notificationsEnabled ? '#10b981' : '#9ca3af'}
+              />
+            </View>
+            
+            <View style={styles.horizontalDivider} />
+            
+            <View style={styles.settingItem}>
+              <View style={styles.settingLeft}>
+                <View style={styles.settingIconContainer}>
+                  <Ionicons name="moon-outline" size={22} color="#0b63a8" />
+                </View>
+                <View>
+                  <Text style={styles.settingTitle}>Dark Mode</Text>
+                  <Text style={styles.settingDesc}>Switch to dark theme</Text>
+                </View>
+              </View>
+              <Switch
+                value={darkModeEnabled}
+                onValueChange={setDarkModeEnabled}
+                trackColor={{ false: '#d1d5db', true: '#a7f3d0' }}
+                thumbColor={darkModeEnabled ? '#10b981' : '#9ca3af'}
+              />
+            </View>
+          </View>
+        </View>
+
+        {/* Quick Menu */}
+        <View style={styles.menuSection}>
+          <Text style={styles.sectionTitle}>Quick Menu</Text>
+          
+          <View style={styles.menuGrid}>
+            {menuItems.map((item, index) => (
+              <TouchableOpacity key={index} style={styles.menuItem}>
+                <View style={styles.menuIconBox}>
+                  <Text style={styles.menuIconText}>{item.icon}</Text>
+                </View>
+                <Text style={styles.menuItemTitle}>{item.title}</Text>
+                <Text style={styles.menuItemDesc}>{item.description}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
         </View>
 
         {/* App Info */}
-        <View style={styles.appInfoCard}>
-          <Text style={styles.appInfoTitle}>Energy Meter App</Text>
-          <Text style={styles.appInfoVersion}>Version 2.1.0</Text>
-          <Text style={styles.appInfoText}>© 2025 Energy Solutions Ltd.</Text>
-          <Text style={styles.appInfoText}>All rights reserved</Text>
+        <View style={styles.appInfo}>
+          <View style={styles.appLogo}>
+            <Ionicons name="flash-outline" size={32} color="#0b63a8" />
+          </View>
+          <Text style={styles.appName}>Energy Meter</Text>
+          <Text style={styles.appVersion}>Version 2.1.0</Text>
+          <Text style={styles.appTagline}>Smart Energy Monitoring</Text>
+          <Text style={styles.appCopyright}>© 2025 Energy Solutions</Text>
         </View>
+
+        <View style={styles.bottomSpacer} />
       </View>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  scrollView: {
+  container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#f9fafb',
   },
-  header: {
-    // backgroundColor: '#2e7d32',
-    padding: 20,
-    alignItems: 'center',
-  },
-  title: {
-    color: '#fff',
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginBottom: 5,
-  },
-  subtitle: {
-    color: '#fff',
-    fontSize: 16,
-    opacity: 0.9,
-  },
-  content: {
-    padding: 20,
-  },
-  profileCard: {
-    flexDirection: 'row',
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 20,
-    marginBottom: 25,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  profileAvatar: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: '#2e7d32',
+  loadingContainer: {
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 15,
+    backgroundColor: '#f9fafb',
   },
-  avatarText: {
+  loadingText: {
+    marginTop: 12,
+    color: '#6b7280',
+    fontSize: 16,
+  },
+  errorContainer: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 24,
+    alignItems: 'center',
+    margin: 16,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  errorText: {
+    fontSize: 16,
+    color: '#374151',
+    marginTop: 12,
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  retryButton: {
+    backgroundColor: '#0b63a8',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  retryButtonText: {
     color: '#fff',
-    fontSize: 22,
-    fontWeight: 'bold',
+    fontSize: 14,
+    fontWeight: '600',
   },
-  profileInfo: {
+  pageHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 16,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#f3f4f6',
+  },
+  pageTitle: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  refreshBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#f3f4f6',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  mainContent: {
+    paddingBottom: 20,
+  },
+  contentContainer: {
+    paddingHorizontal: 16,
+  },
+  siteHeader: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    marginHorizontal: 16,
+    marginTop: 16,
+    marginBottom: 20,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  siteHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
     flex: 1,
   },
-  profileName: {
+  siteIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#eff6ff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  siteName: {
     fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 3,
+    fontWeight: '600',
+    color: '#111827',
+    marginBottom: 2,
   },
-  profileMeter: {
-    fontSize: 14,
-    color: '#2e7d32',
-    marginBottom: 3,
+  siteLocation: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
-  profileEmail: {
+  locationText: {
+    fontSize: 13,
+    color: '#6b7280',
+  },
+  statusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: '#f3f4f6',
+  },
+  connected: {
+    backgroundColor: '#d1fae5',
+  },
+  disconnected: {
+    backgroundColor: '#fee2e2',
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 6,
+  },
+  dotConnected: {
+    backgroundColor: '#10b981',
+  },
+  dotDisconnected: {
+    backgroundColor: '#ef4444',
+  },
+  statusText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  keyMetricsContainer: {
+    marginBottom: 24,
+  },
+  sectionHeaderText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#111827',
+    marginBottom: 16,
+    marginHorizontal: 16,
+  },
+  metricsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    paddingHorizontal: 16,
+    justifyContent: 'space-between',
+  },
+  metricCard: {
+    width: '48%',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#f3f4f6',
+  },
+  gridCard: {
+    borderLeftWidth: 4,
+    borderLeftColor: '#10b981',
+  },
+  dgCard: {
+    borderLeftWidth: 4,
+    borderLeftColor: '#f59e0b',
+  },
+  balanceCard: {
+    borderLeftWidth: 4,
+    borderLeftColor: '#0b63a8',
+  },
+  powerCard: {
+    borderLeftWidth: 4,
+    borderLeftColor: '#8b5cf6',
+  },
+  metricHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  metricLabel: {
+    fontSize: 12,
+    color: '#6b7280',
+    marginLeft: 8,
+  },
+  metricValue: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  parametersContainer: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    marginHorizontal: 16,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#f3f4f6',
+  },
+  parametersRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  parameterItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  parameterLabel: {
+    fontSize: 12,
+    color: '#6b7280',
+    marginBottom: 4,
+  },
+  parameterValue: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#111827',
+  },
+  parameterDivider: {
+    width: 1,
+    height: 30,
+    backgroundColor: '#e5e7eb',
+  },
+  voltageCurrentContainer: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    marginHorizontal: 16,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#f3f4f6',
+  },
+  vcSection: {
+    flex: 1,
+  },
+  vcHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  vcTitle: {
     fontSize: 14,
-    color: '#666',
+    fontWeight: '600',
+    color: '#111827',
+    marginLeft: 8,
+  },
+  vcGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  vcItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  vcLabel: {
+    fontSize: 12,
+    color: '#6b7280',
+    marginBottom: 4,
+  },
+  vcValue: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#111827',
+  },
+  vcDivider: {
+    height: 1,
+    backgroundColor: '#e5e7eb',
+    marginVertical: 16,
+  },
+  chargesContainer: {
+    marginBottom: 20,
+  },
+  chargesGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    paddingHorizontal: 16,
+    justifyContent: 'space-between',
+  },
+  chargeCard: {
+    width: '48%',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#f3f4f6',
+  },
+  chargeIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#eff6ff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  chargeContent: {
+    flex: 1,
+  },
+  chargeLabel: {
+    fontSize: 12,
+    color: '#6b7280',
+    marginBottom: 2,
+  },
+  chargeValue: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#111827',
+  },
+  statusContainer: {
+    marginBottom: 20,
+  },
+  statusGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    paddingHorizontal: 16,
+    justifyContent: 'space-between',
+  },
+  statusCard: {
+    width: '48%',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#f3f4f6',
+  },
+  statusOk: {
+    backgroundColor: '#f0fdf4',
+    borderColor: '#86efac',
+  },
+  statusTextSmall: {
+    fontSize: 12,
+    color: '#6b7280',
+    marginTop: 8,
+    marginBottom: 2,
+  },
+  statusValueSmall: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#111827',
+  },
+  statusError: {
+    color: '#ef4444',
+  },
+  meterContainer: {
+    marginBottom: 24,
+  },
+  meterCard: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    marginHorizontal: 16,
+    borderWidth: 1,
+    borderColor: '#f3f4f6',
+  },
+  meterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  meterIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#f9fafb',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  meterContent: {
+    flex: 1,
+  },
+  meterLabel: {
+    fontSize: 12,
+    color: '#6b7280',
+    marginBottom: 2,
+  },
+  meterValue: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#111827',
+  },
+  divider: {
+    height: 1,
+    backgroundColor: '#f3f4f6',
+    marginVertical: 4,
+  },
+  horizontalDivider: {
+    height: 1,
+    backgroundColor: '#f3f4f6',
+    marginVertical: 12,
+  },
+  settingsSection: {
+    marginBottom: 24,
+    paddingHorizontal: 16,
   },
   sectionTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 15,
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#111827',
+    marginBottom: 16,
   },
   settingsCard: {
     backgroundColor: '#fff',
     borderRadius: 12,
-    padding: 15,
-    marginBottom: 25,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#f3f4f6',
   },
   settingItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 10,
   },
   settingLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
   },
-  settingIcon: {
-    fontSize: 24,
-    marginRight: 15,
+  settingIconContainer: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#eff6ff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
   },
   settingTitle: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#333',
-    marginBottom: 3,
+    color: '#111827',
+    marginBottom: 2,
   },
-  settingDescription: {
+  settingDesc: {
     fontSize: 12,
-    color: '#666',
+    color: '#6b7280',
   },
-  settingDivider: {
-    height: 1,
-    backgroundColor: '#f0f0f0',
-    marginVertical: 5,
+  menuSection: {
+    marginBottom: 24,
+    paddingHorizontal: 16,
   },
   menuGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
-    marginBottom: 25,
   },
-  menuCard: {
-    width: '48%',
+  menuItem: {
+    width: '31%',
     backgroundColor: '#fff',
     borderRadius: 12,
-    padding: 15,
-    marginBottom: 15,
+    padding: 16,
+    marginBottom: 12,
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    borderWidth: 1,
+    borderColor: '#f3f4f6',
   },
-  menuIcon: {
-    fontSize: 30,
-    marginBottom: 10,
+  menuIconBox: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#eff6ff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 8,
   },
-  menuTitle: {
+  menuIconText: {
+    fontSize: 20,
+  },
+  menuItemTitle: {
     fontSize: 14,
-    fontWeight: 'bold',
-    color: '#2e7d32',
-    marginBottom: 5,
+    fontWeight: '600',
+    color: '#111827',
+    marginBottom: 2,
     textAlign: 'center',
   },
-  menuDescription: {
+  menuItemDesc: {
     fontSize: 11,
-    color: '#666',
+    color: '#6b7280',
     textAlign: 'center',
   },
-  appInfoCard: {
-    backgroundColor: '#e8f5e9',
+  appInfo: {
+    backgroundColor: '#fff',
     borderRadius: 12,
-    padding: 20,
+    padding: 24,
+    marginHorizontal: 16,
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#f3f4f6',
   },
-  appInfoTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#2e7d32',
-    marginBottom: 10,
+  appLogo: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#eff6ff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
   },
-  appInfoVersion: {
+  appName: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 4,
+  },
+  appVersion: {
     fontSize: 14,
-    color: '#666',
-    marginBottom: 5,
+    color: '#6b7280',
+    marginBottom: 4,
   },
-  appInfoText: {
+  appTagline: {
+    fontSize: 14,
+    color: '#4b5563',
+    marginBottom: 4,
+  },
+  appCopyright: {
     fontSize: 12,
-    color: '#666',
-    marginBottom: 3,
+    color: '#9ca3af',
+    marginTop: 8,
+  },
+  bottomSpacer: {
+    height: 20,
   },
 });
