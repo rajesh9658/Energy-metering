@@ -34,12 +34,12 @@ export default function RechargeScreen() {
   };
 
   const rechargeOptions = [
-    { amount: 100, description: 'Quick Top-up' },
-    { amount: 250, description: 'Daily Use' },
-    { amount: 500, description: 'Weekly Pack' },
-    { amount: 1000, description: 'Monthly Pack' },
-    { amount: 2000, description: 'Family Pack' },
-    { amount: 5000, description: 'Heavy Usage' },
+    { amount: 1000, description: 'Quick Top-up' },
+    { amount: 2000, description: 'Daily Use' },
+    { amount: 3000, description: 'Weekly Pack' },
+    { amount: 4000, description: 'Monthly Pack' },
+    { amount: 5000, description: 'Family Pack' },
+    { amount: 10000, description: 'Heavy Usage' },
   ];
 
   const paymentGateways = [

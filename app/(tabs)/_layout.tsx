@@ -51,7 +51,7 @@ export default function TabLayout() {
   }
 
   const handleLogout = async () => {
-    showToast("Logged out successfully! 👋");
+    showToast("Logged out successfully! ");
     setTimeout(async () => {
       await logout();
     }, 1000);
@@ -136,7 +136,7 @@ export default function TabLayout() {
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                 <Ionicons name="location-sharp" size={14} color="#bbdefb" />
                 <Text style={{ color: "#bbdefb", fontSize: 12, fontWeight: "600", marginLeft: 4 }}>
-                  Site: {user.site_name || "Mundka"}
+                  Site: {user.site_name || "No Site"}
                 </Text>
               </View>
             </View>
