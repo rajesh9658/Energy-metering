@@ -1,13 +1,15 @@
 // app/config.ts
 
 const API_CONFIG = {
-  BASE_URL: "http://192.168.68.117:8000",
+  BASE_URL: "http://192.168.68.128:8000",
 
   ENDPOINTS: {
     LOGIN: "/api/mobile-login",
     SITE_DATA: "/api/mobile/site/", // New endpoint for site data
   },
 };
+
+
 
 export const getApiUrl = (endpoint: string) => {
   const url = API_CONFIG.BASE_URL + endpoint;
