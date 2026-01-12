@@ -8,7 +8,7 @@ import {
   View,
   Dimensions,
   ActivityIndicator,
-  RefreshControl
+  RefreshControl,
 } from 'react-native';
 import { Ionicons, MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
 import axios from 'axios';
@@ -24,31 +24,11 @@ export default function MoreScreen() {
   const [refreshing, setRefreshing] = useState(false);
 
   const menuItems = [
-    { 
-      title: 'Profile', 
-      icon: '👤', 
-      description: 'Manage profile' 
-    },
-    { 
-      title: 'Notifications', 
-      icon: '🔔', 
-      description: 'Alert settings' 
-    },
-    { 
-      title: 'Devices', 
-      icon: '🔧', 
-      description: 'Manage meters' 
-    },
-    { 
-      title: 'Support', 
-      icon: '🆘', 
-      description: 'Help center' 
-    },
-    { 
-      title: 'About', 
-      icon: 'ℹ️', 
-      description: 'App info' 
-    },
+    { title: 'Profile', icon: '👤', description: 'Manage profile' },
+    { title: 'Notifications', icon: '🔔', description: 'Alert settings' },
+    { title: 'Devices', icon: '🔧', description: 'Manage meters' },
+    { title: 'Support', icon: '🆘', description: 'Help center' },
+    { title: 'About', icon: 'ℹ️', description: 'App info' },
   ];
 
   useEffect(() => {
@@ -57,12 +37,12 @@ export default function MoreScreen() {
 
   const fetchSiteData = async () => {
     try {
-      const response = await axios.get(getSiteDataUrl("neelkanth-1"));
+      const response = await axios.get(getSiteDataUrl('neelkanth-1'));
       if (response.data && response.data.success) {
         setSiteData(response.data);
       }
     } catch (err) {
-      console.error("Error fetching site data:", err);
+      console.error('Error fetching site data:', err);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -75,14 +55,13 @@ export default function MoreScreen() {
   };
 
   const getConnectionStatus = () => {
-    if (!siteData) return 'UNKNOWN';
     const relayStatus = siteData?.asset_information?.site_values?.relay_status;
-    return relayStatus !== undefined ? 
-      (relayStatus ? 'CONNECTED' : 'DISCONNECTED') : 'UNKNOWN';
+    if (relayStatus === undefined) return 'UNKNOWN';
+    return relayStatus ? 'CONNECTED' : 'DISCONNECTED';
   };
 
   const renderAPIDataTile = () => {
-    if (!siteData || !siteData.asset_information) {
+    if (!siteData?.asset_information) {
       return (
         <View style={styles.errorContainer}>
           <Ionicons name="alert-circle-outline" size={50} color="#6b7280" />
@@ -113,274 +92,91 @@ export default function MoreScreen() {
               <Text style={styles.siteName}>{asset_information.site_name || 'Site Name'}</Text>
               <View style={styles.siteLocation}>
                 <Ionicons name="location-outline" size={14} color="#6b7280" />
-                <Text style={styles.locationText}> {asset_information.location || 'Location'}</Text>
+                <Text style={styles.locationText}>
+                  {asset_information.location || 'Location'}
+                </Text>
               </View>
             </View>
           </View>
           <View style={[styles.statusBadge, isConnected ? styles.connected : styles.disconnected]}>
-            <View style={[styles.statusDot, isConnected ? styles.dotConnected : styles.dotDisconnected]} />
+            <View
+              style={[styles.statusDot, isConnected ? styles.dotConnected : styles.dotDisconnected]}
+            />
             <Text style={styles.statusText}>{isConnected ? 'Connected' : 'Disconnected'}</Text>
-          </View>
-        </View>
-
-        {/* Key Metrics */}
-        <View style={styles.keyMetricsContainer}>
-          <Text style={styles.sectionHeaderText}>Key Metrics</Text>
-          
-          <View style={styles.metricsGrid}>
-            <View style={[styles.metricCard, styles.gridCard]}>
-              <View style={styles.metricHeader}>
-                <Ionicons name="flash-outline" size={20} color="#10b981" />
-                <Text style={styles.metricLabel}>Grid Load</Text>
-              </View>
-              <Text style={styles.metricValue}>{asset_information.grid_kw || 0} kW</Text>
-            </View>
-            
-            <View style={[styles.metricCard, styles.dgCard]}>
-              <View style={styles.metricHeader}>
-                <Ionicons name="flash-outline" size={20} color="#f59e0b" />
-                <Text style={styles.metricLabel}>DG Load</Text>
-              </View>
-              <Text style={styles.metricValue}>{asset_information.dg_kw || 0} kW</Text>
-            </View>
-            
-            <View style={[styles.metricCard, styles.balanceCard]}>
-              <View style={styles.metricHeader}>
-                <Ionicons name="wallet-outline" size={20} color="#0b63a8" />
-                <Text style={styles.metricLabel}>Grid Balance</Text>
-              </View>
-              <Text style={styles.metricValue}>₹{electricParams.balance || 0}</Text>
-            </View>
-            
-            <View style={[styles.metricCard, styles.powerCard]}>
-              <View style={styles.metricHeader}>
-                <Ionicons name="battery-charging-outline" size={20} color="#8b5cf6" />
-                <Text style={styles.metricLabel}>Active Power</Text>
-              </View>
-              <Text style={styles.metricValue}>{electricParams.active_power_kw?.toFixed(2) || '0.00'} kW</Text>
-            </View>
-          </View>
-        </View>
-
-        {/* Electric Parameters */}
-        <View style={styles.parametersContainer}>
-          <Text style={styles.sectionHeaderText}>Electric Parameters</Text>
-          
-          <View style={styles.parametersRow}>
-            <View style={styles.parameterItem}>
-              <Text style={styles.parameterLabel}>Power Factor</Text>
-              <Text style={styles.parameterValue}>{electricParams.power_factor?.toFixed(2) || '0.00'}</Text>
-            </View>
-            
-            <View style={styles.parameterDivider} />
-            
-            <View style={styles.parameterItem}>
-              <Text style={styles.parameterLabel}>Total kVAh</Text>
-              <Text style={styles.parameterValue}>{electricParams.total_kvah?.toFixed(2) || '0.00'}</Text>
-            </View>
-            
-            <View style={styles.parameterDivider} />
-            
-            <View style={styles.parameterItem}>
-              <Text style={styles.parameterLabel}>Grid Unit</Text>
-              <Text style={styles.parameterValue}>{electricParams.unit?.toFixed(2) || '0.00'} kWh</Text>
-            </View>
-          </View>
-        </View>
-
-        {/* Voltage & Current */}
-        <View style={styles.voltageCurrentContainer}>
-          <View style={styles.vcSection}>
-            <View style={styles.vcHeader}>
-              <MaterialIcons name="offline-bolt" size={20} color="#0b63a8" />
-              <Text style={styles.vcTitle}>Voltage (L-L)</Text>
-            </View>
-            
-            <View style={styles.vcGrid}>
-              <View style={styles.vcItem}>
-                <Text style={styles.vcLabel}>Phase R</Text>
-                <Text style={styles.vcValue}>{electricParams.voltage_l_l?.r?.toFixed(1) || '0.0'} V</Text>
-              </View>
-              
-              <View style={styles.vcItem}>
-                <Text style={styles.vcLabel}>Phase Y</Text>
-                <Text style={styles.vcValue}>{electricParams.voltage_l_l?.y?.toFixed(1) || '0.0'} V</Text>
-              </View>
-              
-              <View style={styles.vcItem}>
-                <Text style={styles.vcLabel}>Phase B</Text>
-                <Text style={styles.vcValue}>{electricParams.voltage_l_l?.b?.toFixed(1) || '0.0'} V</Text>
-              </View>
-            </View>
-          </View>
-          
-          <View style={styles.vcDivider} />
-          
-          <View style={styles.vcSection}>
-            <View style={styles.vcHeader}>
-              <MaterialIcons name="power" size={20} color="#0b63a8" />
-              <Text style={styles.vcTitle}>Current</Text>
-            </View>
-            
-            <View style={styles.vcGrid}>
-              <View style={styles.vcItem}>
-                <Text style={styles.vcLabel}>Phase R</Text>
-                <Text style={styles.vcValue}>{electricParams.current?.r?.toFixed(3) || '0.000'} A</Text>
-              </View>
-              
-              <View style={styles.vcItem}>
-                <Text style={styles.vcLabel}>Phase Y</Text>
-                <Text style={styles.vcValue}>{electricParams.current?.y?.toFixed(3) || '0.000'} A</Text>
-              </View>
-              
-              <View style={styles.vcItem}>
-                <Text style={styles.vcLabel}>Phase B</Text>
-                <Text style={styles.vcValue}>{electricParams.current?.b?.toFixed(3) || '0.000'} A</Text>
-              </View>
-            </View>
           </View>
         </View>
 
         {/* Charges Information */}
         <View style={styles.chargesContainer}>
           <Text style={styles.sectionHeaderText}>Charges</Text>
-          
           <View style={styles.chargesGrid}>
-            <View style={styles.chargeCard}>
-              <View style={styles.chargeIcon}>
-                <Ionicons name="receipt-outline" size={18} color="#0b63a8" />
+            {[
+              { label: 'Meter Unit Charge', value: asset_information.m_unit_charge, icon: 'receipt-outline', color: '#0b63a8' },
+              { label: 'Meter Fixed Charge', value: asset_information.m_fixed_charge, icon: 'calendar-outline', color: '#0b63a8' },
+              { label: 'DG Unit Charge', value: asset_information.dg_unit_charge, icon: 'flash-outline', color: '#f59e0b' },
+              { label: 'DG Fixed Charge', value: asset_information.dg_fixed_charge, icon: 'time-outline', color: '#f59e0b' },
+            ].map((item, idx) => (
+              <View key={idx} style={styles.chargeCard}>
+                <View style={styles.chargeIcon}>
+                  <Ionicons name={item.icon} size={18} color={item.color} />
+                </View>
+                <View style={styles.chargeContent}>
+                  <Text style={styles.chargeLabel}>{item.label}</Text>
+                  <Text style={styles.chargeValue}>₹{item.value?.toFixed(2) || '0.00'}</Text>
+                </View>
               </View>
-              <View style={styles.chargeContent}>
-                <Text style={styles.chargeLabel}>Meter Unit Charge</Text>
-                <Text style={styles.chargeValue}>₹{asset_information.m_unit_charge?.toFixed(2) || '0.00'}</Text>
-              </View>
-            </View>
-            
-            <View style={styles.chargeCard}>
-              <View style={styles.chargeIcon}>
-                <Ionicons name="calendar-outline" size={18} color="#0b63a8" />
-              </View>
-              <View style={styles.chargeContent}>
-                <Text style={styles.chargeLabel}>Meter Fixed Charge</Text>
-                <Text style={styles.chargeValue}>₹{asset_information.m_fixed_charge?.toFixed(2) || '0.00'}</Text>
-              </View>
-            </View>
-            
-            <View style={styles.chargeCard}>
-              <View style={styles.chargeIcon}>
-                <Ionicons name="flash-outline" size={18} color="#f59e0b" />
-              </View>
-              <View style={styles.chargeContent}>
-                <Text style={styles.chargeLabel}>DG Unit Charge</Text>
-                <Text style={styles.chargeValue}>₹{asset_information.dg_unit_charge?.toFixed(2) || '0.00'}</Text>
-              </View>
-            </View>
-            
-            <View style={styles.chargeCard}>
-              <View style={styles.chargeIcon}>
-                <Ionicons name="time-outline" size={18} color="#f59e0b" />
-              </View>
-              <View style={styles.chargeContent}>
-                <Text style={styles.chargeLabel}>DG Fixed Charge</Text>
-                <Text style={styles.chargeValue}>₹{asset_information.dg_fixed_charge?.toFixed(2) || '0.00'}</Text>
-              </View>
-            </View>
+            ))}
           </View>
         </View>
 
         {/* Site Status */}
         <View style={styles.statusContainer}>
           <Text style={styles.sectionHeaderText}>Site Status</Text>
-          
           <View style={styles.statusGrid}>
-            <View style={[styles.statusCard, !siteValues.low_balance_cut && styles.statusOk]}>
-              <MaterialIcons 
-                name={siteValues.low_balance_cut ? "warning" : "check-circle"} 
-                size={20} 
-                color={siteValues.low_balance_cut ? "#ef4444" : "#10b981"} 
-              />
-              <Text style={styles.statusTextSmall}>Low Balance</Text>
-              <Text style={[styles.statusValueSmall, siteValues.low_balance_cut && styles.statusError]}>
-                {siteValues.low_balance_cut ? 'Cut' : 'Normal'}
-              </Text>
-            </View>
-            
-            <View style={[styles.statusCard, !siteValues.dg_overload_trip && styles.statusOk]}>
-              <Ionicons 
-                name={siteValues.dg_overload_trip ? "alert-circle-outline" : "checkmark-circle-outline"} 
-                size={20} 
-                color={siteValues.dg_overload_trip ? "#ef4444" : "#10b981"} 
-              />
-              <Text style={styles.statusTextSmall}>DG Overload</Text>
-              <Text style={[styles.statusValueSmall, siteValues.dg_overload_trip && styles.statusError]}>
-                {siteValues.dg_overload_trip ? 'Tripped' : 'Normal'}
-              </Text>
-            </View>
-            
-            <View style={[styles.statusCard, !siteValues.overload_limit_reached && styles.statusOk]}>
-              <MaterialIcons 
-                name={siteValues.overload_limit_reached ? "error-outline" : "done-outline"} 
-                size={20} 
-                color={siteValues.overload_limit_reached ? "#ef4444" : "#10b981"} 
-              />
-              <Text style={styles.statusTextSmall}>Overload Limit</Text>
-              <Text style={[styles.statusValueSmall, siteValues.overload_limit_reached && styles.statusError]}>
-                {siteValues.overload_limit_reached ? 'Reached' : 'Normal'}
-              </Text>
-            </View>
-            
-            <View style={[styles.statusCard, !siteValues.force_off && styles.statusOk]}>
-              <MaterialIcons 
-                name={siteValues.force_off ? "power-off" : "power-settings-new"} 
-                size={20} 
-                color={siteValues.force_off ? "#ef4444" : "#10b981"} 
-              />
-              <Text style={styles.statusTextSmall}>Supply</Text>
-              <Text style={[styles.statusValueSmall, siteValues.force_off && styles.statusError]}>
-                {siteValues.force_off ? 'Force Off' : 'Normal'}
-              </Text>
-            </View>
+            {[
+              { key: 'low_balance_cut', label: 'Low Balance', iconOn: 'warning', iconOff: 'check-circle' },
+              { key: 'dg_overload_trip', label: 'DG Overload', iconOn: 'alert-circle-outline', iconOff: 'checkmark-circle-outline' },
+              { key: 'overload_limit_reached', label: 'Overload Limit', iconOn: 'error-outline', iconOff: 'done-outline' },
+              { key: 'force_off', label: 'Supply', iconOn: 'power-off', iconOff: 'power-settings-new' },
+            ].map((item, idx) => {
+              const isError = siteValues?.[item.key];
+              return (
+                <View key={idx} style={[styles.statusCard, !isError && styles.statusOk]}>
+                  <MaterialIcons
+                    name={isError ? item.iconOn : item.iconOff}
+                    size={20}
+                    color={isError ? '#ef4444' : '#10b981'}
+                  />
+                  <Text style={styles.statusTextSmall}>{item.label}</Text>
+                  <Text style={[styles.statusValueSmall, isError && styles.statusError]}>
+                    {isError ? 'Issue' : 'Normal'}
+                  </Text>
+                </View>
+              );
+            })}
           </View>
         </View>
 
         {/* Meter Information */}
         <View style={styles.meterContainer}>
           <Text style={styles.sectionHeaderText}>Meter Details</Text>
-          
           <View style={styles.meterCard}>
-            <View style={styles.meterRow}>
-              <View style={styles.meterIcon}>
-                <Ionicons name="hardware-chip-outline" size={18} color="#6b7280" />
-              </View>
-              <View style={styles.meterContent}>
-                <Text style={styles.meterLabel}>Meter Name</Text>
-                <Text style={styles.meterValue}>{asset_information.meter_name || 'N/A'}</Text>
-              </View>
-            </View>
-            
-            <View style={styles.divider} />
-            
-            <View style={styles.meterRow}>
-              <View style={styles.meterIcon}>
-                <MaterialIcons name="developer-board" size={18} color="#6b7280" />
-              </View>
-              <View style={styles.meterContent}>
-                <Text style={styles.meterLabel}>Controller</Text>
-                <Text style={styles.meterValue}>{asset_information.controller || 'N/A'}</Text>
-              </View>
-            </View>
-            
-            <View style={styles.divider} />
-            
-            <View style={styles.meterRow}>
-              <View style={styles.meterIcon}>
-                <Ionicons name="person-circle-outline" size={18} color="#6b7280" />
-              </View>
-              <View style={styles.meterContent}>
-                <Text style={styles.meterLabel}>Custom Name</Text>
-                <Text style={styles.meterValue}>{asset_information.custom_name || 'N/A'}</Text>
-              </View>
-            </View>
+            {[
+              { label: 'Meter Name', value: asset_information.meter_name, icon: <Ionicons name="hardware-chip-outline" size={18} color="#6b7280" /> },
+              { label: 'Controller', value: asset_information.controller, icon: <MaterialIcons name="developer-board" size={18} color="#6b7280" /> },
+              { label: 'Custom Name', value: asset_information.custom_name, icon: <Ionicons name="person-circle-outline" size={18} color="#6b7280" /> },
+            ].map((item, idx) => (
+              <React.Fragment key={idx}>
+                <View style={styles.meterRow}>
+                  <View style={styles.meterIcon}>{item.icon}</View>
+                  <View style={styles.meterContent}>
+                    <Text style={styles.meterLabel}>{item.label}</Text>
+                    <Text style={styles.meterValue}>{item.value || 'N/A'}</Text>
+                  </View>
+                </View>
+                {idx < 2 && <View style={styles.divider} />}
+              </React.Fragment>
+            ))}
           </View>
         </View>
       </View>
@@ -397,7 +193,7 @@ export default function MoreScreen() {
   }
 
   return (
-    <ScrollView 
+    <ScrollView
       style={styles.container}
       showsVerticalScrollIndicator={false}
       refreshControl={
@@ -420,11 +216,10 @@ export default function MoreScreen() {
       {/* Main Content */}
       <View style={styles.mainContent}>
         {renderAPIDataTile()}
-        
-        {/* Settings */}
+
+        {/* Settings Section */}
         <View style={styles.settingsSection}>
           <Text style={styles.sectionTitle}>Settings</Text>
-          
           <View style={styles.settingsCard}>
             <View style={styles.settingItem}>
               <View style={styles.settingLeft}>
@@ -443,9 +238,9 @@ export default function MoreScreen() {
                 thumbColor={notificationsEnabled ? '#10b981' : '#9ca3af'}
               />
             </View>
-            
+
             <View style={styles.horizontalDivider} />
-            
+
             <View style={styles.settingItem}>
               <View style={styles.settingLeft}>
                 <View style={styles.settingIconContainer}>
@@ -465,41 +260,10 @@ export default function MoreScreen() {
             </View>
           </View>
         </View>
-
-        {/* Quick Menu */}
-        <View style={styles.menuSection}>
-          <Text style={styles.sectionTitle}>Quick Menu</Text>
-          
-          <View style={styles.menuGrid}>
-            {menuItems.map((item, index) => (
-              <TouchableOpacity key={index} style={styles.menuItem}>
-                <View style={styles.menuIconBox}>
-                  <Text style={styles.menuIconText}>{item.icon}</Text>
-                </View>
-                <Text style={styles.menuItemTitle}>{item.title}</Text>
-                <Text style={styles.menuItemDesc}>{item.description}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-
-        {/* App Info */}
-        <View style={styles.appInfo}>
-          <View style={styles.appLogo}>
-            <Ionicons name="flash-outline" size={32} color="#0b63a8" />
-          </View>
-          <Text style={styles.appName}>Energy Meter</Text>
-          <Text style={styles.appVersion}>Version 2.1.0</Text>
-          <Text style={styles.appTagline}>Smart Energy Monitoring</Text>
-          <Text style={styles.appCopyright}>© 2025 Energy Solutions</Text>
-        </View>
-
-        <View style={styles.bottomSpacer} />
       </View>
     </ScrollView>
   );
 }
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,

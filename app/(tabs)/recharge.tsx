@@ -12,6 +12,7 @@ import {
     TouchableWithoutFeedback,
     View
 } from 'react-native';
+import RazorpayCheckout from 'react-native-razorpay';
 
 const { width, height } = Dimensions.get('window');
 
@@ -66,40 +67,97 @@ export default function RechargeScreen() {
     });
   };
 
-  const handlePayment = () => {
-    if (!selectedGateway) {
-      Alert.alert('Select Gateway', 'Please select a payment gateway');
-      return;
+const handlePayment = async () => {
+  if (selectedGateway?.id !== 'RAZORPAY') {
+    Alert.alert('Only Razorpay implemented right now');
+    return;
+  }
+
+  try {
+    // Step 1: Create order on server
+    const response = await fetch('http://192.168.68.128/api/meter/razorpay/order', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
+        amount: calculateGrandTotal(),
+        meter_no: customerDetails.meterNo // Add meter number
+      })
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      console.log("Server Error:", text);
+      throw new Error('Server returned non-OK status');
     }
 
-    if (!paymentAmount || isNaN(paymentAmount) || parseFloat(paymentAmount) < 100) {
-      Alert.alert('Invalid Amount', 'Please enter a valid amount (minimum ₹100)');
-      return;
+    const data = await response.json();
+    console.log("Order Data:", data);
+
+    if (!data.success) {
+      throw new Error(data.message || 'Failed to create order');
     }
 
-    const amount = parseFloat(paymentAmount);
-    const tokenCharge = 10;
-    const igst = 1.80;
-    const grandTotal = amount + tokenCharge + igst;
+    // Step 2: Open Razorpay Checkout
+    const options = {
+      key: data.key, // Your Razorpay Key ID
+      amount: data.order.amount,
+      currency: data.order.currency,
+      order_id: data.order.id,
+      name: 'Meter Recharge',
+      description: `Recharge for Meter: ${customerDetails.meterNo}`,
+      prefill: {
+        name: customerDetails.name,
+        email: '', // Add if available
+        contact: '' // Add if available
+      },
+      theme: { color: '#1e88e5' },
+      notes: {
+        meter_no: customerDetails.meterNo,
+        account_id: customerDetails.accountId
+      }
+    };
 
-    Alert.alert(
-      'Confirm Payment',
-      `Payment Details:\n\nAmount: ₹${amount}\nToken Charge: ₹${tokenCharge}\nIGST: ₹${igst}\nGrand Total: ₹${grandTotal}\n\nGateway: ${selectedGateway.name}\n\nDo you want to proceed?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Pay Now', 
-          onPress: () => {
-            Alert.alert('Success', `Payment of ₹${grandTotal} successful!`);
-            setShowPaymentScreen(false);
-            setSelectedAmount(null);
-            setSelectedGateway(null);
-            setNumpadValue('');
-          }
+    // Open Razorpay Checkout
+    RazorpayCheckout.open(options)
+      .then(async (paymentResponse) => {
+        console.log("Payment Success:", paymentResponse);
+
+        // Step 3: Verify payment on server
+        const verifyResponse = await fetch('http://192.168.68.128/api/meter/razorpay/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            razorpay_order_id: paymentResponse.razorpay_order_id,
+            razorpay_payment_id: paymentResponse.razorpay_payment_id,
+            razorpay_signature: paymentResponse.razorpay_signature,
+            amount: calculateGrandTotal(),
+            meter_no: customerDetails.meterNo
+          })
+        });
+
+        const verifyData = await verifyResponse.json();
+
+        if (verifyData.success) {
+          Alert.alert(
+            'Payment Successful',
+            `Payment of ₹${calculateGrandTotal()} completed successfully!`,
+            [{ text: 'OK', onPress: () => goBack() }]
+          );
+        } else {
+          Alert.alert('Verification Failed', verifyData.message);
         }
-      ]
-    );
-  };
+      })
+      .catch((error) => {
+        console.log("Payment Error:", error);
+        Alert.alert('Payment Failed', error.description || 'Payment cancelled or failed');
+      });
+
+  } catch (err) {
+    console.log("Error:", err.message);
+    Alert.alert('Error', err.message || 'Something went wrong');
+  }
+};
+
 
   // Numpad Functions
   const handleNumpadPress = (value) => {
