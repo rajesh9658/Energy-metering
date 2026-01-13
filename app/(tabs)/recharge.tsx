@@ -12,14 +12,14 @@ import {
     TouchableWithoutFeedback,
     View
 } from 'react-native';
-import RazorpayCheckout from 'react-native-razorpay';
+
 
 const { width, height } = Dimensions.get('window');
 
 // Main Recharge Screen
 export default function RechargeScreen() {
   const [selectedAmount, setSelectedAmount] = useState(null);
-  const [showPaymentScreen, setShowPaymentScreen] = useState(false);
+
   const [paymentAmount, setPaymentAmount] = useState('');
   const [selectedGateway, setSelectedGateway] = useState(null);
   const [slideAnimation] = useState(new Animated.Value(0));
@@ -43,120 +43,158 @@ export default function RechargeScreen() {
     { amount: 10000, description: 'Heavy Usage' },
   ];
 
-  const paymentGateways = [
-    { id: 'BILLDESK', name: 'BILLDESK', color: '#2196F3' },
-    { id: 'PAYU', name: 'PAYU', color: '#4CAF50' },
-    { id: 'RAZORPAY', name: 'RazorPay', color: '#FF9800' },
-    { id: 'PHONEPE', name: 'PhonePe', color: '#673AB7' },
-  ];
+ 
 
   const handleSlideToPay = () => {
-    if (!selectedAmount) {
-      Alert.alert('Select Amount', 'Please select a recharge amount first');
-      return;
-    }
-
-    Animated.timing(slideAnimation, {
-      toValue: width - 80,
-      duration: 500,
-      useNativeDriver: true,
-    }).start(() => {
-      setPaymentAmount(selectedAmount.toString());
-      setShowPaymentScreen(true);
-      slideAnimation.setValue(0);
-    });
-  };
-
-const handlePayment = async () => {
-  if (selectedGateway?.id !== 'RAZORPAY') {
-    Alert.alert('Only Razorpay implemented right now');
+  if (!selectedAmount) {
+    Alert.alert('Select Amount');
     return;
   }
 
+  Animated.timing(slideAnimation, {
+    toValue: width - 80,
+    duration: 500,
+    useNativeDriver: true,
+  }).start(() => {
+    slideAnimation.setValue(0);
+    handlePayment(); // ✅ OPEN RAZORPAY AFTER SLIDE
+  });
+};
+// rzp_test_S2t1onSDtI24BI
+
+
+const generateFakeOrderId = () => {
+  return (
+    'order_' +
+    Date.now().toString(36) +
+    Math.random().toString(36).substring(2, 10)
+  );
+};
+
+
+// const createOrder = async () => {
+//   const totalAmount = Math.round((Number(selectedAmount) + 10 + 1.8) * 100);
+
+//   const res = await fetch(
+//   'http://192.168.68.126:8000/api/razorpay/create-order',
+//   {
+//     method: 'POST',
+//     headers: {
+//       'Content-Type': 'application/json',
+//       'Accept': 'application/json',
+//     },
+//     body: JSON.stringify({ amount: totalAmount }),
+//   }
+// );
+
+
+//   return res.json();
+// };
+
+// const handlePayment = async () => {
+//   try {
+//     const order = await createOrder();
+
+//     if (!order.success) {
+//       Alert.alert('Order creation failed');
+//       return;
+//     }
+
+//     const options = {
+//       key: order.razorpay_key,
+//       amount: order.amount,
+//       currency: order.currency,
+//       order_id: order.order_id, // 🔥 REQUIRED
+//       name: 'Meter Recharge',
+//       description: 'Test Recharge',
+//       prefill: {
+//         name: 'Test User',
+//         email: 'test@razorpay.com',
+//         contact: '9999999999',
+//       },
+//       theme: { color: '#1e88e5' },
+//     };
+
+//     RazorpayCheckout.open(options)
+//       .then((data) => {
+//         Alert.alert(
+//           'Success',
+//           data.razorpay_payment_id
+//         );
+//       })
+//       .catch((err) => {
+//         console.log('Payment Failed', err);
+//         Alert.alert('Payment Failed');
+//       });
+//   } catch (e) {
+//     console.log(e);
+//     Alert.alert('Something went wrong');
+//   }
+// };
+
+
+const handlePayment = async () => {
   try {
-    // Step 1: Create order on server
-    const response = await fetch('http://192.168.68.128/api/meter/razorpay/order', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ 
-        amount: calculateGrandTotal(),
-        meter_no: customerDetails.meterNo // Add meter number
-      })
-    });
-
-    if (!response.ok) {
-      const text = await response.text();
-      console.log("Server Error:", text);
-      throw new Error('Server returned non-OK status');
+    if (!selectedAmount) {
+      Alert.alert('Select Amount');
+      return;
     }
 
-    const data = await response.json();
-    console.log("Order Data:", data);
+    const grandTotal = Math.round((selectedAmount + 10 + 1.8) * 100); // paise
+    // const fakeOrderId = generateFakeOrderId();
 
-    if (!data.success) {
-      throw new Error(data.message || 'Failed to create order');
-    }
-
-    // Step 2: Open Razorpay Checkout
     const options = {
-      key: data.key, // Your Razorpay Key ID
-      amount: data.order.amount,
-      currency: data.order.currency,
-      order_id: data.order.id,
+      key: 'rzp_test_S2t1onSDtI24BI', 
+      amount: 30000,
+      currency: 'INR',
+      order_id: 'order_S3INqtLifINS8z', 
       name: 'Meter Recharge',
-      description: `Recharge for Meter: ${customerDetails.meterNo}`,
+      description: 'Sochiot ',
       prefill: {
-        name: customerDetails.name,
-        email: '', // Add if available
-        contact: '' // Add if available
+        name: 'gaurav.kumar@example.com',
+        email: 'test@razorpay.com',
+        contact: '9999999999',
       },
       theme: { color: '#1e88e5' },
-      notes: {
-        meter_no: customerDetails.meterNo,
-        account_id: customerDetails.accountId
-      }
     };
 
-    // Open Razorpay Checkout
-    RazorpayCheckout.open(options)
-      .then(async (paymentResponse) => {
-        console.log("Payment Success:", paymentResponse);
+    //RazorpayCheckout.open(options)
+      //.then((data) => {
+       // Alert.alert(
+        //  'Payment Success',
+        //  `Payment ID: ${data.razorpay_payment_id}\nOrder ID: ${order_id}`
+       // );
 
-        // Step 3: Verify payment on server
-        const verifyResponse = await fetch('http://192.168.68.128/api/meter/razorpay/verify', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            razorpay_order_id: paymentResponse.razorpay_order_id,
-            razorpay_payment_id: paymentResponse.razorpay_payment_id,
-            razorpay_signature: paymentResponse.razorpay_signature,
-            amount: calculateGrandTotal(),
-            meter_no: customerDetails.meterNo
-          })
-        });
+        
+    //  })
 
-        const verifyData = await verifyResponse.json();
+      RazorpayCheckout.open(options).then((data) => {
+    // handle success
+    alert(`Success: ${data.razorpay_payment_id}`);
+  })
 
-        if (verifyData.success) {
-          Alert.alert(
-            'Payment Successful',
-            `Payment of ₹${calculateGrandTotal()} completed successfully!`,
-            [{ text: 'OK', onPress: () => goBack() }]
-          );
-        } else {
-          Alert.alert('Verification Failed', verifyData.message);
-        }
-      })
+     // .catch((error) => {
+       // console.log('Payment Failed:', error);
+      //  Alert.alert('Payment Cancelled');
+     // });
+
       .catch((error) => {
-        console.log("Payment Error:", error);
-        Alert.alert('Payment Failed', error.description || 'Payment cancelled or failed');
-      });
+    // handle failure
+    //alert(`Error: ${error.code} | ${error.description}`);
+console.log("Razorpay Error Object:", error);
+  alert(JSON.stringify(error));
+
+
+  });
+
+
 
   } catch (err) {
-    console.log("Error:", err.message);
-    Alert.alert('Error', err.message || 'Something went wrong');
+    console.log(err);
+    Alert.alert('Something went wrong');
   }
 };
+
 
 
   // Numpad Functions
@@ -193,21 +231,7 @@ const handlePayment = async () => {
     return amount + 10 + 1.80;
   };
 
-  if (showPaymentScreen) {
-    return (
-      <PaymentScreen
-        paymentAmount={paymentAmount}
-        setPaymentAmount={setPaymentAmount}
-        selectedGateway={selectedGateway}
-        setSelectedGateway={setSelectedGateway}
-        paymentGateways={paymentGateways}
-        handlePayment={handlePayment}
-        goBack={() => setShowPaymentScreen(false)}
-        calculateGrandTotal={calculateGrandTotal}
-        customerDetails={customerDetails}
-      />
-    );
-  }
+  
 
   return (
     <>
@@ -306,7 +330,9 @@ const handlePayment = async () => {
 
           {/* SLIDE TO PAY - DISABLED WHEN NO AMOUNT SELECTED */}
           <View style={styles.sectionContainer}>
-            <Text style={styles.sectionTitle}>Slide to Pay</Text>
+            <Text onPress={handlePayment} style={styles.sectionTitle}>
+              Slide to Pay
+            </Text>
             <View style={styles.slideContainer}>
               <View style={[styles.slideTrack, !selectedAmount && styles.disabledSlideTrack]}>
                 <Animated.View 
@@ -439,288 +465,7 @@ const handlePayment = async () => {
   );
 }
 
-// Payment Screen Component
-function PaymentScreen({ 
-  paymentAmount, 
-  setPaymentAmount, 
-  selectedGateway, 
-  setSelectedGateway, 
-  paymentGateways, 
-  handlePayment,
-  goBack,
-  calculateGrandTotal,
-  customerDetails 
-}) {
-  const [tempAmount, setTempAmount] = useState(paymentAmount);
-  const [showNumpad, setShowNumpad] = useState(false);
-  const [numpadValue, setNumpadValue] = useState(paymentAmount);
 
-  const handleAmountChange = (text) => {
-    const numericValue = text.replace(/[^0-9]/g, '');
-    setTempAmount(numericValue);
-  };
-
-  const handleAmountSubmit = () => {
-    const numAmount = parseFloat(tempAmount);
-    if (numAmount >= 100 && numAmount <= 50000) {
-      setPaymentAmount(tempAmount);
-      setNumpadValue(tempAmount);
-    } else {
-      Alert.alert('Invalid Amount', 'Amount must be between ₹100 and ₹50,000');
-      setTempAmount(paymentAmount);
-      setNumpadValue(paymentAmount);
-    }
-  };
-
-  // Numpad Functions for Payment Screen
-  const handleNumpadPress = (value) => {
-    if (value === 'backspace') {
-      setNumpadValue(prev => prev.slice(0, -1));
-    } else if (value === 'clear') {
-      setNumpadValue('');
-    } else if (value === 'done') {
-      const numAmount = parseFloat(numpadValue);
-      if (numAmount >= 100 && numAmount <= 50000) {
-        setPaymentAmount(numpadValue);
-        setTempAmount(numpadValue);
-        setShowNumpad(false);
-      } else {
-        Alert.alert('Invalid Amount', 'Amount must be between ₹100 and ₹50,000');
-      }
-    } else {
-      if (numpadValue.length < 5) {
-        setNumpadValue(prev => prev + value);
-      }
-    }
-  };
-
-  const openNumpad = () => {
-    setNumpadValue(tempAmount || '');
-    setShowNumpad(true);
-  };
-
-  const grandTotal = calculateGrandTotal();
-
-  return (
-    <>
-      <ScrollView style={styles.paymentScrollView} showsVerticalScrollIndicator={false}>
-        {/* PAYMENT HEADER */}
-        <View style={styles.paymentHeader}>
-          <TouchableOpacity onPress={goBack} style={styles.backButton}>
-            <Text style={styles.backButtonText}>←</Text>
-          </TouchableOpacity>
-          <Text style={styles.paymentHeaderTitle}>Online Recharge Portal</Text>
-        </View>
-
-        <View style={styles.paymentContent}>
-          {/* CUSTOMER DETAILS */}
-          <View style={styles.customerDetailsCard}>
-            <Text style={styles.customerDetailsTitle}>📋 Customer Details</Text>
-            <View style={styles.customerDetailRow}>
-              <Text style={styles.customerDetailLabel}>Account ID:</Text>
-              <Text style={styles.customerDetailValue}>{customerDetails.accountId}</Text>
-            </View>
-            <View style={styles.customerDetailRow}>
-              <Text style={styles.customerDetailLabel}>Name:</Text>
-              <Text style={styles.customerDetailValue}>{customerDetails.name}</Text>
-            </View>
-            <View style={styles.customerDetailRow}>
-              <Text style={styles.customerDetailLabel}>Meter No:</Text>
-              <Text style={styles.customerDetailValue}>{customerDetails.meterNo}</Text>
-            </View>
-          </View>
-
-          {/* PAYMENT DETAILS CARD */}
-          <View style={styles.paymentCard}>
-            <View style={styles.paymentDetailRow}>
-              <Text style={styles.paymentDetailLabel}>User Id:</Text>
-              <Text style={styles.paymentDetailValue}>500017020001</Text>
-            </View>
-            <View style={styles.paymentDetailRow}>
-              <Text style={styles.paymentDetailLabel}>Payment Mode:</Text>
-              <Text style={styles.paymentDetailValue}>GRID</Text>
-            </View>
-          </View>
-
-          {/* AMOUNT INPUT */}
-          <View style={styles.sectionContainer}>
-            <Text style={styles.sectionTitle}>Amount (₹)</Text>
-            <TouchableOpacity 
-              style={styles.amountInputCard}
-              onPress={openNumpad}
-              activeOpacity={0.8}
-            >
-              <View style={styles.amountInputContainer}>
-                <Text style={styles.inputCurrencySymbol}>₹</Text>
-                <TextInput
-                  style={styles.amountInput}
-                  value={tempAmount}
-                  onChangeText={handleAmountChange}
-                  onBlur={handleAmountSubmit}
-                  keyboardType="numeric"
-                  placeholder="Tap to enter amount"
-                  placeholderTextColor="#999"
-                  editable={false}
-                />
-                <TouchableOpacity 
-                  style={styles.numpadIcon}
-                  onPress={openNumpad}
-                >
-                  <Text style={styles.numpadIconText}>⌨️</Text>
-                  <Text style={styles.numpadIconSubtext}>Tap</Text>
-                </TouchableOpacity>
-              </View>
-              <Text style={styles.amountNote}>Enter amount between ₹100 - ₹50,000</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* PAYMENT GATEWAY SELECTION */}
-          <View style={styles.sectionContainer}>
-            <Text style={styles.sectionTitle}>Payment Gateway</Text>
-            <Text style={styles.sectionSubtitle}>Select Payment Gateway</Text>
-            <View style={styles.gatewayGrid}>
-              {paymentGateways.map((gateway) => (
-                <TouchableOpacity
-                  key={gateway.id}
-                  style={[
-                    styles.gatewayCard,
-                    selectedGateway?.id === gateway.id && styles.selectedGatewayCard,
-                    { borderColor: gateway.color }
-                  ]}
-                  onPress={() => setSelectedGateway(gateway)}
-                  activeOpacity={0.7}
-                >
-                  <View style={[styles.gatewayIcon, { backgroundColor: gateway.color }]}>
-                    <Text style={styles.gatewayIconText}>{gateway.name.charAt(0)}</Text>
-                  </View>
-                  <Text style={styles.gatewayName}>{gateway.name}</Text>
-                  {selectedGateway?.id === gateway.id && (
-                    <View style={styles.selectedCheck}>
-                      <Text style={styles.selectedCheckText}>✓</Text>
-                    </View>
-                  )}
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-
-          {/* PAYMENT SUMMARY */}
-          <View style={styles.sectionContainer}>
-            <Text style={styles.sectionTitle}>Payment Summary</Text>
-            <View style={styles.summaryCard}>
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Recharge Amount:</Text>
-                <Text style={styles.summaryValue}>₹ {paymentAmount || '0'}</Text>
-              </View>
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Token Charge:</Text>
-                <Text style={styles.summaryValue}>₹ 10.00</Text>
-              </View>
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>IGST (Rs.):</Text>
-                <Text style={styles.summaryValue}>₹ 1.80</Text>
-              </View>
-              <View style={styles.divider} />
-              <View style={styles.grandTotalRow}>
-                <Text style={styles.grandTotalLabel}>Grand Total (Rs.):</Text>
-                <Text style={styles.grandTotalValue}>₹ {grandTotal.toFixed(2)}</Text>
-              </View>
-            </View>
-          </View>
-
-          {/* PAY BUTTON */}
-          <TouchableOpacity 
-            style={[
-              styles.confirmPayButton,
-              (!selectedGateway || !paymentAmount || parseFloat(paymentAmount) < 100) && styles.disabledButton
-            ]}
-            onPress={handlePayment}
-            disabled={!selectedGateway || !paymentAmount || parseFloat(paymentAmount) < 100}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.confirmPayButtonText}>
-              PAY ₹ {grandTotal.toFixed(2)}
-            </Text>
-            <Text style={styles.confirmPayButtonSubtext}>Secure Payment</Text>
-          </TouchableOpacity>
-
-          {/* SECURITY INFO */}
-          <View style={styles.securityInfo}>
-            <Text style={styles.securityTitle}>🔒 Secure Payment</Text>
-            <Text style={styles.securityText}>• 256-bit SSL encryption</Text>
-            <Text style={styles.securityText}>• PCI DSS compliant</Text>
-            <Text style={styles.securityText}>• No card details stored</Text>
-          </View>
-        </View>
-      </ScrollView>
-
-      {/* NUMPAD MODAL FOR PAYMENT SCREEN */}
-      <Modal
-        visible={showNumpad}
-        transparent={true}
-        animationType="slide"
-      >
-        <TouchableWithoutFeedback onPress={() => setShowNumpad(false)}>
-          <View style={styles.modalOverlay}>
-            <TouchableWithoutFeedback>
-              <View style={styles.numpadContainer}>
-                <View style={styles.numpadHeader}>
-                  <Text style={styles.numpadTitle}>Enter Payment Amount (₹)</Text>
-                  <TouchableOpacity onPress={() => setShowNumpad(false)}>
-                    <Text style={styles.numpadClose}>✕</Text>
-                  </TouchableOpacity>
-                </View>
-                
-                <View style={styles.numpadDisplay}>
-                  <Text style={styles.numpadCurrency}>₹</Text>
-                  <Text style={styles.numpadAmount}>
-                    {numpadValue || '0'}
-                  </Text>
-                </View>
-
-                <View style={styles.numpadGrid}>
-                  {['1', '2', '3', '4', '5', '6', '7', '8', '9', '00', '0', 'backspace'].map((item) => (
-                    <TouchableOpacity
-                      key={item}
-                      style={[
-                        styles.numpadKey,
-                        item === 'backspace' && styles.numpadSpecialKey
-                      ]}
-                      onPress={() => handleNumpadPress(item)}
-                      activeOpacity={0.7}
-                    >
-                      {item === 'backspace' ? (
-                        <Text style={styles.numpadSpecialText}>⌫</Text>
-                      ) : (
-                        <Text style={styles.numpadKeyText}>{item}</Text>
-                      )}
-                    </TouchableOpacity>
-                  ))}
-                </View>
-
-                <View style={styles.numpadActions}>
-                  <TouchableOpacity 
-                    style={styles.numpadActionClear}
-                    onPress={() => handleNumpadPress('clear')}
-                  >
-                    <Text style={styles.numpadActionText}>Clear</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity 
-                    style={styles.numpadActionDone}
-                    onPress={() => handleNumpadPress('done')}
-                    disabled={!numpadValue || parseFloat(numpadValue) < 100}
-                  >
-                    <Text style={styles.numpadActionDoneText}>Set Amount</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </TouchableWithoutFeedback>
-          </View>
-        </TouchableWithoutFeedback>
-      </Modal>
-    </>
-  );
-}
 
 const styles = StyleSheet.create({
   // Main Screen Styles
