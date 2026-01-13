@@ -1,4 +1,4 @@
-
+// AuthContext.js
 import React, { createContext, useContext, useState, useEffect } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Alert } from "react-native";
@@ -11,6 +11,11 @@ const AuthContext = createContext({
   login: async (userid, password) => ({ success: false, message: "" }), 
   logout: async () => {},
   setError: (msg) => {},
+  // Helper functions
+  getSiteId: () => null,
+  getSlug: () => null,
+  getSiteName: () => null,
+  updateUserData: async (newData) => {},
 });
 
 export const useAuth = () => useContext(AuthContext);
@@ -28,7 +33,8 @@ export const AuthProvider = ({ children }) => {
     try {
       const userData = await AsyncStorage.getItem("userData");
       if (userData) {
-        setUser(JSON.parse(userData));
+        const parsedData = JSON.parse(userData);
+        setUser(parsedData);
       }
     } catch (error) {
       console.error("Error checking login status:", error);
@@ -56,12 +62,10 @@ export const AuthProvider = ({ children }) => {
           "Accept": "application/json",
         },
         body: JSON.stringify({
-          
           userid: userid.trim(), 
           password: password.trim()
         }),
       });
-      
       
       const data = await response.json();
 
@@ -72,25 +76,26 @@ export const AuthProvider = ({ children }) => {
           site_name: data.site_name,
           slug: data.slug,
           device_id: data.device_id,
-          clusterID: data.clusterID
+          clusterID: data.clusterID,
+          // Save all data that might come from API
+          ...data
         };
 
-        await AsyncStorage.setItem("authToken", data.device_id);
+        // Save all data to AsyncStorage
         await AsyncStorage.setItem("userData", JSON.stringify(userToStore));
+        await AsyncStorage.setItem("authToken", data.device_id || "");
 
         setUser(userToStore);
         return { success: true, message: data.message };
         
       } else {
-        
         const errorMsg = data.message || `Login failed. Status: ${response.status}`;
         setError(errorMsg);
         return { success: false, message: errorMsg };
       }
       
     } catch (e) {
-      
-      const errorMsg = `A network error occurred. Please ensure your API is running and accessible at ${apiUrl}. Error: ${e.message}`;
+      const errorMsg = `A network error occurred. Please ensure your API is running and accessible. Error: ${e.message}`;
       setError(errorMsg);
       return { success: false, message: "A network error occurred." };
     }
@@ -108,6 +113,30 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  // Helper functions
+  const getSiteId = () => {
+    return user?.site_id || null;
+  };
+
+  const getSlug = () => {
+    return user?.slug || null;
+  };
+
+  const getSiteName = () => {
+    return user?.site_name || null;
+  };
+
+  // Update user data if needed
+  const updateUserData = async (newData) => {
+    try {
+      const updatedUser = { ...user, ...newData };
+      await AsyncStorage.setItem("userData", JSON.stringify(updatedUser));
+      setUser(updatedUser);
+    } catch (error) {
+      console.error("Error updating user data:", error);
+    }
+  };
+
   return (
     <AuthContext.Provider
       value={{ 
@@ -116,7 +145,11 @@ export const AuthProvider = ({ children }) => {
         error, 
         login, 
         logout,
-        setError 
+        setError,
+        getSiteId,
+        getSlug,
+        getSiteName,
+        updateUserData
       }}
     >
       {children}

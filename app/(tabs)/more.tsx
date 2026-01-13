@@ -8,41 +8,119 @@ import {
   View,
   Dimensions,
   ActivityIndicator,
-  RefreshControl,
+  RefreshControl
 } from 'react-native';
 import { Ionicons, MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
 import axios from 'axios';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getSiteDataUrl } from '../config';
+import { useAuth } from '../context/AuthContext'; // Adjust path as per your project
 
 const { width } = Dimensions.get('window');
 
 export default function MoreScreen() {
+  // AuthContext से data लें
+  const { user, getSiteId, getSlug, getSiteName } = useAuth();
+  
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [darkModeEnabled, setDarkModeEnabled] = useState(false);
   const [siteData, setSiteData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [siteInfo, setSiteInfo] = useState({
+    siteName: null,
+    siteId: null,
+    slug: null
+  });
 
   const menuItems = [
-    { title: 'Profile', icon: '👤', description: 'Manage profile' },
-    { title: 'Notifications', icon: '🔔', description: 'Alert settings' },
-    { title: 'Devices', icon: '🔧', description: 'Manage meters' },
-    { title: 'Support', icon: '🆘', description: 'Help center' },
-    { title: 'About', icon: 'ℹ️', description: 'App info' },
+    { 
+      title: 'Profile', 
+      icon: '👤', 
+      description: 'Manage profile' 
+    },
+    { 
+      title: 'Notifications', 
+      icon: '🔔', 
+      description: 'Alert settings' 
+    },
+    { 
+      title: 'Devices', 
+      icon: '🔧', 
+      description: 'Manage meters' 
+    },
+    { 
+      title: 'Support', 
+      icon: '🆘', 
+      description: 'Help center' 
+    },
+    { 
+      title: 'About', 
+      icon: 'ℹ️', 
+      description: 'App info' 
+    },
   ];
 
+  // Load site info from AuthContext or AsyncStorage
   useEffect(() => {
-    fetchSiteData();
-  }, []);
+    const loadSiteInfo = async () => {
+      try {
+        // Priority 1: AuthContext से
+        const authSiteName = getSiteName();
+        const authSiteId = getSiteId();
+        const authSlug = getSlug();
+        
+        if (authSiteName && authSiteId) {
+          setSiteInfo({
+            siteName: authSiteName,
+            siteId: authSiteId,
+            slug: authSlug
+          });
+          return;
+        }
+        
+        // Priority 2: AsyncStorage से directly
+        const userData = await AsyncStorage.getItem("userData");
+        if (userData) {
+          const parsedData = JSON.parse(userData);
+          setSiteInfo({
+            siteName: parsedData.site_name,
+            siteId: parsedData.site_id,
+            slug: parsedData.slug
+          });
+        }
+        
+      } catch (error) {
+        console.error("Error loading site info:", error);
+      }
+    };
+    
+    loadSiteInfo();
+  }, [user]);
+
+  useEffect(() => {
+    if (siteInfo.siteName) {
+      fetchSiteData();
+    }
+  }, [siteInfo.siteName]);
 
   const fetchSiteData = async () => {
     try {
-      const response = await axios.get(getSiteDataUrl('neelkanth-1'));
+      setLoading(true);
+      
+      // Use slug if available, otherwise use siteName
+      const slugToUse = siteInfo.slug || siteInfo.siteName;
+      if (!slugToUse) {
+        setLoading(false);
+        return;
+      }
+      
+      const response = await axios.get(getSiteDataUrl(slugToUse));
       if (response.data && response.data.success) {
         setSiteData(response.data);
       }
     } catch (err) {
-      console.error('Error fetching site data:', err);
+      console.error("Error fetching site data:", err);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -55,21 +133,33 @@ export default function MoreScreen() {
   };
 
   const getConnectionStatus = () => {
+    if (!siteData) return 'UNKNOWN';
     const relayStatus = siteData?.asset_information?.site_values?.relay_status;
-    if (relayStatus === undefined) return 'UNKNOWN';
-    return relayStatus ? 'CONNECTED' : 'DISCONNECTED';
+    return relayStatus !== undefined ? 
+      (relayStatus ? 'CONNECTED' : 'DISCONNECTED') : 'UNKNOWN';
   };
 
   const renderAPIDataTile = () => {
-    if (!siteData?.asset_information) {
+    if (!siteData || !siteData.asset_information) {
       return (
         <View style={styles.errorContainer}>
           <Ionicons name="alert-circle-outline" size={50} color="#6b7280" />
-          <Text style={styles.errorText}>No data available</Text>
-          <TouchableOpacity style={styles.retryButton} onPress={fetchSiteData}>
-            <Ionicons name="refresh" size={18} color="#fff" />
-            <Text style={styles.retryButtonText}> Try Again</Text>
-          </TouchableOpacity>
+          <Text style={styles.errorText}>
+            {siteInfo.siteName ? 
+              `No data available for ${siteInfo.siteName}` : 
+              'No site information found'
+            }
+          </Text>
+          {siteInfo.siteName ? (
+            <TouchableOpacity style={styles.retryButton} onPress={fetchSiteData}>
+              <Ionicons name="refresh" size={18} color="#fff" />
+              <Text style={styles.retryButtonText}> Try Again</Text>
+            </TouchableOpacity>
+          ) : (
+            <Text style={styles.loginPrompt}>
+              Please login to view site details
+            </Text>
+          )}
         </View>
       );
     }
@@ -89,94 +179,184 @@ export default function MoreScreen() {
               <FontAwesome5 name="building" size={24} color="#0b63a8" />
             </View>
             <View>
-              <Text style={styles.siteName}>{asset_information.site_name || 'Site Name'}</Text>
+              <Text style={styles.siteName}>
+                {asset_information.site_name || siteInfo.siteName || 'Site Name'}
+              </Text>
               <View style={styles.siteLocation}>
                 <Ionicons name="location-outline" size={14} color="#6b7280" />
                 <Text style={styles.locationText}>
-                  {asset_information.location || 'Location'}
+                  {asset_information.location || 'Location not specified'}
                 </Text>
               </View>
+              {user?.name && (
+                <Text style={styles.userInfo}>
+                  Logged in as: {user.name}
+                </Text>
+              )}
             </View>
           </View>
           <View style={[styles.statusBadge, isConnected ? styles.connected : styles.disconnected]}>
-            <View
-              style={[styles.statusDot, isConnected ? styles.dotConnected : styles.dotDisconnected]}
-            />
+            <View style={[styles.statusDot, isConnected ? styles.dotConnected : styles.dotDisconnected]} />
             <Text style={styles.statusText}>{isConnected ? 'Connected' : 'Disconnected'}</Text>
           </View>
         </View>
 
+       
+
         {/* Charges Information */}
         <View style={styles.chargesContainer}>
           <Text style={styles.sectionHeaderText}>Charges</Text>
+          
           <View style={styles.chargesGrid}>
-            {[
-              { label: 'Meter Unit Charge', value: asset_information.m_unit_charge, icon: 'receipt-outline', color: '#0b63a8' },
-              { label: 'Meter Fixed Charge', value: asset_information.m_fixed_charge, icon: 'calendar-outline', color: '#0b63a8' },
-              { label: 'DG Unit Charge', value: asset_information.dg_unit_charge, icon: 'flash-outline', color: '#f59e0b' },
-              { label: 'DG Fixed Charge', value: asset_information.dg_fixed_charge, icon: 'time-outline', color: '#f59e0b' },
-            ].map((item, idx) => (
-              <View key={idx} style={styles.chargeCard}>
-                <View style={styles.chargeIcon}>
-                  <Ionicons name={item.icon} size={18} color={item.color} />
-                </View>
-                <View style={styles.chargeContent}>
-                  <Text style={styles.chargeLabel}>{item.label}</Text>
-                  <Text style={styles.chargeValue}>₹{item.value?.toFixed(2) || '0.00'}</Text>
-                </View>
+            <View style={styles.chargeCard}>
+              <View style={styles.chargeIcon}>
+                <Ionicons name="receipt-outline" size={18} color="#0b63a8" />
               </View>
-            ))}
+              <View style={styles.chargeContent}>
+                <Text style={styles.chargeLabel}>Meter Unit Charge</Text>
+                <Text style={styles.chargeValue}>
+                  ₹{asset_information.m_unit_charge?.toFixed(2) || '0.00'}
+                </Text>
+              </View>
+            </View>
+            
+            <View style={styles.chargeCard}>
+              <View style={styles.chargeIcon}>
+                <Ionicons name="calendar-outline" size={18} color="#0b63a8" />
+              </View>
+              <View style={styles.chargeContent}>
+                <Text style={styles.chargeLabel}>Meter Fixed Charge</Text>
+                <Text style={styles.chargeValue}>
+                  ₹{asset_information.m_fixed_charge?.toFixed(2) || '0.00'}
+                </Text>
+              </View>
+            </View>
+            
+            <View style={styles.chargeCard}>
+              <View style={styles.chargeIcon}>
+                <Ionicons name="flash-outline" size={18} color="#f59e0b" />
+              </View>
+              <View style={styles.chargeContent}>
+                <Text style={styles.chargeLabel}>DG Unit Charge</Text>
+                <Text style={styles.chargeValue}>
+                  ₹{asset_information.dg_unit_charge?.toFixed(2) || '0.00'}
+                </Text>
+              </View>
+            </View>
+            
+            <View style={styles.chargeCard}>
+              <View style={styles.chargeIcon}>
+                <Ionicons name="time-outline" size={18} color="#f59e0b" />
+              </View>
+              <View style={styles.chargeContent}>
+                <Text style={styles.chargeLabel}>DG Fixed Charge</Text>
+                <Text style={styles.chargeValue}>
+                  ₹{asset_information.dg_fixed_charge?.toFixed(2) || '0.00'}
+                </Text>
+              </View>
+            </View>
           </View>
         </View>
 
         {/* Site Status */}
         <View style={styles.statusContainer}>
           <Text style={styles.sectionHeaderText}>Site Status</Text>
+          
           <View style={styles.statusGrid}>
-            {[
-              { key: 'low_balance_cut', label: 'Low Balance', iconOn: 'warning', iconOff: 'check-circle' },
-              { key: 'dg_overload_trip', label: 'DG Overload', iconOn: 'alert-circle-outline', iconOff: 'checkmark-circle-outline' },
-              { key: 'overload_limit_reached', label: 'Overload Limit', iconOn: 'error-outline', iconOff: 'done-outline' },
-              { key: 'force_off', label: 'Supply', iconOn: 'power-off', iconOff: 'power-settings-new' },
-            ].map((item, idx) => {
-              const isError = siteValues?.[item.key];
-              return (
-                <View key={idx} style={[styles.statusCard, !isError && styles.statusOk]}>
-                  <MaterialIcons
-                    name={isError ? item.iconOn : item.iconOff}
-                    size={20}
-                    color={isError ? '#ef4444' : '#10b981'}
-                  />
-                  <Text style={styles.statusTextSmall}>{item.label}</Text>
-                  <Text style={[styles.statusValueSmall, isError && styles.statusError]}>
-                    {isError ? 'Issue' : 'Normal'}
-                  </Text>
-                </View>
-              );
-            })}
+            <View style={[styles.statusCard, !siteValues.low_balance_cut && styles.statusOk]}>
+              <MaterialIcons 
+                name={siteValues.low_balance_cut ? "warning" : "check-circle"} 
+                size={20} 
+                color={siteValues.low_balance_cut ? "#ef4444" : "#10b981"} 
+              />
+              <Text style={styles.statusTextSmall}>Low Balance</Text>
+              <Text style={[styles.statusValueSmall, siteValues.low_balance_cut && styles.statusError]}>
+                {siteValues.low_balance_cut ? 'Cut' : 'Normal'}
+              </Text>
+            </View>
+            
+            <View style={[styles.statusCard, !siteValues.dg_overload_trip && styles.statusOk]}>
+              <Ionicons 
+                name={siteValues.dg_overload_trip ? "alert-circle-outline" : "checkmark-circle-outline"} 
+                size={20} 
+                color={siteValues.dg_overload_trip ? "#ef4444" : "#10b981"} 
+              />
+              <Text style={styles.statusTextSmall}>DG Overload</Text>
+              <Text style={[styles.statusValueSmall, siteValues.dg_overload_trip && styles.statusError]}>
+                {siteValues.dg_overload_trip ? 'Tripped' : 'Normal'}
+              </Text>
+            </View>
+            
+            <View style={[styles.statusCard, !siteValues.overload_limit_reached && styles.statusOk]}>
+              <MaterialIcons 
+                name={siteValues.overload_limit_reached ? "error-outline" : "done-outline"} 
+                size={20} 
+                color={siteValues.overload_limit_reached ? "#ef4444" : "#10b981"} 
+              />
+              <Text style={styles.statusTextSmall}>Overload Limit</Text>
+              <Text style={[styles.statusValueSmall, siteValues.overload_limit_reached && styles.statusError]}>
+                {siteValues.overload_limit_reached ? 'Reached' : 'Normal'}
+              </Text>
+            </View>
+            
+            <View style={[styles.statusCard, !siteValues.force_off && styles.statusOk]}>
+              <MaterialIcons 
+                name={siteValues.force_off ? "power-off" : "power-settings-new"} 
+                size={20} 
+                color={siteValues.force_off ? "#ef4444" : "#10b981"} 
+              />
+              <Text style={styles.statusTextSmall}>Supply</Text>
+              <Text style={[styles.statusValueSmall, siteValues.force_off && styles.statusError]}>
+                {siteValues.force_off ? 'Force Off' : 'Normal'}
+              </Text>
+            </View>
           </View>
         </View>
 
         {/* Meter Information */}
         <View style={styles.meterContainer}>
           <Text style={styles.sectionHeaderText}>Meter Details</Text>
+          
           <View style={styles.meterCard}>
-            {[
-              { label: 'Meter Name', value: asset_information.meter_name, icon: <Ionicons name="hardware-chip-outline" size={18} color="#6b7280" /> },
-              { label: 'Controller', value: asset_information.controller, icon: <MaterialIcons name="developer-board" size={18} color="#6b7280" /> },
-              { label: 'Custom Name', value: asset_information.custom_name, icon: <Ionicons name="person-circle-outline" size={18} color="#6b7280" /> },
-            ].map((item, idx) => (
-              <React.Fragment key={idx}>
-                <View style={styles.meterRow}>
-                  <View style={styles.meterIcon}>{item.icon}</View>
-                  <View style={styles.meterContent}>
-                    <Text style={styles.meterLabel}>{item.label}</Text>
-                    <Text style={styles.meterValue}>{item.value || 'N/A'}</Text>
-                  </View>
-                </View>
-                {idx < 2 && <View style={styles.divider} />}
-              </React.Fragment>
-            ))}
+            <View style={styles.meterRow}>
+              <View style={styles.meterIcon}>
+                <Ionicons name="hardware-chip-outline" size={18} color="#6b7280" />
+              </View>
+              <View style={styles.meterContent}>
+                <Text style={styles.meterLabel}>Meter Name</Text>
+                <Text style={styles.meterValue}>
+                  {asset_information.meter_name || 'Not specified'}
+                </Text>
+              </View>
+            </View>
+            
+            <View style={styles.divider} />
+            
+            <View style={styles.meterRow}>
+              <View style={styles.meterIcon}>
+                <MaterialIcons name="developer-board" size={18} color="#6b7280" />
+              </View>
+              <View style={styles.meterContent}>
+                <Text style={styles.meterLabel}>Controller</Text>
+                <Text style={styles.meterValue}>
+                  {asset_information.controller || 'Not specified'}
+                </Text>
+              </View>
+            </View>
+            
+            <View style={styles.divider} />
+            
+            <View style={styles.meterRow}>
+              <View style={styles.meterIcon}>
+                <Ionicons name="person-circle-outline" size={18} color="#6b7280" />
+              </View>
+              <View style={styles.meterContent}>
+                <Text style={styles.meterLabel}>Custom Name</Text>
+                <Text style={styles.meterValue}>
+                  {asset_information.custom_name || 'Not specified'}
+                </Text>
+              </View>
+            </View>
           </View>
         </View>
       </View>
@@ -187,13 +367,23 @@ export default function MoreScreen() {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#0b63a8" />
-        <Text style={styles.loadingText}>Loading site information...</Text>
+        <Text style={styles.loadingText}>
+          {siteInfo.siteName ? 
+            `Loading ${siteInfo.siteName} details...` : 
+            'Loading site information...'
+          }
+        </Text>
+        {siteInfo.siteId && (
+          <Text style={styles.siteIdText}>
+            Site ID: {siteInfo.siteId}
+          </Text>
+        )}
       </View>
     );
   }
 
   return (
-    <ScrollView
+    <ScrollView 
       style={styles.container}
       showsVerticalScrollIndicator={false}
       refreshControl={
@@ -207,7 +397,9 @@ export default function MoreScreen() {
     >
       {/* Page Header */}
       <View style={styles.pageHeader}>
-        <Text style={styles.pageTitle}>Site Details</Text>
+        <Text style={styles.pageTitle}>
+          {siteInfo.siteName ? `Site: ${siteInfo.siteName}` : 'Site Details'}
+        </Text>
         <TouchableOpacity style={styles.refreshBtn} onPress={onRefresh}>
           <Ionicons name="refresh-outline" size={22} color="#0b63a8" />
         </TouchableOpacity>
@@ -216,10 +408,11 @@ export default function MoreScreen() {
       {/* Main Content */}
       <View style={styles.mainContent}>
         {renderAPIDataTile()}
-
-        {/* Settings Section */}
+        
+        {/* Settings */}
         <View style={styles.settingsSection}>
           <Text style={styles.sectionTitle}>Settings</Text>
+          
           <View style={styles.settingsCard}>
             <View style={styles.settingItem}>
               <View style={styles.settingLeft}>
@@ -238,9 +431,9 @@ export default function MoreScreen() {
                 thumbColor={notificationsEnabled ? '#10b981' : '#9ca3af'}
               />
             </View>
-
+            
             <View style={styles.horizontalDivider} />
-
+            
             <View style={styles.settingItem}>
               <View style={styles.settingLeft}>
                 <View style={styles.settingIconContainer}>
@@ -260,10 +453,51 @@ export default function MoreScreen() {
             </View>
           </View>
         </View>
+
+        {/* Quick Menu */}
+        <View style={styles.menuSection}>
+          <Text style={styles.sectionTitle}>Quick Menu</Text>
+          
+          <View style={styles.menuGrid}>
+            {menuItems.map((item, index) => (
+              <TouchableOpacity key={index} style={styles.menuItem}>
+                <View style={styles.menuIconBox}>
+                  <Text style={styles.menuIconText}>{item.icon}</Text>
+                </View>
+                <Text style={styles.menuItemTitle}>{item.title}</Text>
+                <Text style={styles.menuItemDesc}>{item.description}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+
+        {/* App Info */}
+        <View style={styles.appInfo}>
+          <View style={styles.appLogo}>
+            <Ionicons name="flash-outline" size={32} color="#0b63a8" />
+          </View>
+          <Text style={styles.appName}>Energy Meter</Text>
+          <Text style={styles.appVersion}>Version 2.1.0</Text>
+          <Text style={styles.appTagline}>Smart Energy Monitoring</Text>
+          {user?.name && (
+            <Text style={styles.userEmail}>
+              User: {user.name}
+            </Text>
+          )}
+          {siteInfo.siteName && (
+            <Text style={styles.siteInfo}>
+              Site: {siteInfo.siteName}
+            </Text>
+          )}
+          <Text style={styles.appCopyright}>© 2024 Energy Solutions</Text>
+        </View>
+
+        <View style={styles.bottomSpacer} />
       </View>
     </ScrollView>
   );
 }
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -274,11 +508,18 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#f9fafb',
+    padding: 20,
   },
   loadingText: {
     marginTop: 12,
     color: '#6b7280',
     fontSize: 16,
+    textAlign: 'center',
+  },
+  siteIdText: {
+    marginTop: 8,
+    color: '#94a3b8',
+    fontSize: 14,
   },
   errorContainer: {
     backgroundColor: '#fff',
@@ -294,6 +535,12 @@ const styles = StyleSheet.create({
     color: '#374151',
     marginTop: 12,
     marginBottom: 16,
+    textAlign: 'center',
+  },
+  loginPrompt: {
+    fontSize: 14,
+    color: '#ef4444',
+    marginTop: 8,
     textAlign: 'center',
   },
   retryButton: {
@@ -321,9 +568,10 @@ const styles = StyleSheet.create({
     borderBottomColor: '#f3f4f6',
   },
   pageTitle: {
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: '700',
     color: '#111827',
+    flex: 1,
   },
   refreshBtn: {
     width: 40,
@@ -348,7 +596,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
@@ -357,7 +605,7 @@ const styles = StyleSheet.create({
   },
   siteHeaderLeft: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     flex: 1,
   },
   siteIcon: {
@@ -378,10 +626,16 @@ const styles = StyleSheet.create({
   siteLocation: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginBottom: 4,
   },
   locationText: {
     fontSize: 13,
     color: '#6b7280',
+  },
+  userInfo: {
+    fontSize: 12,
+    color: '#9ca3af',
+    marginTop: 4,
   },
   statusBadge: {
     flexDirection: 'row',
@@ -390,6 +644,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 16,
     backgroundColor: '#f3f4f6',
+    marginTop: 4,
   },
   connected: {
     backgroundColor: '#d1fae5',
@@ -413,140 +668,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
-  keyMetricsContainer: {
-    marginBottom: 24,
-  },
   sectionHeaderText: {
     fontSize: 18,
     fontWeight: '600',
     color: '#111827',
     marginBottom: 16,
     marginHorizontal: 16,
-  },
-  metricsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    paddingHorizontal: 16,
-    justifyContent: 'space-between',
-  },
-  metricCard: {
-    width: '48%',
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#f3f4f6',
-  },
-  gridCard: {
-    borderLeftWidth: 4,
-    borderLeftColor: '#10b981',
-  },
-  dgCard: {
-    borderLeftWidth: 4,
-    borderLeftColor: '#f59e0b',
-  },
-  balanceCard: {
-    borderLeftWidth: 4,
-    borderLeftColor: '#0b63a8',
-  },
-  powerCard: {
-    borderLeftWidth: 4,
-    borderLeftColor: '#8b5cf6',
-  },
-  metricHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  metricLabel: {
-    fontSize: 12,
-    color: '#6b7280',
-    marginLeft: 8,
-  },
-  metricValue: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#111827',
-  },
-  parametersContainer: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
-    marginHorizontal: 16,
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: '#f3f4f6',
-  },
-  parametersRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  parameterItem: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  parameterLabel: {
-    fontSize: 12,
-    color: '#6b7280',
-    marginBottom: 4,
-  },
-  parameterValue: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#111827',
-  },
-  parameterDivider: {
-    width: 1,
-    height: 30,
-    backgroundColor: '#e5e7eb',
-  },
-  voltageCurrentContainer: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
-    marginHorizontal: 16,
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: '#f3f4f6',
-  },
-  vcSection: {
-    flex: 1,
-  },
-  vcHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  vcTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#111827',
-    marginLeft: 8,
-  },
-  vcGrid: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  vcItem: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  vcLabel: {
-    fontSize: 12,
-    color: '#6b7280',
-    marginBottom: 4,
-  },
-  vcValue: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#111827',
-  },
-  vcDivider: {
-    height: 1,
-    backgroundColor: '#e5e7eb',
-    marginVertical: 16,
   },
   chargesContainer: {
     marginBottom: 20,
@@ -798,10 +925,20 @@ const styles = StyleSheet.create({
     color: '#4b5563',
     marginBottom: 4,
   },
+  userEmail: {
+    fontSize: 12,
+    color: '#6b7280',
+    marginTop: 8,
+  },
+  siteInfo: {
+    fontSize: 12,
+    color: '#6b7280',
+    marginTop: 4,
+  },
   appCopyright: {
     fontSize: 12,
     color: '#9ca3af',
-    marginTop: 8,
+    marginTop: 12,
   },
   bottomSpacer: {
     height: 20,
