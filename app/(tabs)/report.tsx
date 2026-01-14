@@ -21,8 +21,8 @@ export default function EnergyReport() {
   const [selectedYear, setSelectedYear] = useState(currentDate.getFullYear().toString());
   const [selectedMonth, setSelectedMonth] = useState(currentDate.toLocaleString('default', { month: 'long' }));
   const [loading, setLoading] = useState(true);
-  const [hoveredIndex, setHoveredIndex] = useState(0);
-  const [showValueLabels, setShowValueLabels] = useState(true);
+  const [hoveredIndex, setHoveredIndex] = useState(null);
+  const [showAllValues, setShowAllValues] = useState(true); // Default: show all values
   
   const [dailyData, setDailyData] = useState([]);
   const [monthlyData, setMonthlyData] = useState([]);
@@ -105,7 +105,7 @@ export default function EnergyReport() {
         }));
         setDailyData(data);
         calculateStats(data, 'daily');
-        setHoveredIndex(0);
+        setHoveredIndex(null);
       } else {
         const sampleData = generateSampleDailyData();
         setDailyData(sampleData);
@@ -129,7 +129,7 @@ export default function EnergyReport() {
         const processedData = processYearlyResponse(response.data);
         setMonthlyData(processedData);
         calculateStats(processedData, 'monthly');
-        setHoveredIndex(0);
+        setHoveredIndex(null);
       } else {
         const sampleData = generateSampleMonthlyData();
         setMonthlyData(sampleData);
@@ -264,8 +264,8 @@ export default function EnergyReport() {
 
   const handleViewChange = (viewType) => {
     setTimeView(viewType);
-    setHoveredIndex(0);
-    setShowValueLabels(true);
+    setHoveredIndex(null);
+    setShowAllValues(true); // Reset to show all values when view changes
   };
 
   const exportPDF = async () => {
@@ -359,7 +359,26 @@ export default function EnergyReport() {
     const currentData = getCurrentData();
     const values = isAmount ? currentData.amtValues : currentData.unitValues;
     const maxValue = Math.max(...values.filter(v => !isNaN(v)), 1);
+    const dataLength = timeView === 'daily' ? dailyData.length : 12;
     
+    // Calculate dynamic bar width based on data length
+    const barWidth = timeView === 'daily' 
+      ? Math.max(8, Math.min(16, (width - 100) / Math.min(dataLength, 31)))
+      : Math.max(12, Math.min(22, (width - 100) / 12));
+    
+    const handleToggleValues = () => {
+      setShowAllValues(!showAllValues);
+      setHoveredIndex(null); // Reset hover when toggling
+    };
+
+    const handleBarPress = (index) => {
+      if (hoveredIndex === index) {
+        setHoveredIndex(null); // Unselect if already selected
+      } else {
+        setHoveredIndex(index); // Select the bar
+      }
+    };
+
     return (
       <View style={styles.card}>
         <View style={styles.cardHeader}>
@@ -375,6 +394,22 @@ export default function EnergyReport() {
           </TouchableOpacity>
         </View>
 
+        {/* Toggle Values Button */}
+        <TouchableOpacity 
+          style={styles.toggleValuesButton}
+          onPress={handleToggleValues}
+          activeOpacity={0.7}
+        >
+          <Ionicons 
+            name={showAllValues ? "eye-off-outline" : "eye-outline"} 
+            size={16} 
+            color="#02569B" 
+          />
+          <Text style={styles.toggleValuesText}>
+            {showAllValues ? 'Hide Values' : 'Show Values'}
+          </Text>
+        </TouchableOpacity>
+
         <View style={styles.graphBody}>
           <View style={styles.yAxis}>
             <Text style={styles.axisLabel}>{maxValue.toFixed(0)}</Text>
@@ -383,158 +418,137 @@ export default function EnergyReport() {
           
           <View style={styles.chartSpace}>
             {timeView === 'daily' ? (
-              <View style={styles.lineGraphContainer}>
-                <View style={[styles.areaShade, { 
-                  height: '50%', 
-                  backgroundColor: isAmount ? 'rgba(30,136,229,0.1)' : 'rgba(2, 86, 155, 0.1)' 
-                }]} />
-                
-                <View style={styles.horizontalLine} />
-                
+              <ScrollView 
+                horizontal
+                showsHorizontalScrollIndicator={true}
+                contentContainerStyle={styles.scrollableGraph}
+              >
                 <View style={styles.pointsRow}>
-                  {values.slice(0, Math.min(31, values.length)).map((v, i) => {
+                  {values.map((v, i) => {
                     const value = Number(v) || 0;
-                    const bottomPos = (value / maxValue) * 100;
-                    const isActive = hoveredIndex === i;
+                    const bottomPos = value > 0 ? (value / maxValue) * 100 : 0;
+                    const isSelected = hoveredIndex === i;
                     
                     return (
                       <TouchableOpacity 
                         key={i}
-                        style={styles.dotContainer}
-                        onPress={() => setHoveredIndex(i)}
+                        style={[styles.dotContainer, { width: barWidth + 8 }]}
+                        onPress={() => handleBarPress(i)}
                         activeOpacity={0.7}
                       >
                         <View style={[styles.connectingLine, { 
                           height: `${bottomPos}%`,
-                          backgroundColor: isActive ? 
+                          backgroundColor: isSelected ? 
                             (isAmount ? '#1E88E5' : '#02569B') : 
-                            'rgba(2, 86, 155, 0.2)'
+                            'rgba(2, 86, 155, 0.3)'
                         }]} />
                         
                         <View style={[
                           styles.dot, { 
                             bottom: `${bottomPos}%`,
                             backgroundColor: isAmount ? '#1E88E5' : '#02569B',
-                            transform: [{ scale: isActive ? 1.5 : 1 }]
+                            transform: [{ scale: isSelected ? 1.5 : 1 }]
                           }
                         ]} />
                         
-                        {/* Value Label - Show/Hide based on state */}
-                        {showValueLabels && value > 0 && (
-                          <View style={[styles.valueLabel, { bottom: `${bottomPos}%` }]}>
-                            <Text style={styles.valueLabelText}>
-                              {value.toFixed(0)}
+                        {/* Show value by default OR if selected */}
+                        {(showAllValues || isSelected) && value > 0 && (
+                          <View style={[styles.valueLabel, { 
+                            bottom: `${bottomPos + 5}%`,
+                            left: '50%',
+                            transform: [{ translateX: -20 }],
+                            backgroundColor: isSelected ? 
+                              (isAmount ? '#1E88E5' : '#02569B') : 
+                              'rgba(255, 255, 255, 0.95)'
+                          }]}>
+                            <Text style={[
+                              styles.valueLabelText,
+                              { color: isSelected ? '#FFFFFF' : colors.primary }
+                            ]}>
+                              {value.toFixed(1)}
                             </Text>
                           </View>
                         )}
+                        
+                        {/* Day number at bottom */}
+                        <Text style={[styles.dayLabel, { 
+                          bottom: -20,
+                          fontSize: dataLength > 20 ? 9 : 10,
+                          color: isSelected ? colors.primary : colors.gray400
+                        }]}>
+                          {i + 1}
+                        </Text>
                       </TouchableOpacity>
                     );
                   })}
                 </View>
-                
-                {/* Tooltip - Always shown for hovered item */}
-                {hoveredIndex !== null && values[hoveredIndex] > 0 && (
-                  <View style={[
-                    styles.tooltip, 
-                    { 
-                      left: `${(hoveredIndex / Math.min(31, values.length)) * 100}%`,
-                      bottom: `${(values[hoveredIndex] / maxValue) * 100 + 10}%`
-                    }
-                  ]}>
-                    <View style={styles.tooltipArrow} />
-                    <Text style={styles.tooltipText}>
-                      {currentData.labels[hoveredIndex] || `Day ${hoveredIndex + 1}`}
-                    </Text>
-                    <Text style={styles.tooltipValue}>
-                      {(values[hoveredIndex] || 0).toFixed(2)} {unit}
-                    </Text>
-                  </View>
-                )}
-                
-                <View style={styles.xAxis}>
-                  {['1','6','11','16','21','26','31'].map(d => 
-                    <Text key={d} style={styles.axisLabel}>{d}</Text>
-                  )}
-                </View>
-              </View>
+              </ScrollView>
             ) : (
-              <View style={styles.barGraphContainer}>
-                {values.slice(0, 12).map((v, i) => {
-                  const value = Number(v) || 0;
-                  const barHeight = (value / maxValue) * 100;
-                  const isActive = hoveredIndex === i;
-                  
-                  return (
-                    <TouchableOpacity 
-                      key={i}
-                      style={styles.barCol}
-                      onPress={() => setHoveredIndex(i)}
-                      activeOpacity={0.7}
-                    >
-                      <View style={[
-                        styles.bar, 
-                        { 
-                          height: `${barHeight}%`,
-                          backgroundColor: isAmount ? '#1E88E5' : '#02569B',
-                          opacity: isActive ? 1 : 0.8
-                        }
-                      ]} />
-                      
-                      {/* Value Label - Show/Hide based on state */}
-                      {showValueLabels && value > 0 && (
-                        <View style={[styles.barValueLabel, { bottom: `${barHeight}%` }]}>
-                          <Text style={styles.barValueText}>
-                            {value.toFixed(0)}
-                          </Text>
-                        </View>
-                      )}
-                      
-                      {i % 2 === 0 && (
-                        <Text style={styles.axisLabel}>
+              <ScrollView 
+                horizontal
+                showsHorizontalScrollIndicator={true}
+                contentContainerStyle={styles.scrollableGraph}
+              >
+                <View style={styles.barGraphContainer}>
+                  {values.map((v, i) => {
+                    const value = Number(v) || 0;
+                    const barHeight = value > 0 ? (value / maxValue) * 100 : 0;
+                    const isSelected = hoveredIndex === i;
+                    
+                    return (
+                      <TouchableOpacity 
+                        key={i}
+                        style={[styles.barCol, { width: barWidth + 10 }]}
+                        onPress={() => handleBarPress(i)}
+                        activeOpacity={0.7}
+                      >
+                        <View style={[
+                          styles.bar, 
+                          { 
+                            height: `${barHeight}%`,
+                            width: barWidth,
+                            backgroundColor: isAmount ? '#1E88E5' : '#02569B',
+                            opacity: isSelected ? 1 : 0.8
+                          }
+                        ]} />
+                        
+                        {/* Show value by default OR if selected */}
+                        {(showAllValues || isSelected) && value > 0 && (
+                          <View style={[styles.barValueLabel, { 
+                            bottom: `${barHeight + 5}%`,
+                            left: '50%',
+                            transform: [{ translateX: -20 }],
+                            backgroundColor: isSelected ? 
+                              (isAmount ? '#1E88E5' : '#02569B') : 
+                              'rgba(255, 255, 255, 0.95)'
+                          }]}>
+                            <Text style={[
+                              styles.barValueText,
+                              { color: isSelected ? '#FFFFFF' : colors.primary }
+                            ]}>
+                              {value.toFixed(isAmount ? 0 : 1)}
+                            </Text>
+                          </View>
+                        )}
+                        
+                        {/* Month abbreviation */}
+                        <Text style={[styles.monthLabel, { 
+                          marginTop: 4,
+                          fontSize: 10,
+                          textAlign: 'center',
+                          width: barWidth + 10,
+                          color: isSelected ? colors.primary : colors.gray400
+                        }]}>
                           {currentData.labels[i]?.slice(0,3) || months[i]?.slice(0,3)}
                         </Text>
-                      )}
-                    </TouchableOpacity>
-                  );
-                })}
-                
-                {/* Tooltip for monthly view */}
-                {hoveredIndex !== null && values[hoveredIndex] > 0 && (
-                  <View style={[
-                    styles.tooltip, 
-                    { 
-                      left: `${(hoveredIndex / 12) * 100}%`,
-                      bottom: `${(values[hoveredIndex] / maxValue) * 100 + 15}%`
-                    }
-                  ]}>
-                    <View style={styles.tooltipArrow} />
-                    <Text style={styles.tooltipText}>
-                      {currentData.labels[hoveredIndex]}
-                    </Text>
-                    <Text style={styles.tooltipValue}>
-                      {(values[hoveredIndex] || 0).toFixed(2)} {unit}
-                    </Text>
-                  </View>
-                )}
-              </View>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </ScrollView>
             )}
           </View>
         </View>
-
-        {/* Toggle Value Labels Button */}
-        <TouchableOpacity 
-          style={styles.toggleButton}
-          onPress={() => setShowValueLabels(!showValueLabels)}
-        >
-          <Ionicons 
-            name={showValueLabels ? "eye-off-outline" : "eye-outline"} 
-            size={16} 
-            color="#02569B" 
-          />
-          <Text style={styles.toggleText}>
-            {showValueLabels ? 'Hide Values' : 'Show Values'}
-          </Text>
-        </TouchableOpacity>
 
         <View style={styles.statsContainer}>
           <View style={styles.statBox}>
@@ -586,8 +600,14 @@ export default function EnergyReport() {
             <Text style={styles.summaryValue}>
               {hoveredIndex !== null && currentData.labels[hoveredIndex] ? 
                 `${currentData.labels[hoveredIndex]}: ${(values[hoveredIndex] || 0).toFixed(1)} ${unit}` : 
-                'Click on a point/bar'
+                'Tap on a bar to select'
               }
+            </Text>
+          </View>
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>Values Display:</Text>
+            <Text style={styles.summaryValue}>
+              {showAllValues ? 'All values shown' : 'Tap on bars to show values'}
             </Text>
           </View>
         </View>
@@ -946,8 +966,8 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 
-  // Toggle Button for Values
-  toggleButton: {
+  // Toggle Values Button
+  toggleValuesButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -958,11 +978,9 @@ const styles = StyleSheet.create({
     marginBottom: spacing.lg,
     borderWidth: 1,
     borderColor: colors.primary,
-    alignSelf: 'flex-start',
-    marginLeft: 'auto',
-    marginRight: 'auto',
+    alignSelf: 'flex-end',
   },
-  toggleText: {
+  toggleValuesText: {
     ...typography.small,
     color: colors.primary,
     fontWeight: '600',
@@ -971,7 +989,7 @@ const styles = StyleSheet.create({
 
   // Graph Components
   graphBody: {
-    height: 220,
+    height: 240,
     flexDirection: 'row',
     marginBottom: spacing.xl,
   },
@@ -986,6 +1004,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderColor: colors.gray300,
     position: 'relative',
+    overflow: 'hidden',
   },
   axisLabel: {
     ...typography.tiny,
@@ -993,38 +1012,41 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
 
+  // Scrollable graph content
+  scrollableGraph: {
+    paddingRight: spacing.md,
+    minWidth: '100%',
+  },
+
+  // Day Label (for daily view)
+  dayLabel: {
+    position: 'absolute',
+    ...typography.tiny,
+    color: colors.gray400,
+    fontWeight: '500',
+    textAlign: 'center',
+  },
+
+  // Month Label
+  monthLabel: {
+    ...typography.tiny,
+    fontWeight: '500',
+  },
+
   // Line Graph
-  lineGraphContainer: {
-    flex: 1,
-    position: 'relative',
-  },
-  areaShade: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-  },
-  horizontalLine: {
-    position: 'absolute',
-    top: '50%',
-    left: 0,
-    right: 0,
-    height: 1,
-    backgroundColor: colors.gray200,
-  },
   pointsRow: {
     flex: 1,
     flexDirection: 'row',
-    justifyContent: 'space-around',
     alignItems: 'flex-end',
     paddingHorizontal: spacing.sm,
-    paddingBottom: 20,
+    paddingBottom: 25,
+    minWidth: '100%',
   },
   dotContainer: {
-    width: 22,
     height: '100%',
     alignItems: 'center',
     position: 'relative',
+    marginHorizontal: 2,
   },
   connectingLine: {
     width: 2,
@@ -1040,54 +1062,43 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: colors.white,
   },
-  
-  // Value Labels (show/hide)
+
+  // Value Labels (show by default)
   valueLabel: {
     position: 'absolute',
-    bottom: 0,
-    left: '50%',
-    transform: [{ translateX: -50 }],
-    marginBottom: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-    paddingHorizontal: 4,
-    paddingVertical: 2,
-    borderRadius: 3,
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 4,
     borderWidth: 1,
     borderColor: colors.gray200,
-    zIndex: 5,
+    zIndex: 20,
+    minWidth: 40,
+    alignItems: 'center',
+    ...shadows.sm,
   },
   valueLabelText: {
-    fontSize: 9,
-    fontWeight: '600',
-    color: colors.primary,
+    fontSize: 10,
+    fontWeight: '700',
   },
   
   // Bar Graph Value Labels
   barValueLabel: {
     position: 'absolute',
-    left: '50%',
-    transform: [{ translateX: -50 }],
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-    paddingHorizontal: 4,
-    paddingVertical: 2,
-    borderRadius: 3,
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 4,
     borderWidth: 1,
     borderColor: colors.gray200,
     zIndex: 20,
+    minWidth: 40,
+    alignItems: 'center',
+    ...shadows.sm,
   },
   barValueText: {
-    fontSize: 9,
-    fontWeight: '600',
-    color: colors.primary,
-  },
-
-  xAxis: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    position: 'absolute',
-    bottom: -20,
-    left: spacing.sm,
-    right: spacing.sm,
+    fontSize: 10,
+    fontWeight: '700',
   },
 
   // Bar Graph
@@ -1095,60 +1106,22 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     alignItems: 'flex-end',
-    justifyContent: 'space-between',
     paddingHorizontal: spacing.xs,
     paddingBottom: 25,
+    minWidth: '100%',
   },
   barCol: {
     alignItems: 'center',
-    flex: 1,
     height: '100%',
     justifyContent: 'flex-end',
     position: 'relative',
+    marginHorizontal: 2,
   },
   bar: {
-    width: 16,
     borderTopLeftRadius: borderRadius.sm,
     borderTopRightRadius: borderRadius.sm,
     marginBottom: spacing.xs,
-  },
-
-  // Tooltip
-  tooltip: {
-    position: 'absolute',
-    backgroundColor: colors.black,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    borderRadius: borderRadius.sm,
-    zIndex: 100,
-    transform: [{ translateX: -50 }],
-    minWidth: 100,
-    alignItems: 'center',
-  },
-  tooltipArrow: {
-    position: 'absolute',
-    top: '100%',
-    left: '50%',
-    transform: [{ translateX: -5 }],
-    width: 0,
-    height: 0,
-    borderLeftWidth: 5,
-    borderRightWidth: 5,
-    borderTopWidth: 5,
-    borderLeftColor: 'transparent',
-    borderRightColor: 'transparent',
-    borderTopColor: colors.black,
-  },
-  tooltipText: {
-    color: colors.white,
-    fontSize: 10,
-    fontWeight: '600',
-    marginBottom: 2,
-  },
-  tooltipValue: {
-    color: colors.white,
-    fontSize: 12,
-    fontWeight: '700',
+    minHeight: 2,
   },
 
   // Statistics
