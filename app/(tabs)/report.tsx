@@ -580,37 +580,7 @@ export default function EnergyReport() {
           </View>
         </View>
         
-        {/* Data Summary */}
-        <View style={styles.dataSummary}>
-          <Text style={styles.summaryTitle}>Data Summary</Text>
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Period:</Text>
-            <Text style={styles.summaryValue}>
-              {timeView === 'daily' ? `${selectedMonth} ${selectedYear}` : selectedYear}
-            </Text>
-          </View>
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Data Points:</Text>
-            <Text style={styles.summaryValue}>
-              {timeView === 'daily' ? dailyData.length : monthlyData.length} records
-            </Text>
-          </View>
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Selected:</Text>
-            <Text style={styles.summaryValue}>
-              {hoveredIndex !== null && currentData.labels[hoveredIndex] ? 
-                `${currentData.labels[hoveredIndex]}: ${(values[hoveredIndex] || 0).toFixed(1)} ${unit}` : 
-                'Tap on a bar to select'
-              }
-            </Text>
-          </View>
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Values Display:</Text>
-            <Text style={styles.summaryValue}>
-              {showAllValues ? 'All values shown' : 'Tap on bars to show values'}
-            </Text>
-          </View>
-        </View>
+        
       </View>
     );
   };
