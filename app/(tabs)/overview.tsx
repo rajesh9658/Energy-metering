@@ -12,33 +12,128 @@ import {
 } from "react-native";
 import Swiper from "react-native-swiper";
 import axios from "axios";
-import { getSiteDataUrl } from "../config";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { 
+  getSiteDataUrl, 
+  getMeterCurrentUrl, 
+  getMeterDailyConsumptionUrl, 
+  getMeterMonthlyConsumptionUrl 
+} from "../config";
+import { useAuth } from "../context/AuthContext";
 
 const { width: screenWidth } = Dimensions.get('window');
 
+// Utility function to load site info
+const loadSiteInfo = async () => {
+  try {
+    // Try to get from AsyncStorage first
+    const userData = await AsyncStorage.getItem("userData");
+    
+    if (userData) {
+      const parsedData = JSON.parse(userData);
+      return {
+        siteName: parsedData.site_name,
+        siteId: parsedData.site_id,
+        slug: parsedData.slug,
+        user: parsedData
+      };
+    }
+    
+    // If no data in storage
+    return {
+      siteName: null,
+      siteId: null,
+      slug: null,
+      user: null
+    };
+    
+  } catch (error) {
+    return {
+      siteName: null,
+      siteId: null,
+      slug: null,
+      user: null
+    };
+  }
+};
+
 export default function OverviewScreen({ route }) {
-  // Get site name from route params or use default
-  const siteName = route?.params?.siteName || "neelkanth-1";
-   
+  // AuthContext से data लें
+  const { user, getSiteId, getSlug, getSiteName } = useAuth();
+  
+  // State for site info
+  const [siteInfo, setSiteInfo] = useState({
+    siteName: null,
+    siteId: null,
+    slug: null,
+    user: null
+  });
+  
+  const [isLoadingSiteInfo, setIsLoadingSiteInfo] = useState(true);
+
+  // Load site info on component mount and when user changes
+  useEffect(() => {
+    const loadInitialData = async () => {
+      try {
+        setIsLoadingSiteInfo(true);
+        
+        // Priority 1: AuthContext से (most recent)
+        const authSiteId = getSiteId();
+        const authSiteName = getSiteName();
+        const authSlug = getSlug();
+        
+        if (authSiteId && authSiteName) {
+          setSiteInfo({
+            siteName: authSiteName,
+            siteId: authSiteId,
+            slug: authSlug,
+            user: user
+          });
+          setIsLoadingSiteInfo(false);
+          return;
+        }
+        
+        // Priority 2: AsyncStorage से load करें
+        const storageSiteInfo = await loadSiteInfo();
+        
+        if (storageSiteInfo.siteId && storageSiteInfo.siteName) {
+          setSiteInfo(storageSiteInfo);
+        } else {
+          // No site info available - show error or redirect to login
+          setError("No site information found. Please login again.");
+        }
+        
+      } catch (error) {
+        setError("Error loading site information");
+      } finally {
+        setIsLoadingSiteInfo(false);
+      }
+    };
+    
+    loadInitialData();
+  }, [user]);
+
   // STATE FOR API DATA
   const [siteData, setSiteData] = useState(null);
+  const [meterCurrentData, setMeterCurrentData] = useState(null);
+  const [meterDailyData, setMeterDailyData] = useState(null);
+  const [meterMonthlyData, setMeterMonthlyData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
 
-  // SWIPER DATA - NOW FULLY DYNAMIC
+  // SWIPER DATA
   const [slides, setSlides] = useState([
     {
-      key: "overview",
-      title: "Overview",
-      icon: "📊",
+      key: "current",
+      title: "Current Reading",
+      icon: "🔋",
       rows: [
-        { label: "Grid Balance", value: "Loading...", color: "#2e7d32" },
-        { label: "Grid Unit (Live)", value: "Loading... kWh" },
-        { label: "DG Unit", value: "Loading... kWh" },
-        { label: "Connection Status", value: "Loading...", color: "#2e7d32", badge: true },
-        { label: "Supply Status", value: "Loading..." },
-        { label: "Last Updated On", value: "Loading...", color: "#0b63a8" },
+        { label: "Opening Reading", value: "Loading... kWh" },
+        { label: "Closing Reading", value: "Loading... kWh" },
+        { label: "Today's Consumption", value: "Loading... kWh", color: "#2e7d32" },
+        { label: "Grid Balance", value: "Loading..." },
+        { label: "Last Reading Time", value: "Loading...", color: "#0b63a8" },
       ],
       consumptionData: {
         grid: 0.0,
@@ -53,9 +148,11 @@ export default function OverviewScreen({ route }) {
       title: "Today's Consumption",
       icon: "📅",
       rows: [
-        { label: "EB (Grid)", value: "Loading...", unit: "₹" },
-        { label: "EB (FIXED CHARGE)", value: "Loading...", unit: "₹" },
-        { label: "Last Updated", value: "Loading...", color: "#0b63a8" },
+        { label: "Total Days", value: "Loading..." },
+        { label: "Today's Reading", value: "Loading... kWh" },
+        { label: "Consumption Trend", value: "Loading..." },
+        { label: "Average Daily", value: "Loading... kWh" },
+        { label: "Peak Consumption", value: "Loading... kWh" },
       ],
       consumptionData: {
         grid: 0.0,
@@ -70,9 +167,11 @@ export default function OverviewScreen({ route }) {
       title: "Monthly Consumption",
       icon: "📈",
       rows: [
-        { label: "EB (Grid)", value: "Loading...", unit: "₹" },
-        { label: "EB (FIXED CHARGE)", value: "Loading...", unit: "₹" },
-        { label: "Last Updated", value: "Loading...", color: "#0b63a8" },
+        { label: "Month Status", value: "Loading..." },
+        { label: "Opening Reading", value: "Loading... kWh" },
+        { label: "Closing Reading", value: "Loading... kWh" },
+        { label: "Total Consumption", value: "Loading... kWh", color: "#2e7d32" },
+        { label: "Updated Till", value: "Loading...", color: "#0b63a8" },
       ],
       consumptionData: {
         grid: 0.0,
@@ -96,7 +195,7 @@ export default function OverviewScreen({ route }) {
   const AUTO_SLIDE_INTERVAL = 5000;
   const RESUME_DELAY = 8000;
 
-  // STATIC DATA - Updated with grid_kw from API
+  // STATIC DATA
   const [staticData, setStaticData] = useState({
     sanctionedLoad: {
       gridValue: "Loading... kW",
@@ -112,34 +211,33 @@ export default function OverviewScreen({ route }) {
     }
   });
 
-  // FETCH SITE DATA
+  // FETCH ALL DATA
   useEffect(() => {
-    fetchSiteData();
-  }, [siteName]);
+    if (siteInfo.siteId && siteInfo.siteName && !isLoadingSiteInfo) {
+      fetchAllData();
+    }
+  }, [siteInfo, isLoadingSiteInfo]);
 
-  const fetchSiteData = async () => {
+  const fetchAllData = async () => {
+    if (!siteInfo.siteId || !siteInfo.siteName) {
+      setError("Site information not available");
+      setLoading(false);
+      return;
+    }
+
     try {
       setLoading(true);
-      // Use dynamic site name
-      const response = await axios.get(getSiteDataUrl(siteName));
-      console.log('API Response for', siteName, ':', response.data);
+      setError(null);
       
-      if (response.data && response.data.success) {
-        setSiteData(response.data);
-        
-        // Update all slides with API data
-        updateAllSlides(response.data);
-        
-        // Update sanctioned load
-        updateSanctionedLoad(response.data.asset_information);
-        
-        // Update voltage and current data
-        updateVoltageCurrentData(response.data.asset_information.electric_parameters);
-      } else {
-        setError("Invalid API response");
-      }
+      // Fetch all APIs in parallel
+      await Promise.all([
+        fetchSiteData(),
+        fetchMeterCurrentData(),
+        fetchMeterDailyData(),
+        fetchMeterMonthlyData()
+      ]);
+      
     } catch (err) {
-      console.error("Error fetching site data:", err);
       setError(err.message || "Network error");
     } finally {
       setLoading(false);
@@ -147,140 +245,236 @@ export default function OverviewScreen({ route }) {
     }
   };
 
-  // Handle pull to refresh
-  const onRefresh = () => {
-    setRefreshing(true);
-    fetchSiteData();
+  const fetchSiteData = async () => {
+    try {
+      // Use slug if available, otherwise use siteName
+      const slugToUse = siteInfo.slug || siteInfo.siteName;
+      if (!slugToUse) return;
+      
+      const response = await axios.get(getSiteDataUrl(slugToUse));
+      
+      if (response.data && response.data.success) {
+        setSiteData(response.data);
+        updateSanctionedLoad(response.data.asset_information);
+        updateVoltageCurrentData(response.data.asset_information.electric_parameters);
+      }
+    } catch (err) {
+      // Don't set global error for this - just log it
+    }
   };
 
-  const updateAllSlides = (data) => {
-    const assetInfo = data.asset_information;
-    const electricParams = assetInfo.electric_parameters || {};
-    const siteValues = assetInfo.site_values || {};
+  const fetchMeterCurrentData = async () => {
+    try {
+      const response = await axios.get(getMeterCurrentUrl(siteInfo.siteId));
+      
+      if (response.data) {
+        setMeterCurrentData(response.data);
+        updateCurrentSlide(response.data);
+      }
+    } catch (err) {
+      // Don't set global error for this - just log it
+    }
+  };
+
+  const fetchMeterDailyData = async () => {
+    try {
+      const currentMonth = new Date().toISOString().slice(0, 7);
+      const response = await axios.get(getMeterDailyConsumptionUrl(siteInfo.siteId, currentMonth));
+      
+      if (response.data) {
+        setMeterDailyData(response.data);
+        updateTodaySlide(response.data);
+      }
+    } catch (err) {
+      // Don't set global error for this - just log it
+    }
+  };
+
+  const fetchMeterMonthlyData = async () => {
+    try {
+      const currentMonth = new Date().toISOString().slice(0, 7);
+      const response = await axios.get(getMeterMonthlyConsumptionUrl(siteInfo.siteId, currentMonth));
+      
+      if (response.data) {
+        setMeterMonthlyData(response.data);
+        updateMonthlySlide(response.data);
+      }
+    } catch (err) {
+      // Don't set global error for this - just log it
+    }
+  };
+
+  // Update Current Slide
+  const updateCurrentSlide = (data) => {
+    if (!data) return;
     
     const newSlides = [...slides];
-    
-    // Update Overview slide with API data
-    const connectionStatus = siteValues.relay_status !== undefined 
-      ? (siteValues.relay_status ? "CONNECTED" : "DISCONNECTED")
-      : "UNKNOWN";
-    
-    const supplyStatus = siteValues.force_off !== undefined
-      ? (siteValues.force_off ? "FORCE OFF" : "NORMAL")
-      : "UNKNOWN";
+    const todayConsumption = data.closing_kwh - data.opening_kwh;
     
     newSlides[0].rows = [
       { 
+        label: "Opening Reading", 
+        value: `${data.opening_kwh?.toFixed(2) || "0.00"} kWh`
+      },
+      { 
+        label: "Closing Reading", 
+        value: `${data.closing_kwh?.toFixed(2) || "0.00"} kWh`
+      },
+      { 
+        label: "Today's Consumption", 
+        value: `${todayConsumption.toFixed(2)} kWh`, 
+        color: "#2e7d32"
+      },
+      { 
         label: "Grid Balance", 
-        value: `Rs. ${electricParams.balance || "0"}`, 
-        color: (electricParams.balance || 0) > 50 ? "#2e7d32" : "#ef4444" 
+        value: `Rs. ${data.balance || "0"}`
       },
       { 
-        label: "Grid Unit (Live)", 
-        value: electricParams.unit ? `${electricParams.unit.toFixed(2)} kWh` : "0.00 kWh" 
-      },
-      { 
-        label: "DG Unit", 
-        value: "0.00 kWh" // API me nahi hai, static rakh rahe hain
-      },
-      { 
-        label: "Connection Status", 
-        value: connectionStatus, 
-        color: connectionStatus === "CONNECTED" ? "#2e7d32" : "#ef4444", 
-        badge: true 
-      },
-      { 
-        label: "Supply Status", 
-        value: supplyStatus 
-      },
-      { 
-        label: "Last Updated On", 
-        value: new Date().toLocaleTimeString(), 
-        color: "#0b63a8" 
+        label: "Last Reading Time", 
+        value: formatDateTime(data.reading_time), 
+        color: "#0b63a8"
       },
     ];
 
-    // Calculate consumption data based on electric parameters
-    const gridPower = electricParams.active_power_kw || 0;
-    const dgPower = assetInfo.dg_kw || 0;
-    const totalPower = gridPower + dgPower;
-    
-    // For Today's Consumption - Use m_unit_charge and m_fixed_charge
-    const todayGridCharge = assetInfo.m_unit_charge || 0;
-    const todayFixedCharge = assetInfo.m_fixed_charge || 0;
-    
-    newSlides[1].rows = [
-      { 
-        label: "EB (Grid)", 
-        value: todayGridCharge.toFixed(2), 
-        unit: "₹" 
-      },
-      { 
-        label: "EB (FIXED CHARGE)", 
-        value: todayFixedCharge.toFixed(2), 
-        unit: "₹" 
-      },
-      { 
-        label: "Last Updated", 
-        value: new Date().toLocaleTimeString(), 
-        color: "#0b63a8" 
-      },
-    ];
-    
-    // Update Today's consumption data
-    newSlides[1].consumptionData = {
-      grid: gridPower,
-      dg: dgPower,
-      total: totalPower,
-      gridPercent: totalPower > 0 ? ((gridPower / totalPower) * 100).toFixed(2) + "%" : "0.00%",
-      dgPercent: totalPower > 0 ? ((dgPower / totalPower) * 100).toFixed(2) + "%" : "0.00%",
+    newSlides[0].consumptionData = {
+      grid: todayConsumption,
+      dg: 0,
+      total: todayConsumption,
+      gridPercent: "100.00%",
+      dgPercent: "0.00%",
     };
-
-    // For Monthly Consumption - Use estimated values or API data if available
-    // Since API doesn't provide monthly data, we'll use daily values multiplied
-    const daysInMonth = 30; // Assuming 30 days
-    const monthlyGridCharge = (todayGridCharge * daysInMonth).toFixed(2);
-    const monthlyFixedCharge = (todayFixedCharge * daysInMonth).toFixed(2);
-    
-    newSlides[2].rows = [
-      { 
-        label: "EB (Grid)", 
-        value: monthlyGridCharge, 
-        unit: "₹" 
-      },
-      { 
-        label: "EB (FIXED CHARGE)", 
-        value: monthlyFixedCharge, 
-        unit: "₹" 
-      },
-      { 
-        label: "Last Updated", 
-        value: new Date().toLocaleDateString('en-US', { 
-          month: 'short', 
-          day: '2-digit',
-          hour: '2-digit',
-          minute: '2-digit'
-        }), 
-        color: "#0b63a8" 
-      },
-    ];
-    
-    // Update Monthly consumption data (multiply daily by 30)
-    newSlides[2].consumptionData = {
-      grid: gridPower * daysInMonth,
-      dg: dgPower * daysInMonth,
-      total: totalPower * daysInMonth,
-      gridPercent: totalPower > 0 ? ((gridPower / totalPower) * 100).toFixed(2) + "%" : "0.00%",
-      dgPercent: totalPower > 0 ? ((dgPower / totalPower) * 100).toFixed(2) + "%" : "0.00%",
-    };
-
-    // Update Overview consumption data
-    newSlides[0].consumptionData = newSlides[1].consumptionData;
 
     setSlides(newSlides);
   };
 
+  // Update Today Slide
+  const updateTodaySlide = (data) => {
+    if (!data || !data.data || data.data.length === 0) return;
+    
+    const newSlides = [...slides];
+    const today = new Date();
+    const todayStr = `${today.getDate().toString().padStart(2, '0')} ${today.toLocaleString('default', { month: 'short' })}`;
+    
+    const todayData = data.data.find(item => item.day === todayStr);
+    const totalDays = data.data.length;
+    
+    const totalConsumption = data.data.reduce((sum, item) => sum + (item.kwh_delta || 0), 0);
+    const averageDaily = totalDays > 0 ? totalConsumption / totalDays : 0;
+    
+    const peakConsumption = Math.max(...data.data.map(item => item.kwh_delta || 0));
+    
+    const lastDay = data.data[data.data.length - 1];
+    const trend = lastDay ? (lastDay.kwh_delta > averageDaily ? "↗ Increasing" : "↘ Decreasing") : "N/A";
+    
+    newSlides[1].rows = [
+      { 
+        label: "Total Days", 
+        value: totalDays.toString()
+      },
+      { 
+        label: "Today's Reading", 
+        value: todayData ? `${(todayData.kwh_delta || 0).toFixed(2)} kWh` : "N/A"
+      },
+      { 
+        label: "Consumption Trend", 
+        value: trend,
+        color: trend.includes("Increasing") ? "#ef4444" : "#2e7d32"
+      },
+      { 
+        label: "Average Daily", 
+        value: `${averageDaily.toFixed(2)} kWh`
+      },
+      { 
+        label: "Peak Consumption", 
+        value: `${peakConsumption.toFixed(2)} kWh`
+      },
+    ];
+
+    const todayValue = todayData ? todayData.kwh_delta : 0;
+    newSlides[1].consumptionData = {
+      grid: todayValue,
+      dg: 0,
+      total: todayValue,
+      gridPercent: "100.00%",
+      dgPercent: "0.00%",
+    };
+
+    setSlides(newSlides);
+  };
+
+  // Update Monthly Slide
+  const updateMonthlySlide = (data) => {
+    if (!data) return;
+    
+    const newSlides = [...slides];
+    
+    newSlides[2].rows = [
+      { 
+        label: "Month Status", 
+        value: data.status === "running" ? "🟢 Running" : "🟡 Pending",
+        color: data.status === "running" ? "#2e7d32" : "#f59e0b"
+      },
+      { 
+        label: "Opening Reading", 
+        value: `${(data.opening_kwh || 0).toFixed(2)} kWh`
+      },
+      { 
+        label: "Closing Reading", 
+        value: `${(data.closing_kwh || 0).toFixed(2)} kWh`
+      },
+      { 
+        label: "Total Consumption", 
+        value: `${(data.total_kwh || 0).toFixed(2)} kWh`, 
+        color: "#2e7d32"
+      },
+      { 
+        label: "Updated Till", 
+        value: formatDateTime(data.upto), 
+        color: "#0b63a8"
+      },
+    ];
+
+    newSlides[2].consumptionData = {
+      grid: data.total_kwh || 0,
+      dg: 0,
+      total: data.total_kwh || 0,
+      gridPercent: "100.00%",
+      dgPercent: "0.00%",
+    };
+
+    setSlides(newSlides);
+  };
+
+  // Helper function to format date time
+  const formatDateTime = (dateTimeStr) => {
+    if (!dateTimeStr) return "N/A";
+    
+    try {
+      const [datePart, timePart] = dateTimeStr.split(' ');
+      const [day, month, year] = datePart.split('-');
+      const formattedDate = new Date(`${year}-${month}-${day}T${timePart}`);
+      
+      return formattedDate.toLocaleString('en-US', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch (error) {
+      return dateTimeStr;
+    }
+  };
+
+  // Handle pull to refresh
+  const onRefresh = () => {
+    setRefreshing(true);
+    fetchAllData();
+  };
+
   const updateSanctionedLoad = (assetInfo) => {
+    if (!assetInfo) return;
+    
     setStaticData(prev => ({
       ...prev,
       sanctionedLoad: {
@@ -368,28 +562,63 @@ export default function OverviewScreen({ route }) {
     setIsAutoPlaying(!isAutoPlaying);
   };
 
-  // LOADING STATE
-  if (loading && !refreshing) {
+  // Show loading while site info is being loaded
+  if (isLoadingSiteInfo) {
     return (
       <SafeAreaView style={styles.safe}>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#0b63a8" />
-          <Text style={styles.loadingText}>Loading {siteName} data...</Text>
+          <Text style={styles.loadingText}>Loading site information...</Text>
         </View>
       </SafeAreaView>
     );
   }
 
-  // ERROR STATE
+  // Show error if no site info
+  if (!siteInfo.siteId || !siteInfo.siteName) {
+    return (
+      <SafeAreaView style={styles.safe}>
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorText}>Site Information Not Found</Text>
+          <Text style={styles.errorSubText}>
+            Please login again to access site data.
+          </Text>
+          <Text style={styles.errorSubText}>
+            Current user: {user?.name || "Not logged in"}
+          </Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // LOADING STATE for API data
+  if (loading && !refreshing) {
+    return (
+      <SafeAreaView style={styles.safe}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#0b63a8" />
+          <Text style={styles.loadingText}>Loading meter data...</Text>
+          <Text style={styles.siteInfoText}>
+            Site: {siteInfo.siteName} | ID: {siteInfo.siteId}
+          </Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // ERROR STATE for API data
   if (error) {
     return (
       <SafeAreaView style={styles.safe}>
         <View style={styles.errorContainer}>
           <Text style={styles.errorText}>Error loading data</Text>
           <Text style={styles.errorSubText}>{error}</Text>
+          <Text style={styles.siteInfoText}>
+            Site: {siteInfo.siteName} | ID: {siteInfo.siteId}
+          </Text>
           <TouchableOpacity 
             style={styles.retryButton}
-            onPress={fetchSiteData}
+            onPress={fetchAllData}
           >
             <Text style={styles.retryButtonText}>Retry</Text>
           </TouchableOpacity>
@@ -413,9 +642,8 @@ export default function OverviewScreen({ route }) {
           />
         }
       >
-        {/* HEADER SECTION - Display site name from API */}
-        <View style={styles.header}>
-         
+        {/* HEADER SECTION */}
+        <View style={styles.header}> 
         </View>
 
         {/* SWIPER SECTION */}
@@ -469,36 +697,12 @@ export default function OverviewScreen({ route }) {
                       </Text>
                       
                       <View style={styles.valueContainer}>
-                        {row.badge ? (
-                          <View style={styles.badge}>
-                            <View style={[
-                              styles.statusDot, 
-                              { 
-                                backgroundColor: row.value === 'CONNECTED' ? '#2e7d32' : 
-                                               row.value === 'DISCONNECTED' ? '#ef4444' : '#f39c12' 
-                              }
-                            ]} />
-                            <Text style={[
-                              styles.rowValue,
-                              { color: row.color }
-                            ]}>
-                              {row.value}
-                            </Text>
-                          </View>
-                        ) : (
-                          <>
-                            {row.unit && (
-                              <Text style={styles.unitText}>{row.unit}</Text>
-                            )}
-                            <Text style={[
-                              styles.rowValue,
-                              { color: row.color },
-                              row.bold && styles.boldValue
-                            ]}>
-                              {row.value}
-                            </Text>
-                          </>
-                        )}
+                        <Text style={[
+                          styles.rowValue,
+                          { color: row.color || "#1e293b" },
+                        ]}>
+                          {row.value}
+                        </Text>
                       </View>
                     </View>
                   ))}
@@ -560,20 +764,20 @@ export default function OverviewScreen({ route }) {
               <Text style={{ color: "#fff", fontSize: 20 }}>📊</Text>
             </View>
             <Text style={styles.tileTitle}>
-              {active.key === "overview" ? "Today's Consumption" : 
-               active.key === "today" ? "Today's Consumption" : "Monthly Consumption"}
+              {active.key === "current" ? "Today's Consumption" : 
+               active.key === "today" ? "Daily Consumption" : "Monthly Consumption"}
             </Text>
           </View>
           
           <View style={styles.consumptionBreakdown}>
             {/* Grid */}
             <View style={[styles.consumptionBox, styles.gridBox]}>
-              <Text style={styles.consumptionLabel}>Grid</Text>
+              <Text style={styles.consumptionLabel}>Consumption</Text>
               <Text style={styles.consumptionValue}>
                 {active.consumptionData.grid.toFixed(2)}
               </Text>
               <Text style={styles.consumptionUnit}>
-                {active.key === "monthly" ? "kWh (est.)" : "kWh"}
+                {active.key === "monthly" ? "kWh" : "kWh"}
               </Text>
               <View style={[styles.percentagePill, styles.gridPill]}>
                 <Text style={styles.percentageText}>
@@ -582,21 +786,40 @@ export default function OverviewScreen({ route }) {
               </View>
             </View>
             
-            {/* DG */}
-            <View style={[styles.consumptionBox, styles.dgBox]}>
-              <Text style={styles.consumptionLabel}>DG</Text>
-              <Text style={styles.consumptionValue}>
-                {active.consumptionData.dg.toFixed(2)}
-              </Text>
-              <Text style={styles.consumptionUnit}>
-                {active.key === "monthly" ? "kWh (est.)" : "kWh"}
-              </Text>
-              <View style={[styles.percentagePill, styles.dgPill]}>
-                <Text style={styles.percentageText}>
-                  {active.consumptionData.dgPercent}
+            {active.key === "today" && meterDailyData && (
+              <View style={[styles.consumptionBox, styles.dgBox]}>
+                <Text style={styles.consumptionLabel}>Days Tracked</Text>
+                <Text style={styles.consumptionValue}>
+                  {meterDailyData.data?.length || 0}
                 </Text>
+                <Text style={styles.consumptionUnit}>
+                  Days
+                </Text>
+                <View style={[styles.percentagePill, styles.dgPill]}>
+                  <Text style={styles.percentageText}>
+                    This Month
+                  </Text>
+                </View>
               </View>
-            </View>
+            )}
+            
+            {active.key !== "today" && (
+              <View style={[styles.consumptionBox, styles.dgBox]}>
+                <Text style={styles.consumptionLabel}>Status</Text>
+                <Text style={styles.consumptionValue}>
+                  {active.key === "current" ? "Live" : 
+                   active.key === "monthly" ? (meterMonthlyData?.status === "running" ? "Active" : "Pending") : "N/A"}
+                </Text>
+                <Text style={styles.consumptionUnit}>
+                  {active.key === "current" ? "Updated" : "Month"}
+                </Text>
+                <View style={[styles.percentagePill, styles.dgPill]}>
+                  <Text style={styles.percentageText}>
+                    {active.key === "current" ? "🔴 Live" : "🟢 Good"}
+                  </Text>
+                </View>
+              </View>
+            )}
           </View>
           
           {/* Total Row */}
@@ -604,29 +827,42 @@ export default function OverviewScreen({ route }) {
             <View style={styles.totalItem}>
               <Text style={styles.totalLabel}>Total</Text>
               <Text style={styles.totalValue}>
-                {active.consumptionData.total.toFixed(2)}
-                {active.key === "monthly" ? "*" : ""}
+                {active.consumptionData.total.toFixed(2)} kWh
               </Text>
             </View>
-            <View style={styles.totalItem}>
-              <Text style={styles.totalLabel}>Grid</Text>
-              <Text style={styles.totalValue}>
-                {active.consumptionData.grid.toFixed(2)}
-              </Text>
-            </View>
-            <View style={styles.totalItem}>
-              <Text style={styles.totalLabel}>DG</Text>
-              <Text style={styles.totalValue}>
-                {active.consumptionData.dg.toFixed(2)}
-              </Text>
-            </View>
+            {meterCurrentData && active.key === "current" && (
+              <View style={styles.totalItem}>
+                <Text style={styles.totalLabel}>Opening</Text>
+                <Text style={styles.totalValue}>
+                  {meterCurrentData.opening_kwh?.toFixed(2) || "0.00"} kWh
+                </Text>
+              </View>
+            )}
+            {meterCurrentData && active.key === "current" && (
+              <View style={styles.totalItem}>
+                <Text style={styles.totalLabel}>Closing</Text>
+                <Text style={styles.totalValue}>
+                  {meterCurrentData.closing_kwh?.toFixed(2) || "0.00"} kWh
+                </Text>
+              </View>
+            )}
+            {active.key === "today" && meterDailyData && meterDailyData.data && (
+              <View style={styles.totalItem}>
+                <Text style={styles.totalLabel}>Peak</Text>
+                <Text style={styles.totalValue}>
+                  {Math.max(...meterDailyData.data.map(item => item.kwh_delta || 0)).toFixed(2)} kWh
+                </Text>
+              </View>
+            )}
+            {active.key === "monthly" && meterMonthlyData && (
+              <View style={styles.totalItem}>
+                <Text style={styles.totalLabel}>Avg/Day</Text>
+                <Text style={styles.totalValue}>
+                  {((meterMonthlyData.total_kwh || 0) / new Date().getDate()).toFixed(2)} kWh
+                </Text>
+              </View>
+            )}
           </View>
-          
-          {active.key === "monthly" && (
-            <Text style={styles.noteText}>
-              * Monthly values are estimated based on current consumption
-            </Text>
-          )}
         </View>
 
         {/* SANCTIONED LOAD TILE */}
@@ -715,8 +951,6 @@ export default function OverviewScreen({ route }) {
           </View>
         </View>
 
-        
-
         {/* BOTTOM GAP */}
         <View style={styles.bottomGap} />
       </ScrollView>
@@ -724,7 +958,7 @@ export default function OverviewScreen({ route }) {
   );
 }
 
-// STYLES (same as previous code, just adding the RefreshControl related styles if needed)
+// STYLES (same as before with small additions)
 const CARD_WIDTH = screenWidth - 48;
 const CARD_MARGIN = 8;
 
@@ -745,11 +979,17 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    padding: 20,
   },
   loadingText: {
     marginTop: 10,
     color: '#64748b',
     fontSize: 16,
+  },
+  siteInfoText: {
+    marginTop: 5,
+    color: '#94a3b8',
+    fontSize: 14,
   },
   
   // ERROR STYLES
@@ -769,13 +1009,14 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#64748b',
     textAlign: 'center',
-    marginBottom: 20,
+    marginBottom: 5,
   },
   retryButton: {
     backgroundColor: '#0b63a8',
     paddingHorizontal: 30,
     paddingVertical: 12,
     borderRadius: 8,
+    marginTop: 20,
   },
   retryButtonText: {
     color: 'white',
@@ -790,24 +1031,20 @@ const styles = StyleSheet.create({
     marginTop: 10,
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
+  },
+  headerLeft: {
+    flex: 1,
   },
   siteName: {
     fontSize: 24,
     fontWeight: '700',
     color: '#0b63a8',
-    flex: 1,
   },
-  refreshButton: {
-    backgroundColor: '#e2e8f0',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
-  },
-  refreshButtonText: {
-    color: '#0b63a8',
-    fontSize: 14,
-    fontWeight: '600',
+  siteDetails: {
+    fontSize: 12,
+    color: "#64748b",
+    marginTop: 2,
   },
   
   // SWIPER WRAPPER
