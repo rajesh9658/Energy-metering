@@ -136,7 +136,7 @@ export default function TabLayout() {
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                 <Ionicons name="location-sharp" size={14} color="#bbdefb" />
                 <Text style={{ color: "#bbdefb", fontSize: 12, fontWeight: "600", marginLeft: 4 }}>
-                  Site: {user.site_name || "No Site"}
+                  Site: {user.site.site_name || "No Site"}
                 </Text>
               </View>
             </View>
