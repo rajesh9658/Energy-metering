@@ -5,39 +5,48 @@ const API_CONFIG = {
 
   ENDPOINTS: {
     LOGIN: "/api/mobile-login",
-    SITE_DATA: "/api/mobile/site/", // New endpoint for site data
+    SITE_DATA: "/api/mobile/site/",
     METER_CURRENT: "/api/meter/{siteId}/current",
     METER_DAILY_CONSUMPTION: "/api/meter/{siteId}/daily-consumption",
-    METER_MONTHLY_CONSUMPTION: "/api/meter/{siteId}/monthly-consumption",
+    METER_MONTHLY_CONSUMPTION: "/api/meter/{siteId}/consumption/yearly",
   },
 };
 
 export const getApiUrl = (endpoint: string) => {
-  const url = API_CONFIG.BASE_URL + endpoint;
-  return url;
+  return `${API_CONFIG.BASE_URL}${endpoint}`;
 };
 
 export const getSiteDataUrl = (siteName: string) => {
-  const url = API_CONFIG.BASE_URL + API_CONFIG.ENDPOINTS.SITE_DATA + siteName;
-  return url;
+  return `${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.SITE_DATA}${siteName}`;
 };
 
 export const getMeterCurrentUrl = (siteId: string | number) => {
-  const url = API_CONFIG.BASE_URL + 
-    API_CONFIG.ENDPOINTS.METER_CURRENT.replace("{siteId}", siteId.toString());
-  return url;
+  return `${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.METER_CURRENT.replace(
+    "{siteId}",
+    siteId.toString()
+  )}`;
 };
 
-export const getMeterDailyConsumptionUrl = (siteId: string | number, month: string) => {
-  const baseUrl = API_CONFIG.BASE_URL + 
-    API_CONFIG.ENDPOINTS.METER_DAILY_CONSUMPTION.replace("{siteId}", siteId.toString());
+export const getMeterDailyConsumptionUrl = (
+  siteId: string | number,
+  month: string
+) => {
+  const baseUrl = `${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.METER_DAILY_CONSUMPTION.replace(
+    "{siteId}",
+    siteId.toString()
+  )}`;
   return `${baseUrl}?month=${month}`;
 };
 
-export const getMeterMonthlyConsumptionUrl = (siteId: string | number, month: string) => {
-  const baseUrl = API_CONFIG.BASE_URL + 
-    API_CONFIG.ENDPOINTS.METER_MONTHLY_CONSUMPTION.replace("{siteId}", siteId.toString());
-  return `${baseUrl}?month=${month}`;
+export const getMeterMonthlyConsumptionUrl = (
+  siteId: string | number,
+  year: string
+) => {
+  const baseUrl = `${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.METER_MONTHLY_CONSUMPTION.replace(
+    "{siteId}",
+    siteId.toString()
+  )}`;
+  return `${baseUrl}?year=${year}`;
 };
 
 export default function ConfigInfo() {

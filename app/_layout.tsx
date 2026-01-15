@@ -1,7 +1,7 @@
 // app/_layout.tsx
 
 import { Stack, Redirect } from "expo-router";
-// AuthProvider को context फोल्डर से इम्पोर्ट करें
+//import the context api for authentication
 import { AuthProvider, useAuth } from "./context/AuthContext"; 
 import { ActivityIndicator, View, StyleSheet } from "react-native";
 import { useEffect } from "react";
@@ -28,13 +28,13 @@ function LayoutContent() {
 
   return (
     <Stack screenOptions={{ headerShown: false }}>
-      {/* अगर user लॉग इन नहीं है, तो उसे (auth) पर रीडायरेक्ट करें */}
+      {/* if user is not logged in, redirect to (auth) screen */}
       <Stack.Screen name="(tabs)" redirect={!user} />
-      
-      {/* अगर user लॉग इन है, तो उसे (tabs) पर रीडायरेक्ट करें */}
+
+      {/* if user is logged in, redirect to (tabs) screen */}
       <Stack.Screen name="(auth)" redirect={!!user} />
 
-      {/* रूट में मौजूद फ़ाइलों को रीडायरेक्ट करें */}
+      {/* redirect to index screen */}
       <Stack.Screen name="index" redirect />
       <Stack.Screen name="login" redirect />
       <Stack.Screen name="signup" redirect />
