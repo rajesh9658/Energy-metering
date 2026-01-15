@@ -114,8 +114,8 @@ export default function EnergyReport() {
     } catch (error) {
       console.error('Error fetching daily data:', error);
       const sampleData = generateSampleDailyData();
-      setDailyData(sampleData);
-      calculateStats(sampleData, 'daily');
+        setDailyData(sampleData);
+        calculateStats(sampleData, 'daily');
     }
   };
 
@@ -138,8 +138,8 @@ export default function EnergyReport() {
     } catch (error) {
       console.error('Error fetching yearly data:', error);
       const sampleData = generateSampleMonthlyData();
-      setMonthlyData(sampleData);
-      calculateStats(sampleData, 'monthly');
+        setMonthlyData(sampleData);
+        calculateStats(sampleData, 'monthly');
     }
   };
 
@@ -412,7 +412,7 @@ export default function EnergyReport() {
 
         <View style={styles.graphBody}>
           <View style={styles.yAxis}>
-            <Text style={styles.axisLabel}>{maxValue.toFixed(0)}</Text>
+            <Text style={styles.axisLabel}>{(maxValue * 1.2).toFixed(0)}</Text>
             <Text style={styles.axisLabel}>0</Text>
           </View>
           
@@ -426,7 +426,7 @@ export default function EnergyReport() {
                 <View style={styles.pointsRow}>
                   {values.map((v, i) => {
                     const value = Number(v) || 0;
-                    const bottomPos = value > 0 ? (value / maxValue) * 100 : 0;
+                    const bottomPos = value > 0 ? (value / (maxValue * 1.2)) * 80 : 0;
                     const isSelected = hoveredIndex === i;
                     
                     return (
@@ -454,7 +454,7 @@ export default function EnergyReport() {
                         {/* Show value by default OR if selected */}
                         {(showAllValues || isSelected) && value > 0 && (
                           <View style={[styles.valueLabel, { 
-                            bottom: `${bottomPos + 5}%`,
+                            bottom: `${Math.min(bottomPos + 8, 85)}%`,
                             left: '50%',
                             transform: [{ translateX: -20 }],
                             backgroundColor: isSelected ? 
@@ -492,7 +492,7 @@ export default function EnergyReport() {
                 <View style={styles.barGraphContainer}>
                   {values.map((v, i) => {
                     const value = Number(v) || 0;
-                    const barHeight = value > 0 ? (value / maxValue) * 100 : 0;
+                    const barHeight = value > 0 ? (value / (maxValue * 1.2)) * 80 : 0;
                     const isSelected = hoveredIndex === i;
                     
                     return (
@@ -515,7 +515,7 @@ export default function EnergyReport() {
                         {/* Show value by default OR if selected */}
                         {(showAllValues || isSelected) && value > 0 && (
                           <View style={[styles.barValueLabel, { 
-                            bottom: `${barHeight + 5}%`,
+                            bottom: `${Math.min(barHeight + 8, 85)}%`,
                             left: '50%',
                             transform: [{ translateX: -20 }],
                             backgroundColor: isSelected ? 
@@ -635,16 +635,19 @@ export default function EnergyReport() {
         </View>
       </View>
 
+      {/* Only show Units (kWh) card - Bill Amount card is commented */}
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <GraphCard 
           title="Units (kWh)" 
           unit="kWh" 
         />
+        {/*
         <GraphCard 
           title="Bill Amount" 
           unit="₹" 
           isAmount={true} 
         />
+        */}
         <View style={styles.spacer} />
       </ScrollView>
 
@@ -959,7 +962,7 @@ const styles = StyleSheet.create({
 
   // Graph Components
   graphBody: {
-    height: 240,
+    height: 200, // Reduced from 240 to 200
     flexDirection: 'row',
     marginBottom: spacing.xl,
   },
