@@ -22,6 +22,7 @@ export const getApiUrl = (endpoint: string) => {
 export const getSiteDataUrl = (siteName: string) => {
   const url = API_CONFIG.BASE_URL + API_CONFIG.ENDPOINTS.SITE_DATA + siteName;
   return url;
+  
 };
 
 export const getMeterCurrentUrl = (siteId: string | number) => {

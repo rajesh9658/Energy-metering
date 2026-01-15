@@ -68,15 +68,15 @@ export const AuthProvider = ({ children }) => {
       });
       
       const data = await response.json();
-
+      // console.log("Login response data:", data.site.site_name);
       if (data.status === true) {
         const userToStore = {
           name: userid, 
-          site_id: data.site_id,
-          site_name: data.site_name,
-          slug: data.slug,
-          device_id: data.device_id,
-          clusterID: data.clusterID,
+          site_id: data.site.site_id,
+          site_name: data.site.site_name,
+          slug: data.site.slug,
+          device_id: data.site.device_id,
+          clusterID: data.site.clusterID,
           // Save all data that might come from API
           ...data
         };

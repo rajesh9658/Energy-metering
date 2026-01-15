@@ -31,6 +31,7 @@ const loadSiteInfo = async () => {
     
     if (userData) {
       const parsedData = JSON.parse(userData);
+      // console.log(parsedData);
       return {
         siteName: parsedData.site_name,
         siteId: parsedData.site_id,
@@ -81,7 +82,8 @@ export default function OverviewScreen({ route }) {
         const authSiteId = getSiteId();
         const authSiteName = getSiteName();
         const authSlug = getSlug();
-        
+        // console.log("AuthContext Site ID:", authSiteId);
+        // console.log("AuthContext Site Name:", authSiteName);
         if (authSiteId && authSiteName) {
           setSiteInfo({
             siteName: authSiteName,
@@ -95,7 +97,7 @@ export default function OverviewScreen({ route }) {
         
         // Priority 2: AsyncStorage से load करें
         const storageSiteInfo = await loadSiteInfo();
-        
+        // console.log("storageSiteInfo", storageSiteInfo);
         if (storageSiteInfo.siteId && storageSiteInfo.siteName) {
           setSiteInfo(storageSiteInfo);
         } else {
@@ -247,13 +249,15 @@ export default function OverviewScreen({ route }) {
 
   const fetchSiteData = async () => {
     try {
+      console.log("called the function");
       // Use slug if available, otherwise use siteName
       const slugToUse = siteInfo.slug || siteInfo.siteName;
       if (!slugToUse) return;
       
       const response = await axios.get(getSiteDataUrl(slugToUse));
-      
+      // console.log("called the function");
       if (response.data && response.data.success) {
+        // console.log(response);
         setSiteData(response.data);
         updateSanctionedLoad(response.data.asset_information);
         updateVoltageCurrentData(response.data.asset_information.electric_parameters);
