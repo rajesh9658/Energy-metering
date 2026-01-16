@@ -601,9 +601,9 @@ export default function OverviewScreen({ route }) {
       <SafeAreaView style={styles.safe}>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#0b63a8" />
-          <Text style={styles.loadingText}>Loading meter data...</Text>
+          <Text style={styles.loadingText}>Loading...</Text>
           <Text style={styles.siteInfoText}>
-            Site: {siteInfo.siteName} | ID: {siteInfo.siteId}
+            
           </Text>
         </View>
       </SafeAreaView>
