@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Alert,
   Dimensions,
@@ -13,10 +13,12 @@ import {
   Platform,
   StatusBar,
   SafeAreaView,
+  ActivityIndicator,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import * as Animatable from 'react-native-animatable';
+import { getSiteDataUrl } from '../config'; // Assuming config is in same directory
 
 const { width, height } = Dimensions.get('window');
 
@@ -30,17 +32,47 @@ export default function RechargeScreen() {
   const [customAmount, setCustomAmount] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('card');
   const [loading, setLoading] = useState(false);
+  const [siteData, setSiteData] = useState(null);
+  const [siteLoading, setSiteLoading] = useState(true);
+  const [siteError, setSiteError] = useState(null);
 
   const customAmountInputRef = useRef(null);
 
+  // Fetch site data on component mount
+  useEffect(() => {
+    fetchSiteData();
+  }, []);
+
+  const fetchSiteData = async () => {
+    try {
+      setSiteLoading(true);
+      setSiteError(null);
+      const siteName = 'neelkanth-1'; // You can make this dynamic if needed
+      const response = await fetch(getSiteDataUrl(siteName));
+      const data = await response.json();
+      
+      if (data.success) {
+        setSiteData(data.asset_information);
+      } else {
+        setSiteError('Failed to load site data');
+      }
+    } catch (error) {
+      console.error('Error fetching site data:', error);
+      setSiteError('Network error. Please try again.');
+    } finally {
+      setSiteLoading(false);
+    }
+  };
+
+  // Customer details from API
   const customerDetails = {
-    accountId: '0129665248',
-    name: 'Sanjay Gupta',
-    meterNo: '9549678',
-    availableBalance: '₹ 1,250.50',
-    dueDate: '15 March 2024',
-    lastRecharge: '₹ 2,000 on 1 Feb 2024',
-    address: 'H-12, Green Park, New Delhi',
+    accountId: siteData?.slug || '0129665248',
+    name: siteData?.custom_name || 'Loading...',
+    meterNo: siteData?.site_name || 'Loading...', // Changed from meter_no to site_name
+    availableBalance: `₹ ${siteData?.electric_parameters?.balance || '0'}`, // From balance
+    // lastPayment: '₹ 2,000 on 1 Feb 2024', // You might need to get this from another API endpoint
+    shopName: siteData?.meter_name || 'Loading...',
+    address: siteData?.location || 'Loading...', // From location
   };
 
   const rechargeOptions = [
@@ -267,7 +299,6 @@ export default function RechargeScreen() {
         >
           {/* HEADER */}
           <View style={styles.header}/>
-            
 
           {/* CUSTOMER DETAILS CARD */}
           <Animatable.View 
@@ -275,39 +306,68 @@ export default function RechargeScreen() {
             duration={800}
             style={styles.customerDetailsCard}
           >
-            <View style={styles.customerHeader}>
-              <View style={styles.avatarContainer}>
-                <Icon name="account-circle" size={40} color="#fff" />
+            {siteLoading ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color="#4f46e5" />
+                <Text style={styles.loadingText}>Loading site information...</Text>
               </View>
-              <View style={styles.customerInfo}>
-                <Text style={styles.customerName}>{customerDetails.name}</Text>
-                <Text style={styles.customerId}>Account ID: {customerDetails.accountId}</Text>
+            ) : siteError ? (
+              <View style={styles.errorContainer}>
+                <Icon name="error" size={40} color="#ef4444" />
+                <Text style={styles.errorText}>{siteError}</Text>
+                <TouchableOpacity 
+                  style={styles.retryButton}
+                  onPress={fetchSiteData}
+                >
+                  <Text style={styles.retryButtonText}>Retry</Text>
+                </TouchableOpacity>
               </View>
-            </View>
-            
-            <View style={styles.detailsGrid}>
-              <View style={styles.detailItem}>
-                <Icon name="location-on" size={20} color="#4f46e5" />
-                <Text style={styles.detailLabel}>Address</Text>
-                <Text style={styles.detailValue} numberOfLines={1}>{customerDetails.address}</Text>
-              </View>
-              <View style={styles.detailItem}>
-                <Icon name="speed" size={20} color="#4f46e5" />
-                <Text style={styles.detailLabel}>Meter No</Text>
-                <Text style={styles.detailValue}>{customerDetails.meterNo}</Text>
-              </View>
-            </View>
-            
-            <View style={styles.balanceSection}>
-              <View>
-                <Text style={styles.balanceLabel}>Available Balance</Text>
-                <Text style={styles.balanceAmount}>{customerDetails.availableBalance}</Text>
-              </View>
-              <View style={styles.balanceRight}>
-                <Text style={styles.dueDateLabel}>Due Date</Text>
-                <Text style={styles.dueDate}>{customerDetails.dueDate}</Text>
-              </View>
-            </View>
+            ) : (
+              <>
+              <View style={styles.customerHeader}>
+  <View style={styles.avatarContainer}>
+    <Icon name="account-circle" size={40} color="#fff" />
+  </View>
+  <View style={styles.customerInfo}>
+    <Text style={styles.customerName}>{customerDetails.name}</Text>
+    <Text style={styles.customerId}>Account ID: {customerDetails.accountId}</Text>
+  </View>
+</View>
+
+<View style={styles.siteInfoSection}>
+  <View style={styles.siteInfoRow}>
+    <View style={styles.siteInfoItem}>
+      <Icon name="speed" size={20} color="#4f46e5" />
+      <Text style={styles.infoLabel}>Site Name</Text>
+      <Text style={styles.infoValue}>{customerDetails.meterNo}</Text>
+    </View>
+    <View style={styles.siteInfoItem}>
+      <Icon name="store" size={20} color="#4f46e5" />
+      <Text style={styles.infoLabel}>Meter Name</Text>
+      <Text style={styles.infoValue}>{customerDetails.shopName}</Text>
+    </View>
+  </View>
+</View>
+
+<View style={styles.balanceSection}>
+  <View style={styles.balanceRow}>
+    <View style={styles.balanceItem}>
+      <Text style={styles.balanceLabel}>Available Balance</Text>
+      <Text style={styles.balanceAmount}>{customerDetails.availableBalance}</Text>
+    </View>
+    <View style={styles.addressItem}>
+      <View style={styles.addressContent}>
+        <Icon name="location-on" size={20} color="#4f46e5" />
+        <View style={styles.addressTextContainer}>
+          <Text style={styles.infoLabel}>Address</Text>
+          <Text style={styles.infoValue} numberOfLines={2}>{customerDetails.address}</Text>
+        </View>
+      </View>
+    </View>
+  </View>
+</View>
+              </>
+            )}
           </Animatable.View>
 
           {/* QUICK RECHARGE OPTIONS - GRID LAYOUT */}
@@ -435,9 +495,6 @@ export default function RechargeScreen() {
               </View>
             </View>
           </Animatable.View>
-
-          {/* PAYMENT METHOD */}
-          {/*  */}
 
           {/* PAYMENT SUMMARY */}
           {(selectedAmount || customAmount) && (
@@ -637,44 +694,7 @@ const styles = StyleSheet.create({
     paddingBottom: 20,
     borderBottomLeftRadius: 30,
     borderBottomRightRadius: 30,
-    // backgroundColor: '#4f46e5',
-  },
-  headerContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-  },
-  headerLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  backButton: {
-    marginRight: 16,
-  },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: '#fff',
-    marginBottom: 2,
-  },
-  headerSubtitle: {
-    fontSize: 14,
-    color: 'rgba(255,255,255,0.9)',
-    fontWeight: '500',
-  },
-  notificationButton: {
-    position: 'relative',
-  },
-  notificationBadge: {
-    position: 'absolute',
-    top: -2,
-    right: -2,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#ef4444',
+
   },
   customerDetailsCard: {
     backgroundColor: '#fff',
@@ -688,6 +708,41 @@ const styles = StyleSheet.create({
     shadowRadius: 20,
     elevation: 15,
     marginBottom: 24,
+    minHeight: 250,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 40,
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 14,
+    color: '#64748b',
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 40,
+  },
+  errorText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: '#ef4444',
+    textAlign: 'center',
+  },
+  retryButton: {
+    marginTop: 20,
+    backgroundColor: '#4f46e5',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontWeight: '600',
   },
   customerHeader: {
     flexDirection: 'row',
@@ -725,7 +780,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#f8fafc',
     padding: 16,
     borderRadius: 16,
-    marginRight: 12,
   },
   detailLabel: {
     fontSize: 12,
@@ -740,12 +794,20 @@ const styles = StyleSheet.create({
     color: '#1e293b',
   },
   balanceSection: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
     paddingTop: 20,
     borderTopWidth: 1,
     borderTopColor: '#f1f5f9',
+  },
+  balanceRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+  },
+  balanceItem: {
+    flex: 1,
   },
   balanceLabel: {
     fontSize: 12,
@@ -758,19 +820,33 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#10b981',
   },
-  balanceRight: {
-    alignItems: 'flex-end',
-  },
-  dueDateLabel: {
-    fontSize: 12,
-    color: '#64748b',
-    fontWeight: '600',
-    marginBottom: 4,
-  },
-  dueDate: {
-    fontSize: 14,
+  lastPayment: {
+    fontSize: 16,
     fontWeight: '700',
     color: '#f59e0b',
+  },
+  infoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  infoItem: {
+    flex: 1,
+    backgroundColor: '#f8fafc',
+    padding: 12,
+    borderRadius: 12,
+    marginRight: 8,
+  },
+  infoLabel: {
+    fontSize: 11,
+    color: '#64748b',
+    marginTop: 6,
+    marginBottom: 4,
+    fontWeight: '600',
+  },
+  infoValue: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#1e293b',
   },
   section: {
     marginBottom: 24,
@@ -946,55 +1022,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     color: '#475569',
-  },
-  paymentMethodsContainer: {
-    backgroundColor: '#fff',
-    borderRadius: 20,
-    padding: 8,
-    marginHorizontal: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 6,
-  },
-  paymentMethodCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-    borderRadius: 16,
-    marginBottom: 4,
-    borderWidth: 2,
-    borderColor: 'transparent',
-  },
-  selectedPaymentMethod: {
-    backgroundColor: '#f5f3ff',
-    borderColor: '#4f46e5',
-  },
-  methodIconContainer: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 16,
-  },
-  paymentMethodText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#64748b',
-    flex: 1,
-  },
-  selectedPaymentMethodText: {
-    color: '#4f46e5',
-    fontWeight: '700',
-  },
-  paymentCheck: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   paymentSummary: {
     marginHorizontal: 20,
@@ -1243,4 +1270,76 @@ const styles = StyleSheet.create({
   webview: {
     flex: 1,
   },
+
+  siteInfoSection: {
+  marginBottom: 20,
+},
+siteInfoRow: {
+  flexDirection: 'row',
+  justifyContent: 'space-between',
+},
+siteInfoItem: {
+  flex: 1,
+  backgroundColor: '#f8fafc',
+  padding: 16,
+  borderRadius: 16,
+  marginHorizontal: 4,
+  alignItems: 'center',
+},
+balanceSection: {
+  paddingTop: 20,
+  borderTopWidth: 1,
+  borderTopColor: '#f1f5f9',
+},
+balanceRow: {
+  flexDirection: 'row',
+  justifyContent: 'space-between',
+  alignItems: 'stretch',
+},
+balanceItem: {
+  flex: 1,
+  backgroundColor: '#f0fdf4',
+  padding: 16,
+  borderRadius: 16,
+  marginRight: 8,
+  justifyContent: 'center',
+},
+balanceLabel: {
+  fontSize: 12,
+  color: '#64748b',
+  fontWeight: '600',
+  marginBottom: 4,
+},
+balanceAmount: {
+  fontSize: 24,
+  fontWeight: '800',
+  color: '#10b981',
+},
+addressItem: {
+  flex: 1,
+  backgroundColor: '#f8fafc',
+  padding: 16,
+  borderRadius: 16,
+  marginLeft: 8,
+  justifyContent: 'center',
+},
+addressContent: {
+  flexDirection: 'row',
+  alignItems: 'flex-start',
+},
+addressTextContainer: {
+  flex: 1,
+  marginLeft: 12,
+},
+infoLabel: {
+  fontSize: 12,
+  color: '#64748b',
+  marginBottom: 4,
+  fontWeight: '600',
+},
+infoValue: {
+  fontSize: 14,
+  fontWeight: '600',
+  color: '#1e293b',
+},
 });
