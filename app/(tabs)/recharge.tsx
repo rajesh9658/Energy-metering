@@ -266,23 +266,8 @@ export default function RechargeScreen() {
           contentContainerStyle={styles.scrollContent}
         >
           {/* HEADER */}
-          <View style={styles.header}>
-            <View style={styles.headerContent}>
-              <View style={styles.headerLeft}>
-                <TouchableOpacity style={styles.backButton}>
-                  <Icon name="arrow-back" size={24} color="#fff" />
-                </TouchableOpacity>
-                <View>
-                  <Text style={styles.headerTitle}>Recharge Meter</Text>
-                  <Text style={styles.headerSubtitle}>Instant power recharge</Text>
-                </View>
-              </View>
-              <TouchableOpacity style={styles.notificationButton}>
-                <Icon name="notifications" size={24} color="#fff" />
-                <View style={styles.notificationBadge} />
-              </TouchableOpacity>
-            </View>
-          </View>
+          <View style={styles.header}/>
+            
 
           {/* CUSTOMER DETAILS CARD */}
           <Animatable.View 
@@ -652,7 +637,7 @@ const styles = StyleSheet.create({
     paddingBottom: 20,
     borderBottomLeftRadius: 30,
     borderBottomRightRadius: 30,
-    backgroundColor: '#4f46e5',
+    // backgroundColor: '#4f46e5',
   },
   headerContent: {
     flexDirection: 'row',
