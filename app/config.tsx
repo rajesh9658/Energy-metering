@@ -1,7 +1,7 @@
 // app/config.ts
 
 const API_CONFIG = {
-  BASE_URL: "http://192.168.68.119:8000",
+  BASE_URL: "http://192.168.68.114:8000",
   // BASE_URL: "https://em.sochiot.com",
 
 
@@ -12,6 +12,9 @@ const API_CONFIG = {
     METER_DAILY_CONSUMPTION: "/api/meter/{siteId}/daily-consumption",
     METER_MONTHLY_CONSUMPTION: "/api/meter/{siteId}/monthly-consumption",
     METER_YEARLY_CONSUMPTION: "/api/meter/{siteId}/consumption/yearly",
+    MONTHLY_DAILLY_REPORT:"/api/meter/{siteid}/consumption/monthly_report",
+    RAZORPAY_ORDER_API:"/api/razorpay/order",
+    RAZORPAY_VERIFY_API:"/api/razorpay/verify",
   },
 };
 
