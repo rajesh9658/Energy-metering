@@ -72,6 +72,7 @@ export default function OverviewScreen({ route }) {
   
   const [isLoadingSiteInfo, setIsLoadingSiteInfo] = useState(true);
 
+
   // Load site info on component mount and when user changes
   useEffect(() => {
     const loadInitialData = async () => {
@@ -115,6 +116,8 @@ export default function OverviewScreen({ route }) {
     loadInitialData();
   }, [user]);
 
+
+  
   // STATE FOR API DATA
   const [siteData, setSiteData] = useState(null);
   const [meterCurrentData, setMeterCurrentData] = useState(null);
@@ -126,6 +129,11 @@ export default function OverviewScreen({ route }) {
   const [currentunit, setCurrentunit] = useState(null);
   const [currentconsumption, setCurrentconsumption] = useState(null);
 
+useEffect(() => {
+  if (meterCurrentData && siteData) {
+    updateCurrentSlide(meterCurrentData);
+  }
+}, [meterCurrentData, siteData]);
 
 
   // SWIPER DATA
@@ -272,18 +280,27 @@ export default function OverviewScreen({ route }) {
     }
   };
 
-  const fetchMeterCurrentData = async () => {
-    try {
-      const response = await axios.get(getMeterCurrentUrl(siteInfo.siteId));
+  // const fetchMeterCurrentData = async () => {
+  //   try {
+  //     const response = await axios.get(getMeterCurrentUrl(siteInfo.siteId));
       
-      if (response.data) {
-        setMeterCurrentData(response.data);
-        updateCurrentSlide(response.data);
-      }
-    } catch (err) {
-      // Don't set global error for this - just log it
-    }
-  };
+  //     if (response.data) {
+  //       setMeterCurrentData(response.data);
+  //       updateCurrentSlide(response.data);
+  //     }
+  //   } catch (err) {
+  //     // Don't set global error for this - just log it
+  //   }
+  // };
+
+
+  const fetchMeterCurrentData = async () => {
+  const response = await axios.get(getMeterCurrentUrl(siteInfo.siteId));
+  if (response.data) {
+    setMeterCurrentData(response.data);
+  }
+};
+
 
   const fetchMeterDailyData = async () => {
     try {
@@ -334,60 +351,141 @@ export default function OverviewScreen({ route }) {
 
 
   // Update Current Slide
-  const updateCurrentSlide = (data) => {
-    let lastupdatetime = "2026-01-16 11:07:20";
-    // let currentunit = null;
-    if(siteData){
-      // console.log("siteData", siteData);
-    // currentunit = siteData.asset_information.electric_parameters.unit;
-    lastupdatetime = siteData.asset_information.electric_parameters.updatedAt;
-    // console.log("lastupdatetime :",lastupdatetime)
-    }
-    if (!data) return;
-    // console.log("data", data);
-    const newSlides = [...slides];
-    setCurrentconsumption(currentunit - data.closing_kwh);
+  // const updateCurrentSlide = (data) => {
+  //   let lastupdatetime = "2026-01-16 11:07:20";
+  //   // let currentunit = null;
+  //   if(siteData){
+  //     // console.log("siteData", siteData);
+  //   // currentunit = siteData.asset_information.electric_parameters.unit;
+  //   lastupdatetime = siteData.asset_information.electric_parameters.updatedAt;
+  //   // console.log("lastupdatetime :",lastupdatetime)
+  //   }
+  //   if (!data) return;
+  //   // console.log("data", data);
+  //   const newSlides = [...slides];
+  //   setCurrentconsumption(currentunit - data.closing_kwh);
     
-    newSlides[0].rows = [
-      //the api is returning the one day prev data 
-      //so the closing of the prev will be the 
-      //opening of the today
-      //the sitedata is returning the updated value 
+  //   newSlides[0].rows = [
+  //     //the api is returning the one day prev data 
+  //     //so the closing of the prev will be the 
+  //     //opening of the today
+  //     //the sitedata is returning the updated value 
       
-      { 
-        label: "Opening Reading", 
-        value: `${data.closing_kwh?.toFixed(2) || "0.00"} kWh`
-      },
-      { 
-        label: "Closing Reading", 
-        value: `${currentunit?.toFixed(2) || "0.00"} kWh`
-      },
-      { 
-        label: "Today's Consumption", 
-        value: `${currentconsumption.toFixed(2)} kWh`, 
-        color: "#2e7d32"
-      },
-      { 
-        label: "Grid Balance", 
-        value: `Rs. ${data.balance || "0"}`
-      },
-      { 
-        label: "Last Reading Time", 
-        value: formatDateTimeformysql(lastupdatetime), 
-        color: "#0b63a8"
-      },
-    ];
+  //     { 
+  //       label: "Opening Reading", 
+  //       value: `${data.closing_kwh?.toFixed(2) || "0.00"} kWh`
+  //     },
+  //     { 
+  //       label: "Closing Reading", 
+  //       value: `${currentunit?.toFixed(2) || "0.00"} kWh`
+  //     },
+  //     { 
+  //       label: "Today's Consumption", 
+  //       value: `${currentconsumption.toFixed(2)} kWh`, 
+  //       color: "#2e7d32"
+  //     },
+  //     { 
+  //       label: "Grid Balance", 
+  //       value: `Rs. ${data.balance || "0"}`
+  //     },
+  //     { 
+  //       label: "Last Reading Time", 
+  //       value: formatDateTimeformysql(lastupdatetime), 
+  //       color: "#0b63a8"
+  //     },
+  //   ];
 
-    newSlides[0].consumptionData = {
-      grid: currentconsumption,
-      dg: 0,
-      total: currentconsumption,
-      gridPercent: "100.00%",
-      dgPercent: "0.00%",
+  //   newSlides[0].consumptionData = {
+  //     grid: currentconsumption,
+  //     dg: 0,
+  //     total: currentconsumption,
+  //     gridPercent: "100.00%",
+  //     dgPercent: "0.00%",
+  //   };
+
+  //   setSlides(newSlides);
+  // };
+
+//  const updateCurrentSlide = (data) => {
+//   if (!data || !siteData) return;
+
+//   const opening = data.closing_kwh || 0;
+//   const closing =
+//     siteData.asset_information.electric_parameters.unit || 0;
+
+//   const consumption = Math.max(closing - opening, 0);
+
+//   setCurrentconsumption(consumption); // ✅ state
+
+//   const newSlides = [...slides];
+
+//   newSlides[0].consumptionData = {
+//     grid: consumption,          // 👈 MOST IMPORTANT LINE
+//     dg: 0,
+//     total: consumption,
+//     gridPercent: "100.00%",
+//     dgPercent: "0.00%",
+//   };
+
+//   setSlides(newSlides);
+// };
+
+const updateCurrentSlide = (data) => {
+  // 🔒 Safety guards
+  if (!data) return;
+  if (!siteData?.asset_information?.electric_parameters) return;
+
+  // 📥 Opening & Closing readings
+  const opening = Number(data.closing_kwh || 0);
+  const closing = Number(
+    siteData.asset_information.electric_parameters.unit || 0
+  );
+
+  // 🧮 Consumption calculation (never negative)
+  const consumption = Math.max(closing - opening, 0);
+
+  // 🔁 Update main state
+  setCurrentconsumption(consumption);
+
+  // 🔁 Update slides state (UI depends on this)
+  setSlides(prevSlides => {
+    const newSlides = [...prevSlides];
+
+    newSlides[0] = {
+      ...newSlides[0],
+      rows: [
+        { label: "Opening Reading", value: `${opening.toFixed(2)} kWh` },
+        { label: "Closing Reading", value: `${closing.toFixed(2)} kWh` },
+        {
+          label: "Today's Consumption",
+          value: `${consumption.toFixed(2)} kWh`,
+          color: "#2e7d32",
+        },
+        {
+          label: "Grid Balance",
+          value: `Rs. ${data.balance || 0}`,
+        },
+        {
+          label: "Last Reading Time",
+          value: formatDateTimeformysql(
+            siteData.asset_information.electric_parameters.updatedAt
+          ),
+          color: "#0b63a8",
+        },
+      ],
+      consumptionData: {
+        grid: consumption,          // ✅ SAME AS currentconsumption
+        dg: 0,
+        total: consumption,
+        gridPercent: "100.00%",
+        dgPercent: "0.00%",
+      },
     };
 
-    setSlides(newSlides);
-  };
+    return newSlides;
+  });
+};
+
 
   // Update Today Slide
   const updateTodaySlide = (data) => {
@@ -415,8 +513,9 @@ export default function OverviewScreen({ route }) {
       },
       { 
         label: "Today's Reading", 
-        value: todayData ? `${(todayData.kwh_delta || 0).toFixed(2)} kWh` : "N/A"
+        value: `${Number(currentconsumption || 0).toFixed(2)} kWh`
       },
+
       { 
         label: "Consumption Trend", 
         value: trend,
@@ -806,17 +905,18 @@ export default function OverviewScreen({ route }) {
               <Text style={{ color: "#fff", fontSize: 20 }}>📊</Text>
             </View>
             <Text style={styles.tileTitle}>
-              {active.key === "current" ? "Today's Consumption" : 
-               active.key === "today" ? "Daily Consumption" : "Monthly Consumption"}
+              {active.key === "current" ? "Current Consumption" : 
+               active.key === "today" ? "Today's Consumption" : "Monthly Consumption"}
             </Text>
           </View>
           
           <View style={styles.consumptionBreakdown}>
             {/* Grid */}
-            <View style={[styles.consumptionBox, styles.gridBox]}>
+            
+ <View style={[styles.consumptionBox, styles.gridBox]}>
               <Text style={styles.consumptionLabel}>Consumption</Text>
               <Text style={styles.consumptionValue}>
-                {active.consumptionData.grid.toFixed(2)}
+                {Number(active.consumptionData.grid || 0).toFixed(2)}
               </Text>
               <Text style={styles.consumptionUnit}>
                 {active.key === "monthly" ? "kWh" : "kWh"}
@@ -867,16 +967,17 @@ export default function OverviewScreen({ route }) {
           {/* Total Row */}
           <View style={styles.totalRow}>
             <View style={styles.totalItem}>
-              <Text style={styles.totalLabel}>Total</Text>
+              <Text style={styles.totalLabel}>Today</Text>
               <Text style={styles.totalValue}>
-                {active.consumptionData.total.toFixed(2)} kWh
+                {Number(currentconsumption || 0).toFixed(2)} kWh
+
               </Text>
             </View>
             {meterCurrentData && active.key === "current" && (
               <View style={styles.totalItem}>
                 <Text style={styles.totalLabel}>Opening</Text>
                 <Text style={styles.totalValue}>
-                  {meterCurrentData.opening_kwh?.toFixed(2) || "0.00"} kWh
+                  {meterCurrentData.closing_kwh?.toFixed(2) || "0.00"} kWh
                 </Text>
               </View>
             )}
@@ -884,7 +985,8 @@ export default function OverviewScreen({ route }) {
               <View style={styles.totalItem}>
                 <Text style={styles.totalLabel}>Closing</Text>
                 <Text style={styles.totalValue}>
-                  {meterCurrentData.closing_kwh?.toFixed(2) || "0.00"} kWh
+                  
+                  {currentunit?.toFixed(2) || "0.00"} kWh
                 </Text>
               </View>
             )}

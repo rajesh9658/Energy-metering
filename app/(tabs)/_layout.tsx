@@ -10,7 +10,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "../context/AuthContext";
-
+import AsyncStorage from '@react-native-async-storage/async-storage';
 const { width } = Dimensions.get("window");
 
 export default function TabLayout() {

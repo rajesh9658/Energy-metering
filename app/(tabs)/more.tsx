@@ -369,13 +369,13 @@ export default function MoreScreen() {
         <ActivityIndicator size="large" color="#0b63a8" />
         <Text style={styles.loadingText}>
           {siteInfo.siteName ? 
-            `Loading ...` : 
+            `Loading ${siteInfo.siteName} details...` : 
             'Loading site information...'
           }
         </Text>
         {siteInfo.siteId && (
           <Text style={styles.siteIdText}>
-            {/* Site ID: {siteInfo.siteId} */}
+            Site ID: {siteInfo.siteId}
           </Text>
         )}
       </View>
