@@ -1,7 +1,7 @@
 // app/config.ts
 
 const API_CONFIG = {
-  BASE_URL: "http://192.168.68.140:8000",
+  BASE_URL: "http://192.168.68.119:8000",
   // BASE_URL: "https://em.sochiot.com",
 
 
@@ -11,6 +11,7 @@ const API_CONFIG = {
     METER_CURRENT: "/api/meter/{siteId}/current",
     METER_DAILY_CONSUMPTION: "/api/meter/{siteId}/daily-consumption",
     METER_MONTHLY_CONSUMPTION: "/api/meter/{siteId}/monthly-consumption",
+    METER_YEARLY_CONSUMPTION: "/api/meter/{siteId}/consumption/yearly",
   },
 };
 
@@ -42,6 +43,17 @@ export const getMeterMonthlyConsumptionUrl = (siteId: string | number, month: st
     API_CONFIG.ENDPOINTS.METER_MONTHLY_CONSUMPTION.replace("{siteId}", siteId.toString());
   return `${baseUrl}?month=${month}`;
 };
+export const getYearlyConsumptionUrl = (siteId) => {
+  return (
+    API_CONFIG.BASE_URL +
+    API_CONFIG.ENDPOINTS.METER_YEARLY_CONSUMPTION.replace(
+      "{siteId}",
+      siteId.toString()
+    )
+  );
+};
+
+
 
 export default function ConfigInfo() {
   return null;
