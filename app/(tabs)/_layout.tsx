@@ -131,12 +131,12 @@ export default function TabLayout() {
                 textShadowOffset: { width: 0, height: 1 },
                 textShadowRadius: 3
               }}>
-                Hello, {user.name ? user.name.split('@')[0].toUpperCase() : "User"}
+              {user.name ? user.name.split('@')[0].toUpperCase() : "User"}
               </Text>
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                 <Ionicons name="location-sharp" size={14} color="#bbdefb" />
                 <Text style={{ color: "#bbdefb", fontSize: 12, fontWeight: "600", marginLeft: 4 }}>
-                  Site: {user.site.site_name || "No Site"}
+                  Site: {user.site.location||"No Site"}
                 </Text>
               </View>
             </View>

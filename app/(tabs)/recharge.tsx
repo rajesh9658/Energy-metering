@@ -139,88 +139,116 @@ export default function RechargeScreen() {
 
   /* -------------------- PAYMENT -------------------- */
 
-  const handlePayment = async () => {
-    let amountToPay = selectedAmount;
+  // const handlePayment = async () => {
+  //   let amountToPay = selectedAmount;
     
-    if (customAmount && parseFloat(customAmount) >= 100) {
-      amountToPay = parseFloat(customAmount);
-    }
+  //   if (customAmount && parseFloat(customAmount) >= 100) {
+  //     amountToPay = parseFloat(customAmount);
+  //   }
     
-    if (!amountToPay || amountToPay < 100) {
-      Alert.alert('Invalid Amount', 'Please select or enter an amount (minimum ₹100)');
-      return;
-    }
+  //   if (!amountToPay || amountToPay < 100) {
+  //     Alert.alert('Invalid Amount', 'Please select or enter an amount (minimum ₹100)');
+  //     return;
+  //   }
 
-    setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
-      const totalAmount = Math.round((amountToPay + 10 + 1.8) * 100);
+  //   setLoading(true);
+  //   setTimeout(() => {
+  //     setLoading(false);
+  //     const totalAmount = Math.round((amountToPay + 10 + 1.8) * 100);
 
-      const html = `
-        <!DOCTYPE html>
-        <html>
-          <head>
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
-          </head>
-          <body style="background: #4f46e5; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 20px;">
-            <div id="loader" style="color: white; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; text-align: center;">
-              <div style="background: rgba(255,255,255,0.1); padding: 40px; border-radius: 20px; backdrop-filter: blur(10px);">
-                <h2 style="margin-bottom: 10px;">Processing Payment...</h2>
-                <p style="opacity: 0.9; margin-bottom: 20px;">₹${amountToPay} via ${paymentMethod.toUpperCase()}</p>
-                <div style="width: 40px; height: 40px; border: 3px solid rgba(255,255,255,0.3); border-top-color: white; border-radius: 50%; margin: 0 auto; animation: spin 1s linear infinite;"></div>
-              </div>
-            </div>
-            <style>
-              @keyframes spin {
-                to { transform: rotate(360deg); }
-              }
-            </style>
-            <script>
-              setTimeout(function() {
-                var options = {
-                  key: "rzp_test_S2t1onSDtI24BI",
-                  amount: ${totalAmount},
-                  currency: "INR",
-                  name: "Sochiot Innovation Pvt. Ltd.",
-                  description: "Meter Recharge - ${customerDetails.accountId}",
-                  prefill: {
-                    name: "${customerDetails.name}",
-                    email: "customer@gmail.com",
-                    contact: "9999999999"
-                  },
-                  theme: {
-                    color: "#4f46e5"
-                  },
-                  handler: function (response) {
-                    window.ReactNativeWebView.postMessage(
-                      JSON.stringify({ 
-                        status: "success", 
-                        data: response,
-                        amount: ${amountToPay}
-                      })
-                    );
-                  },
-                  modal: {
-                    ondismiss: function () {
-                      window.ReactNativeWebView.postMessage(
-                        JSON.stringify({ status: "cancel" })
-                      );
-                    }
-                  }
-                };
-                var rzp = new Razorpay(options);
-                rzp.open();
-              }, 1500);
-            </script>
-          </body>
-        </html>
-      `;
+  //     const html = `
+  //       <!DOCTYPE html>
+  //       <html>
+  //         <head>
+  //           <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  //           <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+  //         </head>
+  //         <body style="background: #4f46e5; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 20px;">
+  //           <div id="loader" style="color: white; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; text-align: center;">
+  //             <div style="background: rgba(255,255,255,0.1); padding: 40px; border-radius: 20px; backdrop-filter: blur(10px);">
+  //               <h2 style="margin-bottom: 10px;">Processing Payment...</h2>
+  //               <p style="opacity: 0.9; margin-bottom: 20px;">₹${amountToPay} via ${paymentMethod.toUpperCase()}</p>
+  //               <div style="width: 40px; height: 40px; border: 3px solid rgba(255,255,255,0.3); border-top-color: white; border-radius: 50%; margin: 0 auto; animation: spin 1s linear infinite;"></div>
+  //             </div>
+  //           </div>
+  //           <style>
+  //             @keyframes spin {
+  //               to { transform: rotate(360deg); }
+  //             }
+  //           </style>
+  //           <script>
+  //             setTimeout(function() {
+  //               var options = {
+  //                 key: "rzp_test_S2t1onSDtI24BI",
+  //                 amount: ${totalAmount},
+  //                 currency: "INR",
+  //                 name: "Sochiot Innovation Pvt. Ltd.",
+  //                 description: "Meter Recharge - ${customerDetails.accountId}",
+  //                 prefill: {
+  //                   name: "${customerDetails.name}",
+  //                   email: "customer@gmail.com",
+  //                   contact: "9999999999"
+  //                 },
+  //                 theme: {
+  //                   color: "#4f46e5"
+  //                 },
+  //                 handler: function (response) {
+  //                   window.ReactNativeWebView.postMessage(
+  //                     JSON.stringify({ 
+  //                       status: "success", 
+  //                       data: response,
+  //                       amount: ${amountToPay}
+  //                     })
+  //                   );
+  //                 },
+  //                 modal: {
+  //                   ondismiss: function () {
+  //                     window.ReactNativeWebView.postMessage(
+  //                       JSON.stringify({ status: "cancel" })
+  //                     );
+  //                   }
+  //                 }
+  //               };
+  //               var rzp = new Razorpay(options);
+  //               rzp.open();
+  //             }, 1500);
+  //           </script>
+  //         </body>
+  //       </html>
+  //     `;
 
-      setRazorpayHtml(html);
-      setShowPaymentWeb(true);
-    }, 800);
-  };
+  //     setRazorpayHtml(html);
+  //     setShowPaymentWeb(true);
+  //   }, 800);
+  // };
+
+  const handlePayment = () => {
+  let amountToPay = selectedAmount;
+
+  if (customAmount && parseFloat(customAmount) >= 100) {
+    amountToPay = parseFloat(customAmount);
+  }
+
+  if (!amountToPay || amountToPay < 100) {
+    Alert.alert(
+      'Invalid Amount',
+      'Please select or enter an amount (minimum ₹100)'
+    );
+    return;
+  }
+
+  // 🔒 TEMPORARY: Payment under development
+  Alert.alert(
+    '🚧 Under Development',
+    `Payment feature is currently under development.\n\n`,
+    [
+      { text: 'OK', style: 'default' }
+    ]
+  );
+
+  // ❌ Razorpay logic disabled for now
+  // Later you can re-enable it here
+};
 
   const onPaymentMessage = (event) => {
     const msg = JSON.parse(event.nativeEvent.data);
