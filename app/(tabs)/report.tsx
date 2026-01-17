@@ -8,7 +8,7 @@ import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { useAuth } from '../context/AuthContext';
 import axios from 'axios';
-import { getMeterDailyConsumptionUrl, getMeterMonthlyConsumptionUrl } from '../config';
+import { getMeterDailyConsumptionUrl, getMeterMonthlyConsumptionUrl,getYearlyConsumptionUrl } from '../config';
 
 const { width } = Dimensions.get('window');
 
@@ -56,145 +56,92 @@ export default function EnergyReport() {
     }
   }, [selectedMonth, selectedYear, timeView]);
 
-  const fetchData = async () => {
-    try {
-      setLoading(true);
-      const siteId = getSiteId();
-      
-      if (!siteId) {
-        Alert.alert('Error', 'Site information not found. Please login again.');
-        setLoading(false);
-        return;
-      }
+ const fetchData = async () => {
+  const siteId = getSiteId();
+  if (!siteId) return;
 
-      if (timeView === 'daily') {
-        await fetchDailyData(siteId);
-      } else {
-        await fetchYearlyMonthlyData(siteId);
-      }
-      
-    } catch (error) {
-      console.error('Error fetching data:', error);
-      // Use sample data on error
-      if (timeView === 'daily') {
-        const sampleData = generateSampleDailyData();
-        setDailyData(sampleData);
-        calculateStats(sampleData, 'daily');
-      } else {
-        const sampleData = generateSampleMonthlyData();
-        setMonthlyData(sampleData);
-        calculateStats(sampleData, 'monthly');
-      }
-    } finally {
-      setLoading(false);
+  setLoading(true);
+  try {
+    if (timeView === 'daily') {
+      await fetchDailyData(siteId);
+    } else {
+      await fetchYearlyMonthlyData(siteId, selectedYear);
     }
-  };
+  } finally {
+    setLoading(false);
+  }
+};
 
-  const fetchDailyData = async (siteId) => {
-    try {
-      const monthNumber = months.indexOf(selectedMonth) + 1;
-      const monthStr = monthNumber.toString().padStart(2, '0');
-      const monthParam = `${selectedYear}-${monthStr}`;
-      
-      const response = await axios.get(getMeterDailyConsumptionUrl(siteId, monthParam));
-      
-      if (response.data && response.data.data) {
-        const data = response.data.data.map(item => ({
-          ...item,
-          kwh_delta: item.kwh_delta || 0
-        }));
-        setDailyData(data);
-        calculateStats(data, 'daily');
-        setHoveredIndex(null);
-      } else {
-        const sampleData = generateSampleDailyData();
-        setDailyData(sampleData);
-        calculateStats(sampleData, 'daily');
+ const fetchDailyData = async (siteId) => {
+  const monthIndex = months.indexOf(selectedMonth) + 1;
+  const monthParam = `${selectedYear}-${monthIndex.toString().padStart(2, '0')}`;
+
+  const response = await axios.get(
+    getMeterDailyConsumptionUrl(siteId, monthParam)
+  );
+
+  setDailyData(response.data?.data || []);
+};
+
+
+
+ const fetchYearlyMonthlyData = async (siteId, year) => {
+  // console.log(year)
+ try {
+    const response = await axios.get(
+      getYearlyConsumptionUrl(siteId),
+      {
+        params: {
+          year: year, 
+        },
+        headers: {
+          "Content-Type": "application/json",
+        },
       }
-    } catch (error) {
-      console.error('Error fetching daily data:', error);
-      const sampleData = generateSampleDailyData();
-        setDailyData(sampleData);
-        calculateStats(sampleData, 'daily');
+    );
+
+    // console.log(response.data);
+
+    if (response.data) {
+      console.log("monthly data recived is:", response.data);
+      const processedData = processYearlyResponse(response.data);
+      setMonthlyData(processedData);
+      calculateStats(processedData, 'monthly');
+      setHoveredIndex(null);
+    } 
+
+  } catch (error) {
+    console.error('Error fetching yearly data:', error);
+   
+   
+  }
+};
+
+
+const processYearlyResponse = (apiData) => {
+  try {
+    if (
+      apiData &&
+      Array.isArray(apiData.monthly_consumption)
+    ) {
+      return apiData.monthly_consumption.map((item) => {
+        const kwh = Number(item.total_kwh) || 0;
+
+        return {
+          month: item.month,                    // "Jan"
+          monthNumber: Number(item.month_key?.split('-')[1]) || 0, // 1–12
+          total_kwh: kwh,
+          total_amount: calculateAmount(kwh),
+        };
+      });
     }
-  };
 
-  const fetchYearlyMonthlyData = async (siteId) => {
-    try {
-      const yearParam = `${selectedYear}-01`;
-      
-      const response = await axios.get(getMeterMonthlyConsumptionUrl(siteId, yearParam));
-      
-      if (response.data) {
-        const processedData = processYearlyResponse(response.data);
-        setMonthlyData(processedData);
-        calculateStats(processedData, 'monthly');
-        setHoveredIndex(null);
-      } else {
-        const sampleData = generateSampleMonthlyData();
-        setMonthlyData(sampleData);
-        calculateStats(sampleData, 'monthly');
-      }
-    } catch (error) {
-      console.error('Error fetching yearly data:', error);
-      const sampleData = generateSampleMonthlyData();
-        setMonthlyData(sampleData);
-        calculateStats(sampleData, 'monthly');
-    }
-  };
+  } catch (error) {
+    console.error('Error processing yearly response:', error);
+   
+  }
+};
 
-  const processYearlyResponse = (apiData) => {
-    try {
-      // Handle different response formats
-      if (Array.isArray(apiData)) {
-        return apiData.map((item, index) => ({
-          month: months[index] || `Month ${index + 1}`,
-          monthNumber: index + 1,
-          total_kwh: Number(item.total_kwh || item.kwh || Math.floor(Math.random() * 100) + 50) || 0,
-          total_amount: calculateAmount(Number(item.total_kwh || item.kwh || Math.floor(Math.random() * 100) + 50) || 0)
-        }));
-      } else if (apiData.data && Array.isArray(apiData.data)) {
-        return apiData.data.map((item, index) => ({
-          month: months[index] || `Month ${index + 1}`,
-          monthNumber: index + 1,
-          total_kwh: Number(item.total_kwh || item.kwh || Math.floor(Math.random() * 100) + 50) || 0,
-          total_amount: calculateAmount(Number(item.total_kwh || item.kwh || Math.floor(Math.random() * 100) + 50) || 0)
-        }));
-      } else if (apiData.total_kwh !== undefined) {
-        // Single monthly data object
-        const monthIndex = months.indexOf(selectedMonth);
-        return [{
-          month: selectedMonth,
-          monthNumber: monthIndex + 1,
-          total_kwh: Number(apiData.total_kwh || apiData.kwh || 0) || 0,
-          total_amount: calculateAmount(Number(apiData.total_kwh || apiData.kwh || 0) || 0)
-        }];
-      } else {
-        return generateSampleMonthlyData();
-      }
-    } catch (error) {
-      console.error('Error processing yearly response:', error);
-      return generateSampleMonthlyData();
-    }
-  };
-
-  const generateSampleDailyData = () => {
-    const daysInMonth = new Date(selectedYear, months.indexOf(selectedMonth) + 1, 0).getDate();
-    return Array.from({ length: daysInMonth }, (_, i) => ({
-      day: `${i + 1} ${selectedMonth.slice(0, 3)}`,
-      kwh_delta: Math.floor(Math.random() * 15) + 5,
-      date: `${i + 1}-${selectedMonth.slice(0, 3)}-${selectedYear}`
-    }));
-  };
-
-  const generateSampleMonthlyData = () => {
-    return months.map((month, index) => ({
-      month,
-      monthNumber: index + 1,
-      total_kwh: Math.floor(Math.random() * 100) + 50,
-      total_amount: calculateAmount(Math.floor(Math.random() * 100) + 50)
-    }));
-  };
 
   const calculateAmount = (kwh) => {
     const ratePerKwh = 6.8;

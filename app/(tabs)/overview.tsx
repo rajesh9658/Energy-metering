@@ -78,7 +78,7 @@ export default function OverviewScreen({ route }) {
       try {
         setIsLoadingSiteInfo(true);
         
-        // Priority 1: AuthContext से (most recent)
+        // Priority 1: AuthContext से (most recen pura naya bala)
         const authSiteId = getSiteId();
         const authSiteName = getSiteName();
         const authSlug = getSlug();
@@ -123,6 +123,10 @@ export default function OverviewScreen({ route }) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
+  const [currentunit, setCurrentunit] = useState(null);
+  const [currentconsumption, setCurrentconsumption] = useState(null);
+
+
 
   // SWIPER DATA
   const [slides, setSlides] = useState([
@@ -249,7 +253,7 @@ export default function OverviewScreen({ route }) {
 
   const fetchSiteData = async () => {
     try {
-      console.log("called the function");
+      // console.log("called the function");
       // Use slug if available, otherwise use siteName
       const slugToUse = siteInfo.slug || siteInfo.siteName;
       if (!slugToUse) return;
@@ -259,6 +263,7 @@ export default function OverviewScreen({ route }) {
       if (response.data && response.data.success) {
         // console.log(response);
         setSiteData(response.data);
+        setCurrentunit(response.data.asset_information.electric_parameters.unit);
         updateSanctionedLoad(response.data.asset_information);
         updateVoltageCurrentData(response.data.asset_information.electric_parameters);
       }
@@ -307,26 +312,59 @@ export default function OverviewScreen({ route }) {
       // Don't set global error for this - just log it
     }
   };
+  
+//if your date is in format of "YYYY-MM-DD HH:mm:ss"
+//then call this function 
+
+  const formatDateTimeformysql = (dateTime) => {
+  if (!dateTime) return "--";
+
+  // Convert "YYYY-MM-DD HH:mm:ss" → "YYYY-MM-DDTHH:mm:ss"
+  const date = new Date(dateTime.replace(" ", "T"));
+
+  return date.toLocaleString("en-IN", {
+    day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+  });
+};
+
+
 
   // Update Current Slide
   const updateCurrentSlide = (data) => {
+    let lastupdatetime = "2026-01-16 11:07:20";
+    // let currentunit = null;
+    if(siteData){
+      // console.log("siteData", siteData);
+    // currentunit = siteData.asset_information.electric_parameters.unit;
+    lastupdatetime = siteData.asset_information.electric_parameters.updatedAt;
+    // console.log("lastupdatetime :",lastupdatetime)
+    }
     if (!data) return;
-    
+    // console.log("data", data);
     const newSlides = [...slides];
-    const todayConsumption = data.closing_kwh - data.opening_kwh;
+    setCurrentconsumption(currentunit - data.closing_kwh);
     
     newSlides[0].rows = [
+      //the api is returning the one day prev data 
+      //so the closing of the prev will be the 
+      //opening of the today
+      //the sitedata is returning the updated value 
+      
       { 
         label: "Opening Reading", 
-        value: `${data.opening_kwh?.toFixed(2) || "0.00"} kWh`
-      },
-      { 
-        label: "Closing Reading", 
         value: `${data.closing_kwh?.toFixed(2) || "0.00"} kWh`
       },
       { 
+        label: "Closing Reading", 
+        value: `${currentunit?.toFixed(2) || "0.00"} kWh`
+      },
+      { 
         label: "Today's Consumption", 
-        value: `${todayConsumption.toFixed(2)} kWh`, 
+        value: `${currentconsumption.toFixed(2)} kWh`, 
         color: "#2e7d32"
       },
       { 
@@ -335,15 +373,15 @@ export default function OverviewScreen({ route }) {
       },
       { 
         label: "Last Reading Time", 
-        value: formatDateTime(data.reading_time), 
+        value: formatDateTimeformysql(lastupdatetime), 
         color: "#0b63a8"
       },
     ];
 
     newSlides[0].consumptionData = {
-      grid: todayConsumption,
+      grid: currentconsumption,
       dg: 0,
-      total: todayConsumption,
+      total: currentconsumption,
       gridPercent: "100.00%",
       dgPercent: "0.00%",
     };
@@ -354,7 +392,7 @@ export default function OverviewScreen({ route }) {
   // Update Today Slide
   const updateTodaySlide = (data) => {
     if (!data || !data.data || data.data.length === 0) return;
-    
+    // console.log("todays data", currentunit);
     const newSlides = [...slides];
     const today = new Date();
     const todayStr = `${today.getDate().toString().padStart(2, '0')} ${today.toLocaleString('default', { month: 'short' })}`;
@@ -601,9 +639,9 @@ export default function OverviewScreen({ route }) {
       <SafeAreaView style={styles.safe}>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#0b63a8" />
-          <Text style={styles.loadingText}>Loading...</Text>
+          <Text style={styles.loadingText}>Loading meter data...</Text>
           <Text style={styles.siteInfoText}>
-            
+            Site: {siteInfo.siteName} | ID: {siteInfo.siteId}
           </Text>
         </View>
       </SafeAreaView>
