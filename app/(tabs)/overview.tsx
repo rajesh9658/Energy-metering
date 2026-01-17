@@ -136,6 +136,7 @@ useEffect(() => {
 }, [meterCurrentData, siteData]);
 
 
+
   // SWIPER DATA
   const [slides, setSlides] = useState([
     {
@@ -294,12 +295,13 @@ useEffect(() => {
   // };
 
 
-  const fetchMeterCurrentData = async () => {
+const fetchMeterCurrentData = async () => {
   const response = await axios.get(getMeterCurrentUrl(siteInfo.siteId));
   if (response.data) {
     setMeterCurrentData(response.data);
   }
 };
+
 
 
   const fetchMeterDailyData = async () => {
@@ -406,85 +408,86 @@ useEffect(() => {
   //   setSlides(newSlides);
   // };
 
-//  const updateCurrentSlide = (data) => {
+// const updateCurrentSlide = (data) => {
 //   if (!data || !siteData) return;
 
-//   const opening = data.closing_kwh || 0;
-//   const closing =
-//     siteData.asset_information.electric_parameters.unit || 0;
+//   const closing = siteData.asset_information.electric_parameters.unit;
+//   const opening = data.closing_kwh;
+
+//   if (closing == null || opening == null) return;
 
 //   const consumption = Math.max(closing - opening, 0);
 
-//   setCurrentconsumption(consumption); // ✅ state
+//   setCurrentconsumption(consumption);
 
 //   const newSlides = [...slides];
-
-//   newSlides[0].consumptionData = {
-//     grid: consumption,          // 👈 MOST IMPORTANT LINE
-//     dg: 0,
-//     total: consumption,
-//     gridPercent: "100.00%",
-//     dgPercent: "0.00%",
-//   };
+//   newSlides[0].rows = [
+//     { label: "Opening Reading", value: `${opening.toFixed(2)} kWh` },
+//     { label: "Closing Reading", value: `${closing.toFixed(2)} kWh` },
+//     {
+//       label: "Today's Consumption",
+//       value: `${consumption.toFixed(2)} kWh`,
+//       color: "#2e7d32",
+//     },
+//     { label: "Grid Balance", value: `Rs. ${data.balance || 0}` },
+//     {
+//       label: "Last Reading Time",
+//       value: formatDateTimeformysql(
+//         siteData.asset_information.electric_parameters.updatedAt
+//       ),
+//       color: "#0b63a8",
+//     },
+//   ];
 
 //   setSlides(newSlides);
 // };
 
+
 const updateCurrentSlide = (data) => {
-  // 🔒 Safety guards
-  if (!data) return;
-  if (!siteData?.asset_information?.electric_parameters) return;
+  if (!data || !siteData) return;
 
-  // 📥 Opening & Closing readings
-  const opening = Number(data.closing_kwh || 0);
-  const closing = Number(
-    siteData.asset_information.electric_parameters.unit || 0
-  );
+  const closing = siteData.asset_information.electric_parameters.unit;
+  const opening = data.closing_kwh;
 
-  // 🧮 Consumption calculation (never negative)
+  if (closing == null || opening == null) return;
+
   const consumption = Math.max(closing - opening, 0);
 
-  // 🔁 Update main state
   setCurrentconsumption(consumption);
 
-  // 🔁 Update slides state (UI depends on this)
-  setSlides(prevSlides => {
-    const newSlides = [...prevSlides];
+  const newSlides = [...slides];
 
-    newSlides[0] = {
-      ...newSlides[0],
-      rows: [
-        { label: "Opening Reading", value: `${opening.toFixed(2)} kWh` },
-        { label: "Closing Reading", value: `${closing.toFixed(2)} kWh` },
-        {
-          label: "Today's Consumption",
-          value: `${consumption.toFixed(2)} kWh`,
-          color: "#2e7d32",
-        },
-        {
-          label: "Grid Balance",
-          value: `Rs. ${data.balance || 0}`,
-        },
-        {
-          label: "Last Reading Time",
-          value: formatDateTimeformysql(
-            siteData.asset_information.electric_parameters.updatedAt
-          ),
-          color: "#0b63a8",
-        },
-      ],
-      consumptionData: {
-        grid: consumption,          // ✅ SAME AS currentconsumption
-        dg: 0,
-        total: consumption,
-        gridPercent: "100.00%",
-        dgPercent: "0.00%",
-      },
-    };
+  // ✅ rows (as it is)
+  newSlides[0].rows = [
+    { label: "Opening Reading", value: `${opening.toFixed(2)} kWh` },
+    { label: "Closing Reading", value: `${closing.toFixed(2)} kWh` },
+    {
+      label: "Today's Consumption",
+      value: `${consumption.toFixed(2)} kWh`,
+      color: "#2e7d32",
+    },
+    { label: "Grid Balance", value: `Rs. ${data.balance || 0}` },
+    {
+      label: "Last Reading Time",
+      value: formatDateTimeformysql(
+        siteData.asset_information.electric_parameters.updatedAt
+      ),
+      color: "#0b63a8",
+    },
+  ];
 
-    return newSlides;
-  });
+  // ✅ 🔥 YEHI MAIN FIX HAI
+  newSlides[0].consumptionData = {
+    grid: consumption,        // 👈 ab 0 nahi aayega
+    dg: 0,
+    total: consumption,
+    gridPercent: "100.00%",
+    dgPercent: "0.00%",
+  };
+
+  setSlides(newSlides);
 };
+
 
 
   // Update Today Slide
@@ -531,17 +534,26 @@ const updateCurrentSlide = (data) => {
       },
     ];
 
-    const todayValue = todayData ? todayData.kwh_delta : 0;
-    newSlides[1].consumptionData = {
-      grid: todayValue,
-      dg: 0,
-      total: todayValue,
-      gridPercent: "100.00%",
-      dgPercent: "0.00%",
-    };
+   const todayValue = Number(currentconsumption || 0);
+
+newSlides[1].consumptionData = {
+  grid: todayValue,          // ✅ live value
+  dg: 0,
+  total: todayValue,
+  gridPercent: "100.00%",
+  dgPercent: "0.00%",
+};
+
 
     setSlides(newSlides);
   };
+
+  useEffect(() => {
+  if (meterDailyData && currentconsumption != null) {
+    updateTodaySlide(meterDailyData);
+  }
+}, [currentconsumption]);
+
 
   // Update Monthly Slide
   const updateMonthlySlide = (data) => {
@@ -738,9 +750,9 @@ const updateCurrentSlide = (data) => {
       <SafeAreaView style={styles.safe}>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#0b63a8" />
-          <Text style={styles.loadingText}>Loading meter data...</Text>
+          <Text style={styles.loadingText}>Loading...</Text>
           <Text style={styles.siteInfoText}>
-            Site: {siteInfo.siteName} | ID: {siteInfo.siteId}
+           
           </Text>
         </View>
       </SafeAreaView>

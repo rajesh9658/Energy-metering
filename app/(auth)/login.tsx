@@ -138,11 +138,11 @@ export default function Login() {
 
                   <View style={styles.utilityRow}>
                     <TouchableOpacity style={styles.rememberMe} disabled={isLoading}>
-                      <View style={styles.checkbox} />
-                      <Text style={styles.rememberMeText}>Remember me</Text>
+                      {/* <View style={styles.checkbox} /> */}
+                      {/* <Text style={styles.rememberMeText}>Remember me</Text> */}
                     </TouchableOpacity>
                     <TouchableOpacity onPress={() => Alert.alert('Forgot Password', 'Reset link sent.')} disabled={isLoading}>
-                      <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
+                      {/* <Text style={styles.forgotPasswordText}>Forgot Password?</Text> */}
                     </TouchableOpacity>
                   </View>
 
