@@ -554,10 +554,10 @@ const processYearlyResponse = (apiData) => {
     <View style={styles.container}>
       <View style={styles.topSection}>
         <View style={styles.actionRow}>
-          <TouchableOpacity style={styles.downloadBtn} onPress={exportPDF}>
-            <Ionicons name="document-text" size={16} color="#02569B" />
-            <Text style={styles.downloadText}>PDF Report</Text>
-          </TouchableOpacity>
+          {/* <TouchableOpacity style={styles.downloadBtn} onPress={exportPDF}> */}
+            {/* <Ionicons name="document-text" size={16} color="#02569B" /> */}
+          {/* <Text style={styles.downloadText}>PDF Report</Text> */}
+          {/* </TouchableOpacity> */}
           
           <TouchableOpacity style={styles.refreshBtn} onPress={fetchData}>
             <Ionicons name="refresh-outline" size={16} color="#02569B" />
