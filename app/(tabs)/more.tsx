@@ -396,14 +396,7 @@ export default function MoreScreen() {
       }
     >
       {/* Page Header */}
-      <View style={styles.pageHeader}>
-        <Text style={styles.pageTitle}>
-          {siteInfo.siteName ? `Site: ${siteInfo.siteName}` : 'Site Details'}
-        </Text>
-        <TouchableOpacity style={styles.refreshBtn} onPress={onRefresh}>
-          <Ionicons name="refresh-outline" size={22} color="#0b63a8" />
-        </TouchableOpacity>
-      </View>
+     
 
       {/* Main Content */}
       <View style={styles.mainContent}>
@@ -479,19 +472,10 @@ export default function MoreScreen() {
           <Text style={styles.appName}>Energy Meter</Text>
           <Text style={styles.appVersion}>Version 2.1.0</Text>
           <Text style={styles.appTagline}>Smart Energy Monitoring</Text>
-          {user?.name && (
-            <Text style={styles.userEmail}>
-              User: {user.name}
-            </Text>
-          )}
-          {siteInfo.siteName && (
-            <Text style={styles.siteInfo}>
-              Site: {siteInfo.siteName}
-            </Text>
-          )}
-          <Text style={styles.appCopyright}>© 2024 Energy Solutions</Text>
+          
+          
+          <Text style={styles.appCopyright}>© 2026 Sochiot Smart Meter</Text>
         </View>
-
         <View style={styles.bottomSpacer} />
       </View>
     </ScrollView>
