@@ -190,7 +190,7 @@ export default function MoreScreen() {
               </View>
               {user?.name && (
                 <Text style={styles.userInfo}>
-                  Logged in as: {user.name}
+                  
                 </Text>
               )}
             </View>
@@ -307,7 +307,7 @@ export default function MoreScreen() {
               />
               <Text style={styles.statusTextSmall}>Supply</Text>
               <Text style={[styles.statusValueSmall, siteValues.force_off && styles.statusError]}>
-                {siteValues.force_off ? 'Force Off' : 'Normal'}
+                {siteValues.force_off ? 'Off' : 'Normal'}
               </Text>
             </View>
           </View>
@@ -373,11 +373,7 @@ export default function MoreScreen() {
             'Loading site information...'
           }
         </Text>
-        {siteInfo.siteId && (
-          <Text style={styles.siteIdText}>
-            Site ID: {siteInfo.siteId}
-          </Text>
-        )}
+       
       </View>
     );
   }
