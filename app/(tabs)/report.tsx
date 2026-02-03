@@ -72,7 +72,7 @@ export default function EnergyReport() {
   }
 };
 
-const fetchDailyData = async (siteId) => {
+ const fetchDailyData = async (siteId) => {
   const monthIndex = months.indexOf(selectedMonth) + 1;
   const monthParam = `${selectedYear}-${monthIndex.toString().padStart(2, '0')}`;
 
@@ -80,12 +80,9 @@ const fetchDailyData = async (siteId) => {
     getMeterDailyConsumptionUrl(siteId, monthParam)
   );
 
-  const data = response.data?.data || [];
-
-  setDailyData(data);
-  calculateStats(data, 'daily'); // ✅ FIX
-  setHoveredIndex(null);
+  setDailyData(response.data?.data || []);
 };
+
 
 
  const fetchYearlyMonthlyData = async (siteId, year) => {
