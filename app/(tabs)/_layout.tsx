@@ -115,7 +115,7 @@ export default function TabLayout() {
 
             <View>
               <Text style={{ color: "white", fontSize: 18, fontWeight: "800" }}>
-                {user.name?.split("@")[0].toUpperCase() || "USER"}
+                {user.site_name?.split("@")[0].toUpperCase() || "USER"}
               </Text>
               <View style={{ flexDirection: "row", alignItems: "center" }}>
                 <Ionicons name="location-sharp" size={13} color="#bbdefb" />

@@ -207,8 +207,8 @@ useEffect(() => {
   const active = slides[activeIndex];
   
   // AUTO-SLIDE CONFIGURATION
-  const AUTO_SLIDE_INTERVAL = 5000;
-  const RESUME_DELAY = 8000;
+  const AUTO_SLIDE_INTERVAL = 11000;
+  const RESUME_DELAY = 11000;
 
   // STATIC DATA
   const [staticData, setStaticData] = useState({

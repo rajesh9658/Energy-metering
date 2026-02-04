@@ -19,7 +19,8 @@ import { WebView } from 'react-native-webview';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import * as Animatable from 'react-native-animatable';
 import { getSiteDataUrl } from '../config'; // Assuming config is in same directory
-
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useAuth } from "../context/AuthContext";
 const { width, height } = Dimensions.get('window');
 
 export default function RechargeScreen() {
@@ -35,45 +36,120 @@ export default function RechargeScreen() {
   const [siteData, setSiteData] = useState(null);
   const [siteLoading, setSiteLoading] = useState(true);
   const [siteError, setSiteError] = useState(null);
-
+    const { user, getSlug, getSiteName, getSiteId } = useAuth();
+const [siteInfo, setSiteInfo] = useState({
+    siteName: null,
+    siteId: null,
+    slug: null,
+    user: null,
+  });
+    const [isLoadingSiteInfo, setIsLoadingSiteInfo] = useState(true);
   const customAmountInputRef = useRef(null);
 
-  // Fetch site data on component mount
-  useEffect(() => {
-    fetchSiteData();
-  }, []);
 
-  const fetchSiteData = async () => {
+   const loadSiteInfo = async () => {
+  try {
+    const userData = await AsyncStorage.getItem("userData");
+
+    if (userData) {
+      const parsed = JSON.parse(userData);
+      return {
+        siteName: parsed.site_name,
+        siteId: parsed.site_id,
+        slug: parsed.slug,
+        user: parsed,
+      };
+    }
+
+    return { siteName: null, siteId: null, slug: null, user: null };
+  } catch {
+    return { siteName: null, siteId: null, slug: null, user: null };
+  }
+};
+  // Fetch site data on component mount
+ useEffect(() => {
+  const loadInitialData = async () => {
     try {
-      setSiteLoading(true);
-      setSiteError(null);
-      const siteName = 'neelkanth-1'; // You can make this dynamic if needed
-      const response = await fetch(getSiteDataUrl(siteName));
-      const data = await response.json();
-      
-      if (data.success) {
-        setSiteData(data.asset_information);
-      } else {
-        setSiteError('Failed to load site data');
+      setIsLoadingSiteInfo(true);
+
+      // 🔹 Priority 1: AuthContext
+      const authSlug = getSlug();
+      const authSiteName = getSiteName();
+      const authSiteId = getSiteId();
+
+      if (authSiteId && authSiteName) {
+        setSiteInfo({
+          siteName: authSiteName,
+          siteId: authSiteId,
+          slug: authSlug,
+          user: user,
+        });
+        return;
       }
-    } catch (error) {
-      console.error('Error fetching site data:', error);
-      setSiteError('Network error. Please try again.');
+
+      // 🔹 Priority 2: AsyncStorage
+      const stored = await loadSiteInfo();
+      if (stored.siteName || stored.slug) {
+        setSiteInfo(stored);
+      } else {
+        setSiteError("No site information found");
+      }
+
+    } catch {
+      setSiteError("Error loading site information");
     } finally {
-      setSiteLoading(false);
+      setIsLoadingSiteInfo(false);
     }
   };
 
+  loadInitialData();
+}, [user]);
+
+
+
+useEffect(() => {
+  if (siteInfo.siteName || siteInfo.slug) {
+    fetchSiteData();
+  }
+}, [siteInfo]);
+const fetchSiteData = async () => {
+  try {
+    setSiteLoading(true);
+    setSiteError(null);
+
+    const slugToUse = siteInfo.slug || siteInfo.siteName;
+    if (!slugToUse) return;
+
+    const response = await fetch(getSiteDataUrl(slugToUse));
+    const data = await response.json();
+
+    if (data.success) {
+      setSiteData(data.asset_information);
+    } else {
+      setSiteError("Failed to load site data");
+    }
+  } catch (error) {
+    setSiteError("Network error");
+  } finally {
+    setSiteLoading(false);
+  }
+};
+
+
   // Customer details from API
-  const customerDetails = {
-    accountId: siteData?.slug || '0129665248',
-    name: siteData?.custom_name || 'Loading...',
-    meterNo: siteData?.site_name || 'Loading...', // Changed from meter_no to site_name
-    availableBalance: `₹ ${siteData?.electric_parameters?.balance || '0'}`, // From balance
-    // lastPayment: '₹ 2,000 on 1 Feb 2024', // You might need to get this from another API endpoint
-    shopName: siteData?.meter_name || 'Loading...',
-    address: siteData?.location || 'Loading...', // From location
-  };
+ const rawBalance = Number(siteData?.electric_parameters?.balance);
+
+const customerDetails = {
+  accountId: siteData?.slug || '—',
+  name: siteData?.custom_name || 'Loading...',
+  meterNo: siteData?.site_name || 'Loading...',
+  availableBalance: `₹ ${
+    isNaN(rawBalance) ? "0.00" : rawBalance.toFixed(2)
+  }`,
+  shopName: siteData?.meter_name || 'Loading...',
+  address: siteData?.location || 'Loading...',
+};
+
 
   const rechargeOptions = [
     { 
@@ -136,6 +212,9 @@ export default function RechargeScreen() {
     { amount: 2000, color: '#fef2f2' },
     { amount: 5000, color: '#f0fdf4' },
   ];
+
+
+ 
 
   /* -------------------- PAYMENT -------------------- */
 
@@ -727,7 +806,7 @@ const styles = StyleSheet.create({
   customerDetailsCard: {
     backgroundColor: '#fff',
     marginHorizontal: 20,
-    marginTop: -40,
+    marginTop: -30,
     padding: 24,
     borderRadius: 24,
     shadowColor: '#4f46e5',
@@ -844,10 +923,11 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   balanceAmount: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: '#10b981',
-  },
+  fontSize: 28,
+  fontWeight: '900',
+  color: '#059669',
+},
+
   lastPayment: {
     fontSize: 16,
     fontWeight: '700',
@@ -877,8 +957,9 @@ const styles = StyleSheet.create({
     color: '#1e293b',
   },
   section: {
-    marginBottom: 24,
-  },
+  marginBottom: 32,
+},
+
   sectionHeader: {
     paddingHorizontal: 20,
     marginBottom: 16,
@@ -909,7 +990,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderRadius: 20,
     marginBottom: 16,
-    shadowColor: '#000',
+    shadowColor: '#4f46e5',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.08,
     shadowRadius: 12,
@@ -1326,12 +1407,15 @@ balanceRow: {
 },
 balanceItem: {
   flex: 1,
-  backgroundColor: '#f0fdf4',
-  padding: 16,
-  borderRadius: 16,
-  marginRight: 8,
+  backgroundColor: '#ecfdf5',
+  padding: 20,
+  borderRadius: 20,
+  marginRight: 10,
   justifyContent: 'center',
+  borderWidth: 1,
+  borderColor: '#bbf7d0',
 },
+
 balanceLabel: {
   fontSize: 12,
   color: '#64748b',
@@ -1339,18 +1423,21 @@ balanceLabel: {
   marginBottom: 4,
 },
 balanceAmount: {
-  fontSize: 24,
+  fontSize: 20,
   fontWeight: '800',
   color: '#10b981',
 },
 addressItem: {
   flex: 1,
   backgroundColor: '#f8fafc',
-  padding: 16,
-  borderRadius: 16,
-  marginLeft: 8,
+  padding: 10,
+  borderRadius: 20,
+  marginLeft: 10,
   justifyContent: 'center',
+  borderWidth: 1,
+  borderColor: '#e2e8f0',
 },
+
 addressContent: {
   flexDirection: 'row',
   alignItems: 'flex-start',
