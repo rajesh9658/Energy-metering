@@ -403,22 +403,40 @@ const processYearlyResponse = (apiData) => {
                         
                         {/* Show value by default OR if selected */}
                         {(showAllValues || isSelected) && value > 0 && (
-                          <View style={[styles.valueLabel, { 
-                            bottom: `${Math.min(bottomPos + 8, 85)}%`,
-                            left: '50%',
-                            transform: [{ translateX: -20 }],
-                            backgroundColor: isSelected ? 
-                              (isAmount ? '#1E88E5' : '#02569B') : 
-                              'rgba(255, 255, 255, 0.95)'
-                          }]}>
-                            <Text style={[
-                              styles.valueLabelText,
-                              { color: isSelected ? '#FFFFFF' : colors.primary }
-                            ]}>
-                              {value.toFixed(1)}
-                            </Text>
-                          </View>
-                        )}
+  <View
+    style={[
+      styles.valueLabel,
+      {
+        position: 'absolute',
+
+        // 🔥 TWO ROW LOGIC (KEY FIX)
+        bottom: i % 2 === 0 ? 118 : 98,
+
+        left: '50%',
+        transform: [{ translateX: -12 }],
+
+        backgroundColor: 'rgba(0,0,0,0.65)',
+        paddingHorizontal: 4,
+        paddingVertical: 2,
+        minWidth: 26,
+        borderRadius: 4,
+      },
+    ]}
+  >
+    <Text
+      style={{
+        fontSize: 8,
+        fontWeight: '600',
+        color: '#FFFFFF',
+        textAlign: 'center',
+        letterSpacing: 0.2,
+      }}
+    >
+      {value.toFixed(0)}
+    </Text>
+  </View>
+)}
+
                         
                         {/* Day number at bottom */}
                         <Text style={[styles.dayLabel, { 
@@ -554,10 +572,10 @@ const processYearlyResponse = (apiData) => {
     <View style={styles.container}>
       <View style={styles.topSection}>
         <View style={styles.actionRow}>
-          <TouchableOpacity style={styles.downloadBtn} onPress={exportPDF}>
-            <Ionicons name="document-text" size={16} color="#02569B" />
-          <Text style={styles.downloadText}>PDF Report</Text>
-          </TouchableOpacity>
+          {/* <TouchableOpacity style={styles.downloadBtn} onPress={exportPDF}> */}
+            {/* <Ionicons name="document-text" size={16} color="#02569B" /> */}
+          {/* <Text style={styles.downloadText}>PDF Report</Text> */}
+          {/* </TouchableOpacity> */}
           
           <TouchableOpacity style={styles.refreshBtn} onPress={fetchData}>
             <Ionicons name="refresh-outline" size={16} color="#02569B" />
