@@ -13,6 +13,7 @@ const API_CONFIG = {
     METER_MONTHLY_CONSUMPTION: "/api/meter/{siteId}/monthly-consumption",
     METER_YEARLY_CONSUMPTION: "/api/meter/{siteId}/consumption/yearly",
     CHANGE_PASSWORD: "/api/changeFirstTimePassword", // Add this
+    METER_MONTHLY_REPORT: "/api/meter/{siteId}/consumption/monthly_report",
   },
 };
 
@@ -59,6 +60,17 @@ export const getYearlyConsumptionUrl = (siteId) => {
 
 export const getChangePasswordUrl = () => {
   return API_CONFIG.BASE_URL + API_CONFIG.ENDPOINTS.CHANGE_PASSWORD;
+};
+
+export const getMeterMonthlyReportUrl = (siteId: string | number, month?: string) => {
+  const baseUrl = API_CONFIG.BASE_URL + 
+    API_CONFIG.ENDPOINTS.METER_MONTHLY_REPORT.replace("{siteId}", siteId.toString());
+  
+  // Optional: Add month parameter if provided
+  if (month) {
+    return `${baseUrl}?month=${month}`;
+  }
+  return baseUrl;
 };
 
 export default function ConfigInfo() {
