@@ -196,17 +196,11 @@ export default function Login() {
                     </LinearGradient>
                   </TouchableOpacity>
 
-                  {/* First Time Login Info */}
-                  <View style={styles.infoBox}>
-                    <Ionicons name="information-circle-outline" size={18} color="#667eea" />
-                    <Text style={styles.infoText}>
-                      First time users must change their password after login
-                    </Text>
-                  </View>
+                 
                 </LinearGradient>
               </View>
 
-              <Text style={styles.versionText}>v1.0.0 • Secure Login</Text>
+              
             </Animated.View>
           </ScrollView>
         </KeyboardAvoidingView>
