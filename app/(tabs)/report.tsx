@@ -466,17 +466,17 @@ export default function EnergyReport() {
 
                 .main-table th {
                     background-color: #1F4E79;
-                    color: #fff;
+                    color: #fff !important;
                     font-weight: bold;
                     text-transform: uppercase;
                     font-size: 9pt;
                     padding: 5px 3px;
                     text-align: center;
-                    border: 1px solid #000;
+                    border: 1px solid #fff;
                 }
 
                 .main-table td {
-                    border: 1px solid #000;
+                    border: 1px solid #fff;
                     padding: 4px 2px;
                     text-align: center;
                     vertical-align: middle;
