@@ -1,8 +1,8 @@
 // app/config.ts
 
 const API_CONFIG = {
-  // BASE_URL: "http://192.168.68.119:8000",
-  BASE_URL: "https://em.sochiot.com",
+  BASE_URL: "http://192.168.68.129:8004",
+  // BASE_URL: "https://em.sochiot.com",
 
 
   ENDPOINTS: {
@@ -12,6 +12,7 @@ const API_CONFIG = {
     METER_DAILY_CONSUMPTION: "/api/meter/{siteId}/daily-consumption",
     METER_MONTHLY_CONSUMPTION: "/api/meter/{siteId}/monthly-consumption",
     METER_YEARLY_CONSUMPTION: "/api/meter/{siteId}/consumption/yearly",
+    CHANGE_PASSWORD: "/api/changeFirstTimePassword", // Add this
   },
 };
 
@@ -19,6 +20,9 @@ export const getApiUrl = (endpoint: string) => {
   const url = API_CONFIG.BASE_URL + endpoint;
   return url;
 };
+
+
+
 
 export const getSiteDataUrl = (siteName: string) => {
   const url = API_CONFIG.BASE_URL + API_CONFIG.ENDPOINTS.SITE_DATA + siteName;
@@ -53,7 +57,9 @@ export const getYearlyConsumptionUrl = (siteId) => {
   );
 };
 
-
+export const getChangePasswordUrl = () => {
+  return API_CONFIG.BASE_URL + API_CONFIG.ENDPOINTS.CHANGE_PASSWORD;
+};
 
 export default function ConfigInfo() {
   return null;

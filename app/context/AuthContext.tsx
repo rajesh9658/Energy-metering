@@ -43,64 +43,132 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const login = async (userid, password) => { 
-    if (!userid.trim() || !password.trim()) {
-      const msg = "Please fill all fields";
-      setError(msg);
-      return { success: false, message: msg };
-    }
+  // const login = async (userid, password) => { 
+  //   if (!userid.trim() || !password.trim()) {
+  //     const msg = "Please fill all fields";
+  //     setError(msg);
+  //     return { success: false, message: msg };
+  //   }
 
-    try {
-      setError("");
+  //   try {
+  //     setError("");
       
-      const apiUrl = getApiUrl("/api/mobile-login");
+  //     const apiUrl = getApiUrl("/api/mobile-login");
       
-      const response = await fetch(apiUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Accept": "application/json",
-        },
-        body: JSON.stringify({
-          userid: userid.trim(), 
-          password: password.trim()
-        }),
-      });
+  //     const response = await fetch(apiUrl, {
+  //       method: "POST",
+  //       headers: {
+  //         "Content-Type": "application/json",
+  //         "Accept": "application/json",
+  //       },
+  //       body: JSON.stringify({
+  //         userid: userid.trim(), 
+  //         password: password.trim()
+  //       }),
+  //     });
       
-      const data = await response.json();
-      // console.log("Login response data:", data.site.site_name);
-      if (data.status === true) {
-        const userToStore = {
-          name: userid, 
-          site_id: data.site.site_id,
-          site_name: data.site.site_name,
-          slug: data.site.slug,
-          device_id: data.site.device_id,
-          clusterID: data.site.clusterID,
-          // Save all data that might come from API
-          ...data
-        };
+  //     const data = await response.json();
+  //     // console.log("Login response data:", data.site.site_name);
+  //     if (data.status === true) {
+  //       const userToStore = {
+  //         name: userid, 
+  //         site_id: data.site.site_id,
+  //         site_name: data.site.site_name,
+  //         slug: data.site.slug,
+  //         device_id: data.site.device_id,
+  //         clusterID: data.site.clusterID,
+  //         // Save all data that might come from API
+  //         ...data
+  //       };
 
-        // Save all data to AsyncStorage
-        await AsyncStorage.setItem("userData", JSON.stringify(userToStore));
-        await AsyncStorage.setItem("authToken", data.device_id || "");
+  //       // Save all data to AsyncStorage
+  //       await AsyncStorage.setItem("userData", JSON.stringify(userToStore));
+  //       await AsyncStorage.setItem("authToken", data.device_id || "");
 
-        setUser(userToStore);
-        return { success: true, message: data.message };
+  //       setUser(userToStore);
+  //       return { success: true, message: data.message };
         
-      } else {
-        const errorMsg = data.message || `Login failed. Status: ${response.status}`;
-        setError(errorMsg);
-        return { success: false, message: errorMsg };
-      }
+  //     } else {
+  //       const errorMsg = data.message || `Login failed. Status: ${response.status}`;
+  //       setError(errorMsg);
+  //       return { success: false, message: errorMsg };
+  //     }
       
-    } catch (e) {
-      const errorMsg = `A network error occurred. Please ensure your API is running and accessible. Error: ${e.message}`;
-      setError(errorMsg);
-      return { success: false, message: "A network error occurred." };
-    }
-  };
+  //   } catch (e) {
+  //     const errorMsg = `A network error occurred. Please ensure your API is running and accessible. Error: ${e.message}`;
+  //     setError(errorMsg);
+  //     return { success: false, message: "A network error occurred." };
+  //   }
+  // };
 
+  // In AuthContext.tsx, update the login function:
+
+const login = async (userid, password) => { 
+  if (!userid.trim() || !password.trim()) {
+    const msg = "Please fill all fields";
+    setError(msg);
+    return { success: false, message: msg };
+  }
+
+  try {
+    setError("");
+    
+    const apiUrl = getApiUrl("/api/mobile-login");
+    
+    const response = await fetch(apiUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+      },
+      body: JSON.stringify({
+        userid: userid.trim(), 
+        password: password.trim()
+      }),
+    });
+    
+    const data = await response.json();
+    
+    // Check for first-time login requiring password change
+    if (data.status === false && data.force_password_change === true) {
+      return { 
+        success: false, 
+        message: data.message || "Password change required",
+        forcePasswordChange: true,
+        email: data.User_id || userid.trim()  // Make sure email is returned
+      };
+    }
+    
+    if (data.status === true) {
+      const userToStore = {
+        name: userid.trim(),  // Make sure it's trimmed
+        site_id: data.site?.site_id,
+        site_name: data.site?.site_name,
+        slug: data.site?.slug,
+        device_id: data.site?.device_id,
+        clusterID: data.site?.clusterID,
+        ...data
+      };
+
+      await AsyncStorage.setItem("userData", JSON.stringify(userToStore));
+      await AsyncStorage.setItem("authToken", data.device_id || "");
+
+      setUser(userToStore);
+      return { success: true, message: data.message };
+      
+    } else {
+      const errorMsg = data.message || `Login failed. Status: ${response.status}`;
+      setError(errorMsg);
+      return { success: false, message: errorMsg };
+    }
+    
+  } catch (e) {
+    const errorMsg = `A network error occurred. Please ensure your API is running and accessible. Error: ${e.message}`;
+    setError(errorMsg);
+    return { success: false, message: "A network error occurred." };
+  }
+};
+  
   const logout = async () => {
     try {
       await AsyncStorage.removeItem("authToken");
