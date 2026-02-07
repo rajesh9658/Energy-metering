@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "com.mr_sanjay_gupta.Energy_metring",
-    "slug": "com.mr_sanjay_gupta.Energy_metring",
+    "name": "Energy Metering",
+    "slug": "energy-metering",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.jpg",
@@ -10,7 +10,7 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "iOS",
+      "bundleIdentifier": "com.mr.sanjay.gupta.energymetring",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
