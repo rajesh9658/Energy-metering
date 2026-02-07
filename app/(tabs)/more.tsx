@@ -399,7 +399,7 @@ export default function MoreScreen() {
         {renderAPIDataTile()}
         
         {/* Settings */}
-        <View style={styles.settingsSection}>
+       {/* <View style={styles.settingsSection}>
           <Text style={styles.sectionTitle}>Settings</Text>
           
           <View style={styles.settingsCard}>
@@ -444,7 +444,7 @@ export default function MoreScreen() {
         </View>
 
         {/* Quick Menu */}
-        <View style={styles.menuSection}>
+        {/*<View style={styles.menuSection}>
           <Text style={styles.sectionTitle}>Quick Menu</Text>
           
           <View style={styles.menuGrid}>
