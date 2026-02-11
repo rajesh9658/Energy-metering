@@ -31,7 +31,7 @@ export default function TabLayout() {
 
   useEffect(() => {
     if (user) {
-      showToast(`Welcome back, ${user.name?.split("@")[0]}!`);
+      showToast(`Welcome back, ${user.site_name?.split("@")[0]}!`);
     }
   }, []);
 
