@@ -30,7 +30,6 @@ export default function Login() {
   const { login, error: loginError, setError } = useAuth();
   const router = useRouter();
   
-  // --- FIXED: ADDED USERID REF ---
   const useridInputRef = useRef<TextInput>(null);
   const passwordInputRef = useRef<TextInput>(null);
   
@@ -62,7 +61,31 @@ export default function Login() {
           Animated.timing(slideAnim, { toValue: -50, duration: 300, useNativeDriver: true })
         ]).start(() => router.replace("/(tabs)/overview"));
       } else {
-        Alert.alert("Login Failed", result.message);
+        // Check if this is a first-time login requiring password change
+        if (result.message && result.message.includes("Password change required")) {
+          Alert.alert(
+            "First Time Login", 
+            "Please change your password to continue.",
+            [
+              {
+                text: "Change Password",
+                onPress: () => {
+                  // Navigate to change-password screen with the email
+                  router.push({
+                    pathname: "/(auth)/change-password",
+                    params: { email: userid.trim() }
+                  });
+                },
+              },
+              {
+                text: "Cancel",
+                style: "cancel"
+              }
+            ]
+          );
+        } else {
+          Alert.alert("Login Failed", result.message || "Invalid credentials");
+        }
       }
     } catch (error) {
       Alert.alert("Connection Error", "Please check your internet connection.");
@@ -89,12 +112,12 @@ export default function Login() {
                   <TouchableOpacity 
                     style={[styles.inputWrapper, isFocused.userid && styles.inputWrapperFocused]}
                     activeOpacity={1}
-                    onPress={() => useridInputRef.current?.focus()} // FIXED: Use ref here
+                    onPress={() => useridInputRef.current?.focus()}
                   >
                     <Ionicons name="person-outline" size={22} color={isFocused.userid ? "#667eea" : "#9CA3AF"} />
                     <TextInput
-                      ref={useridInputRef} // FIXED: Attached ref
-                      placeholder="Email or Username"
+                      ref={useridInputRef}
+                      placeholder="Email Address"
                       style={styles.input}
                       value={userid} 
                       onChangeText={setUserid}
@@ -137,24 +160,47 @@ export default function Login() {
                   </TouchableOpacity>
 
                   <View style={styles.utilityRow}>
-                    <TouchableOpacity style={styles.rememberMe} disabled={isLoading}>
-                      {/* <View style={styles.checkbox} /> */}
-                      {/* <Text style={styles.rememberMeText}>Remember me</Text> */}
-                    </TouchableOpacity>
-                    <TouchableOpacity onPress={() => Alert.alert('Forgot Password', 'Reset link sent.')} disabled={isLoading}>
-                      {/* <Text style={styles.forgotPasswordText}>Forgot Password?</Text> */}
-                    </TouchableOpacity>
+                    <TouchableOpacity 
+                    style={styles.forgotPassword} 
+                    onPress={() =>
+                      router.push({
+                        pathname: "/change-password",
+                        params: { email: userid.trim() },
+                      })
+                    }
+                    disabled={isLoading}
+                  >
+                    <Text style={styles.forgotPasswordText}>Change Password</Text>
+                  </TouchableOpacity>
+
                   </View>
 
-                  <TouchableOpacity style={[styles.btn, isLoading && styles.btnDisabled]} onPress={handleLogin} disabled={isLoading}>
-                    <LinearGradient colors={isLoading ? ['#9CA3AF', '#9CA3AF'] : ['#667eea', '#764ba2']} style={styles.btnGradient}>
-                      {isLoading ? <ActivityIndicator color="#FFF" /> : <><Ionicons name="log-in-outline" size={22} color="white" /><Text style={styles.btnText}>Login</Text></>}
+                  <TouchableOpacity 
+                    style={[styles.btn, isLoading && styles.btnDisabled]} 
+                    onPress={handleLogin} 
+                    disabled={isLoading}
+                  >
+                    <LinearGradient 
+                      colors={isLoading ? ['#9CA3AF', '#9CA3AF'] : ['#667eea', '#764ba2']} 
+                      style={styles.btnGradient}
+                    >
+                      {isLoading ? (
+                        <ActivityIndicator color="#FFF" />
+                      ) : (
+                        <View style={{ flexDirection: "row", alignItems: "center" }}>
+                          <Ionicons name="log-in-outline" size={22} color="white" />
+                          <Text style={styles.btnText}>Login</Text>
+                        </View>
+                      )}
+
                     </LinearGradient>
                   </TouchableOpacity>
+
+                 
                 </LinearGradient>
               </View>
 
-              <Text style={styles.versionText}>v1.0.0 • Secure Login</Text>
+              
             </Animated.View>
           </ScrollView>
         </KeyboardAvoidingView>
@@ -190,35 +236,11 @@ const styles = StyleSheet.create({
     marginBottom: 40,
     alignItems: 'center',
   },
-  logoContainer: {
-    marginBottom: 24,
-  },
-  logoCircle: {
-    width: 90,
-    height: 90,
-    borderRadius: 45,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 10,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 20,
-    elevation: 10,
-  },
   title: { 
     fontSize: 32, 
     fontWeight: "800", 
     color: "white", 
     marginBottom: 8,
-    textAlign: 'center',
-  },
-  subtitle: {
-    fontSize: 16,
-    color: 'rgba(255, 255, 255, 0.8)',
-    fontWeight: '400',
     textAlign: 'center',
   },
 
@@ -240,7 +262,6 @@ const styles = StyleSheet.create({
   cardGradient: {
     padding: 32,
     borderRadius: 28,
-    // Remove backdropFilter for React Native
   },
   
   // --- Input Styles ---
@@ -270,9 +291,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     marginLeft: 12,
     padding: 0,
-    // Important: Ensure TextInput is properly layered
     zIndex: 10,
-    // Make sure text input is not covered
     includeFontPadding: false,
     paddingVertical: 0,
   },
@@ -284,29 +303,12 @@ const styles = StyleSheet.create({
   // --- Utility Row ---
   utilityRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-end',
     alignItems: 'center',
     marginBottom: 24,
   },
-  rememberMe: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  checkbox: {
-    width: 20,
-    height: 20,
-    borderRadius: 6,
-    backgroundColor: '#F3F4F6',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 8,
-    borderWidth: 2,
-    borderColor: '#D1D5DB',
-  },
-  rememberMeText: {
-    color: '#6B7280',
-    fontSize: 14,
-    fontWeight: '500',
+  forgotPassword: {
+    padding: 8,
   },
   forgotPasswordText: {
     color: '#667eea',
@@ -318,7 +320,7 @@ const styles = StyleSheet.create({
   btn: { 
     borderRadius: 16, 
     overflow: 'hidden',
-    marginBottom: 24,
+    marginBottom: 16,
   },
   btnGradient: {
     padding: 20,
@@ -337,22 +339,22 @@ const styles = StyleSheet.create({
     marginLeft: 12, 
   },
 
-  // --- Error Styles ---
-  errorContainer: { 
-    flexDirection: "row", 
-    alignItems: "center", 
-    backgroundColor: "#FEF2F2", 
-    padding: 16, 
-    borderRadius: 12, 
-    marginBottom: 20, 
-    borderWidth: 1, 
-    borderColor: "#FCA5A5", 
+  // --- Info Box ---
+  infoBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F0F4FF',
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#D6E4FF',
+    marginTop: 16,
   },
-  errorText: { 
-    color: "#DC2626", 
-    fontSize: 14, 
+  infoText: {
+    color: '#4F46E5',
+    fontSize: 13,
     fontWeight: '500',
-    marginLeft: 12, 
+    marginLeft: 8,
     flex: 1,
   },
   

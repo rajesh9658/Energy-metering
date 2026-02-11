@@ -3,12 +3,14 @@ import {
   Dimensions, ScrollView, StyleSheet, Text, TouchableOpacity, View, Modal,
   ActivityIndicator, Alert
 } from 'react-native';
+
 import { Ionicons } from '@expo/vector-icons';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { useAuth } from '../context/AuthContext';
 import axios from 'axios';
-import { getMeterDailyConsumptionUrl, getMeterMonthlyConsumptionUrl,getYearlyConsumptionUrl } from '../config';
+import { getMeterDailyConsumptionUrl, getMeterMonthlyConsumptionUrl, getYearlyConsumptionUrl, getMeterMonthlyReportUrl } from '../config';
+
 
 const { width } = Dimensions.get('window');
 
@@ -17,12 +19,14 @@ export default function EnergyReport() {
   
   const [timeView, setTimeView] = useState('daily');
   const [showFilter, setShowFilter] = useState(false);
+  const [showReportTypeModal, setShowReportTypeModal] = useState(false);
   const currentDate = new Date();
   const [selectedYear, setSelectedYear] = useState(currentDate.getFullYear().toString());
   const [selectedMonth, setSelectedMonth] = useState(currentDate.toLocaleString('default', { month: 'long' }));
   const [loading, setLoading] = useState(true);
   const [hoveredIndex, setHoveredIndex] = useState(null);
-  const [showAllValues, setShowAllValues] = useState(true); // Default: show all values
+  const [showAllValues, setShowAllValues] = useState(true);
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
   
   const [dailyData, setDailyData] = useState([]);
   const [monthlyData, setMonthlyData] = useState([]);
@@ -56,92 +60,77 @@ export default function EnergyReport() {
     }
   }, [selectedMonth, selectedYear, timeView]);
 
- const fetchData = async () => {
-  const siteId = getSiteId();
-  if (!siteId) return;
+  const fetchData = async () => {
+    const siteId = getSiteId();
+    if (!siteId) return;
 
-  setLoading(true);
-  try {
-    if (timeView === 'daily') {
-      await fetchDailyData(siteId);
-    } else {
-      await fetchYearlyMonthlyData(siteId, selectedYear);
+    setLoading(true);
+    try {
+      if (timeView === 'daily') {
+        await fetchDailyData(siteId);
+      } else {
+        await fetchYearlyMonthlyData(siteId, selectedYear);
+      }
+    } finally {
+      setLoading(false);
     }
-  } finally {
-    setLoading(false);
-  }
-};
+  };
 
+  const fetchDailyData = async (siteId) => {
+    const monthIndex = months.indexOf(selectedMonth) + 1;
+    const monthParam = `${selectedYear}-${monthIndex.toString().padStart(2, '0')}`;
  const fetchDailyData = async (siteId) => {
   const monthIndex = months.indexOf(selectedMonth) + 1;
   const monthParam = `${selectedYear}-${monthIndex.toString().padStart(2, '0')}`;
 
-  const response = await axios.get(
-    getMeterDailyConsumptionUrl(siteId, monthParam)
-  );
-
-  setDailyData(response.data?.data || []);
-};
-
-
-
- const fetchYearlyMonthlyData = async (siteId, year) => {
-  // console.log(year)
- try {
     const response = await axios.get(
-      getYearlyConsumptionUrl(siteId),
-      {
-        params: {
-          year: year, 
-        },
-        headers: {
-          "Content-Type": "application/json",
-        },
-      }
+      getMeterDailyConsumptionUrl(siteId, monthParam)
     );
 
-    // console.log(response.data);
+    const data = response.data?.data || [];
+    setDailyData(data);
+    calculateStats(data, 'daily');
+    setHoveredIndex(null);
+  };
 
-    if (response.data) {
-      console.log("monthly data recived is:", response.data);
-      const processedData = processYearlyResponse(response.data);
-      setMonthlyData(processedData);
-      calculateStats(processedData, 'monthly');
-      setHoveredIndex(null);
-    } 
+  const fetchYearlyMonthlyData = async (siteId, year) => {
+    try {
+      const response = await axios.get(
+        getYearlyConsumptionUrl(siteId),
+        {
+          params: { year },
+          headers: { "Content-Type": "application/json" },
+        }
+      );
 
-  } catch (error) {
-    console.error('Error fetching yearly data:', error);
-   
-   
-  }
-};
-
-
-const processYearlyResponse = (apiData) => {
-  try {
-    if (
-      apiData &&
-      Array.isArray(apiData.monthly_consumption)
-    ) {
-      return apiData.monthly_consumption.map((item) => {
-        const kwh = Number(item.total_kwh) || 0;
-
-        return {
-          month: item.month,                    // "Jan"
-          monthNumber: Number(item.month_key?.split('-')[1]) || 0, // 1–12
-          total_kwh: kwh,
-          total_amount: calculateAmount(kwh),
-        };
-      });
+      if (response.data) {
+        const processedData = processYearlyResponse(response.data);
+        setMonthlyData(processedData);
+        calculateStats(processedData, 'monthly');
+        setHoveredIndex(null);
+      }
+    } catch (error) {
+      console.error('Error fetching yearly data:', error);
     }
+  };
 
-  } catch (error) {
-    console.error('Error processing yearly response:', error);
-   
-  }
-};
-
+  const processYearlyResponse = (apiData) => {
+    try {
+      if (apiData && Array.isArray(apiData.monthly_consumption)) {
+        return apiData.monthly_consumption.map((item) => {
+          const kwh = Number(item.total_kwh) || 0;
+          return {
+            month: item.month,
+            monthNumber: Number(item.month_key?.split('-')[1]) || 0,
+            total_kwh: kwh,
+            total_amount: calculateAmount(kwh),
+          };
+        });
+      }
+    } catch (error) {
+      console.error('Error processing yearly response:', error);
+    }
+  };
 
   const calculateAmount = (kwh) => {
     const ratePerKwh = 6.8;
@@ -212,10 +201,11 @@ const processYearlyResponse = (apiData) => {
   const handleViewChange = (viewType) => {
     setTimeView(viewType);
     setHoveredIndex(null);
-    setShowAllValues(true); // Reset to show all values when view changes
+    setShowAllValues(true);
   };
 
-  const exportPDF = async () => {
+  // Summary Report (Existing)
+  const exportSummaryPDF = async () => {
     try {
       const currentData = getCurrentData();
       
@@ -302,27 +292,383 @@ const processYearlyResponse = (apiData) => {
     }
   };
 
+  // Detailed Monthly Report (New)
+  const exportDetailedPDF = async () => {
+    try {
+      const siteId = getSiteId();
+      if (!siteId) {
+        Alert.alert('Error', 'Site ID not found');
+        return;
+      }
+
+      // Format month for API (YYYY-MM format)
+      const monthIndex = months.indexOf(selectedMonth) + 1;
+      const monthParam = `${selectedYear}-${monthIndex.toString().padStart(2, '0')}`;
+
+      setIsGeneratingReport(true);
+
+      // Fetch monthly report data from new API
+      const response = await axios.get(
+        getMeterMonthlyReportUrl(siteId, monthParam),
+        {
+          headers: { 'Content-Type': 'application/json' }
+        }
+      );
+
+      const reportData = response.data;
+
+      if (!reportData.success || !reportData.reports) {
+        Alert.alert('Error', 'No report data available');
+        return;
+      }
+
+      // Prepare data for PDF
+      const { meta, reports } = reportData;
+
+      // Calculate totals
+      let totalEnergy = 0;
+      let totalEnergyAmount = 0;
+      let totalFixed = 0;
+      let totalOther = 0;
+      let totalAmount = 0;
+
+      reports.forEach(report => {
+        const energyUsed = report.energy_used || 0;
+        const energyAmount = report.energy_amount || 0;
+        const fixedCharges = (report.fixed_mains || 0) + (report.fixed_dg || 0);
+        const otherCharges = 0;
+        const totalRowAmount = energyAmount + fixedCharges + otherCharges;
+
+        totalEnergy += energyUsed;
+        totalEnergyAmount += energyAmount;
+        totalFixed += fixedCharges;
+        totalOther += otherCharges;
+        totalAmount += totalRowAmount;
+      });
+
+      // Format date for display
+      const formatDate = (dateStr) => {
+        if (!dateStr) return '';
+        const date = new Date(dateStr);
+        return date.toLocaleDateString('en-GB', {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric'
+        }).replace(/\//g, '-');
+      };
+
+      // Current date and time for footer
+      const currentDateTime = new Date();
+      const generatedDate = currentDateTime.toLocaleDateString('en-GB', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric'
+      }).replace(/\//g, '-');
+      const generatedTime = currentDateTime.toLocaleTimeString('en-GB', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      });
+
+      // Create HTML for PDF
+      const html = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <title>Monthly Meter Report</title>
+            <style>
+                @page { 
+                    size: A4 landscape; 
+                    margin: 10mm 6mm;
+                }
+
+                body {
+                    font-family: 'Arial', sans-serif;
+                    color: #000;
+                    margin: 0;
+                    padding: 0;
+                    line-height: 1.2;
+                    -webkit-print-color-adjust: exact;
+                    background-color: #fff;
+                }
+
+                .container {
+                    width: 100%;
+                    max-width: 100%;
+                    overflow: hidden;
+                    padding-top: 5px;
+                }
+
+                .header {
+                    display: flex;
+                    align-items: center;
+                    border-bottom: 1px solid #000;
+                    padding: 0;
+                    margin: 0 0 2px 0;
+                }
+
+                .header-title {
+                    flex: 1;
+                    text-align: center;
+                    font-size: 20px;
+                    font-weight: bold;
+                    color: #1F4E79;
+                    text-transform: uppercase;
+                    line-height: 1;
+                    margin: 0;
+                    padding: 0;
+                }
+
+                .meter-info-table {
+                    width: 100%;
+                    border-collapse: collapse;
+                    margin: 10px 0;
+                    font-size: 16px;
+                }
+
+                .meter-info-table td {
+                    padding: 6px 8px;
+                    border: none;
+                    text-align: left;
+                    vertical-align: middle;
+                    line-height: 1.2;
+                }
+
+                .meter-label {
+                    font-weight: bold;
+                    color: #000;
+                    width: 18%;
+                    text-align: right;
+                    padding-right: 6px;
+                    font-size: 12px;
+                }
+
+                .meter-separator {
+                    width: 10px;
+                    text-align: center;
+                    font-weight: bold;
+                    color: #000;
+                    font-size: 16px;
+                }
+
+                .meter-value {
+                    font-weight: bold;
+                    color: #000;
+                    padding-left: 6px;
+                    font-size: 12px;
+                    background-color: #fff;
+                }
+
+                .main-table {
+                    width: 100%;
+                    border-collapse: collapse;
+                    font-size: 10pt;
+                    table-layout: fixed;
+                }
+
+                .main-table th {
+                    background-color: #1F4E79;
+                    color: #fff !important;
+                    font-weight: bold;
+                    text-transform: uppercase;
+                    font-size: 9pt;
+                    padding: 5px 3px;
+                    text-align: center;
+                    border: 1px solid #fff;
+                }
+
+                .main-table td {
+                    border: 1px solid #fff;
+                    padding: 4px 2px;
+                    text-align: center;
+                    vertical-align: middle;
+                    font-size: 10pt;
+                    font-weight: bold;
+                }
+
+                .main-table tr:nth-child(even) { 
+                    background-color: #f2f2f2; 
+                }
+
+                .numeric {
+                    text-align: right;
+                    padding-right: 6px;
+                }
+
+                .total-row {
+                    background-color: #ccc;
+                    font-weight: bold;
+                    border-top: 2px solid #000;
+                    font-size: 11pt;
+                }
+
+                .total-label {
+                    text-align: right;
+                    padding-right: 8px;
+                }
+
+                .footer {
+                    margin-top: 8px;
+                    padding-top: 6px;
+                    border-top: 1px solid #000;
+                    text-align: center;
+                    font-size: 10pt;
+                    font-weight: bold;
+                }
+
+                @media print {
+                    * {
+                        color: #000 !important;
+                        font-weight: bold !important;
+                    }
+
+                    body {
+                        font-size: 10pt;
+                        line-height: 1.1;
+                        margin-top: 4mm;
+                    }
+
+                    .meter-info-table td { font-size: 12pt !important; padding: 4px 6px !important; }
+                    .main-table { font-size: 9pt !important; page-break-inside: avoid !important; }
+                    .main-table th { font-size: 9pt !important; padding: 3px 2px !important; }
+                    .main-table td { font-size: 8.5pt !important; padding: 2px 2px !important; }
+                    tr { page-break-inside: avoid !important; }
+                    table { page-break-after: avoid !important; }
+                    .total-row td { font-size: 9pt !important; }
+                    .footer { font-size: 8pt !important; }
+                }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <div class="header-title">
+                        Food Valley, Lucknow (UP)
+                    </div>
+                </div>
+
+                <table class="meter-info-table">
+                    <tr>
+                        <td class="meter-label">METER NUMBER:</td>
+                        <td class="meter-value">${meta.meter_number || 'N/A'}</td>
+                        <td class="meter-separator">|</td>
+                        <td class="meter-label">SHOP NAME:</td>
+                        <td class="meter-value">${meta.meter_name || 'N/A'}</td>
+                        <td class="meter-separator">|</td>
+                        <td class="meter-label">LAST UPDATED:</td>
+                        <td class="meter-value">${meta.latest_reading || 'N/A'}</td>
+                    </tr>
+                </table>
+
+                <table class="main-table">
+                    <thead>
+                        <tr>
+                            <th>DATE</th>
+                            <th>METER ID</th>
+                            <th>OPENING KWH</th>
+                            <th>CLOSING KWH</th>
+                            <th>ENERGY CONSUMED (KWH)</th>
+                            <th>EB TARIFF</th>
+                            <th>ENERGY AMOUNT</th>
+                            <th>FIXED CHARGES</th>
+                            <th>OTHER CHARGES</th>
+                            <th>TOTAL AMOUNT</th>
+                            <th>OPENING BALANCE</th>
+                            <th>CLOSING BALANCE</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${reports.length > 0 ? 
+                          reports.map(report => {
+                            const energyUsed = report.energy_used || 0;
+                            const energyAmount = report.energy_amount || 0;
+                            const fixedCharges = (report.fixed_mains || 0) + (report.fixed_dg || 0);
+                            const otherCharges = 0;
+                            const totalRowAmount = energyAmount + fixedCharges + otherCharges;
+                            
+                            return `
+                              <tr>
+                                  <td class="numeric">${formatDate(report.date)}</td>
+                                  <td class="numeric">${meta.meter_number || report.meter_id || ''}</td>
+                                  <td class="numeric">${(report.opening_kwh || 0).toFixed(2)}</td>
+                                  <td class="numeric">${(report.closing_kwh || 0).toFixed(2)}</td>
+                                  <td class="numeric">${energyUsed.toFixed(2)}</td>
+                                  <td class="numeric">0.00</td>
+                                  <td class="numeric">${energyAmount.toFixed(2)}</td>
+                                  <td class="numeric">${fixedCharges.toFixed(2)}</td>
+                                  <td class="numeric">${otherCharges.toFixed(2)}</td>
+                                  <td class="numeric">${totalRowAmount.toFixed(2)}</td>
+                                  <td class="numeric">${(report.opening_balance || 0).toFixed(2)}</td>
+                                  <td class="numeric">${(report.closing_balance || 0).toFixed(2)}</td>
+                              </tr>
+                            `;
+                          }).join('') : 
+                          `<tr><td colspan="12" style="text-align:center; font-style:italic;">No consumption data available for this period</td></tr>`
+                        }
+
+                        ${reports.length > 0 ? `
+                          <tr class="total-row">
+                              <td colspan="4" class="total-label">TOTAL:</td>
+                              <td class="numeric">${totalEnergy.toFixed(2)}</td>
+                              <td></td>
+                              <td class="numeric">${totalEnergyAmount.toFixed(2)}</td>
+                              <td class="numeric">${totalFixed.toFixed(2)}</td>
+                              <td class="numeric">${totalOther.toFixed(2)}</td>
+                              <td class="numeric">${totalAmount.toFixed(2)}</td>
+                              <td colspan="2"></td>
+                          </tr>
+                        ` : ''}
+                    </tbody>
+                </table>
+
+                <div class="footer">
+                    Generated on: ${generatedDate} ${generatedTime} | Page 1 of 1
+                </div>
+            </div>
+        </body>
+        </html>
+      `;
+      
+      const { uri } = await Print.printToFileAsync({ html });
+      
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(uri, {
+          mimeType: 'application/pdf',
+          dialogTitle: 'Save Monthly Meter Report',
+          UTI: 'com.adobe.pdf'
+        });
+      } else {
+        Alert.alert('Success', 'Monthly report PDF generated successfully');
+      }
+    } catch (error) {
+      console.error('Detailed PDF export error:', error);
+      Alert.alert('Error', 'Failed to generate monthly report. Please try again.');
+    } finally {
+      setIsGeneratingReport(false);
+    }
+  };
+
   const GraphCard = ({ title, unit, isAmount }) => {
     const currentData = getCurrentData();
     const values = isAmount ? currentData.amtValues : currentData.unitValues;
     const maxValue = Math.max(...values.filter(v => !isNaN(v)), 1);
     const dataLength = timeView === 'daily' ? dailyData.length : 12;
     
-    // Calculate dynamic bar width based on data length
     const barWidth = timeView === 'daily' 
       ? Math.max(8, Math.min(16, (width - 100) / Math.min(dataLength, 31)))
       : Math.max(12, Math.min(22, (width - 100) / 12));
     
     const handleToggleValues = () => {
       setShowAllValues(!showAllValues);
-      setHoveredIndex(null); // Reset hover when toggling
+      setHoveredIndex(null);
     };
 
     const handleBarPress = (index) => {
       if (hoveredIndex === index) {
-        setHoveredIndex(null); // Unselect if already selected
+        setHoveredIndex(null);
       } else {
-        setHoveredIndex(index); // Select the bar
+        setHoveredIndex(index);
       }
     };
 
@@ -341,7 +687,6 @@ const processYearlyResponse = (apiData) => {
           </TouchableOpacity>
         </View>
 
-        {/* Toggle Values Button */}
         <TouchableOpacity 
           style={styles.toggleValuesButton}
           onPress={handleToggleValues}
@@ -398,44 +743,37 @@ const processYearlyResponse = (apiData) => {
                           }
                         ]} />
                         
-                        {/* Show value by default OR if selected */}
                         {(showAllValues || isSelected) && value > 0 && (
-  <View
-    style={[
-      styles.valueLabel,
-      {
-        position: 'absolute',
-
-        // 🔥 TWO ROW LOGIC (KEY FIX)
-        bottom: i % 2 === 0 ? 118 : 98,
-
-        left: '50%',
-        transform: [{ translateX: -12 }],
-
-        backgroundColor: 'rgba(0,0,0,0.65)',
-        paddingHorizontal: 4,
-        paddingVertical: 2,
-        minWidth: 26,
-        borderRadius: 4,
-      },
-    ]}
-  >
-    <Text
-      style={{
-        fontSize: 8,
-        fontWeight: '600',
-        color: '#FFFFFF',
-        textAlign: 'center',
-        letterSpacing: 0.2,
-      }}
-    >
-      {value.toFixed(0)}
-    </Text>
-  </View>
-)}
-
+                          <View
+                            style={[
+                              styles.valueLabel,
+                              {
+                                position: 'absolute',
+                                bottom: i % 2 === 0 ? 118 : 98,
+                                left: '50%',
+                                transform: [{ translateX: -12 }],
+                                backgroundColor: 'rgba(0,0,0,0.65)',
+                                paddingHorizontal: 4,
+                                paddingVertical: 2,
+                                minWidth: 26,
+                                borderRadius: 4,
+                              },
+                            ]}
+                          >
+                            <Text
+                              style={{
+                                fontSize: 8,
+                                fontWeight: '600',
+                                color: '#FFFFFF',
+                                textAlign: 'center',
+                                letterSpacing: 0.2,
+                              }}
+                            >
+                              {value.toFixed(0)}
+                            </Text>
+                          </View>
+                        )}
                         
-                        {/* Day number at bottom */}
                         <Text style={[styles.dayLabel, { 
                           bottom: -20,
                           fontSize: dataLength > 20 ? 9 : 10,
@@ -477,7 +815,6 @@ const processYearlyResponse = (apiData) => {
                           }
                         ]} />
                         
-                        {/* Show value by default OR if selected */}
                         {(showAllValues || isSelected) && value > 0 && (
                           <View style={[styles.barValueLabel, { 
                             bottom: `${Math.min(barHeight + 8, 85)}%`,
@@ -496,7 +833,6 @@ const processYearlyResponse = (apiData) => {
                           </View>
                         )}
                         
-                        {/* Month abbreviation */}
                         <Text style={[styles.monthLabel, { 
                           marginTop: 4,
                           fontSize: 10,
@@ -544,8 +880,6 @@ const processYearlyResponse = (apiData) => {
             <Text style={styles.statUnit}>{unit}</Text>
           </View>
         </View>
-        
-        
       </View>
     );
   };
@@ -569,10 +903,20 @@ const processYearlyResponse = (apiData) => {
     <View style={styles.container}>
       <View style={styles.topSection}>
         <View style={styles.actionRow}>
-          {/* <TouchableOpacity style={styles.downloadBtn} onPress={exportPDF}> */}
-            {/* <Ionicons name="document-text" size={16} color="#02569B" /> */}
-          {/* <Text style={styles.downloadText}>PDF Report</Text> */}
-          {/* </TouchableOpacity> */}
+          <TouchableOpacity 
+            style={styles.downloadBtn} 
+            onPress={() => setShowReportTypeModal(true)}
+            disabled={isGeneratingReport}
+          >
+            {isGeneratingReport ? (
+              <ActivityIndicator size="small" color="#02569B" />
+            ) : (
+              <Ionicons name="document-text" size={16} color="#02569B" />
+            )}
+            <Text style={styles.downloadText}>
+              {isGeneratingReport ? 'Generating...' : 'Download Report'}
+            </Text>
+          </TouchableOpacity>
           
           <TouchableOpacity style={styles.refreshBtn} onPress={fetchData}>
             <Ionicons name="refresh-outline" size={16} color="#02569B" />
@@ -600,21 +944,42 @@ const processYearlyResponse = (apiData) => {
         </View>
       </View>
 
-      {/* Only show Units (kWh) card - Bill Amount card is commented */}
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        <GraphCard 
-          title="Units (kWh)" 
-          unit="kWh" 
-        />
-        {/*
-        <GraphCard 
-          title="Bill Amount" 
-          unit="₹" 
-          isAmount={true} 
-        />
-        */}
+        <GraphCard title="Units (kWh)" unit="kWh" />
         <View style={styles.spacer} />
       </ScrollView>
+
+      {/* Report Type Selection Modal */}
+      <Modal visible={showReportTypeModal} transparent animationType="fade">
+        <View style={styles.reportTypeModal}>
+          <View style={styles.reportTypeContent}>
+            <Text style={styles.reportTypeTitle}>Select Report Type</Text>
+            
+
+            
+            <TouchableOpacity 
+              style={styles.reportTypeOption}
+              onPress={() => {
+                setShowReportTypeModal(false);
+                exportDetailedPDF();
+              }}
+            >
+              <Ionicons name="document-attach" size={20} color="#02569B" />
+              <View style={styles.reportTypeTextContainer}>
+                <Text style={styles.reportTypeName}>Detailed Monthly Report</Text>
+                <Text style={styles.reportTypeDesc}>Official meter report with all details</Text>
+              </View>
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={styles.cancelReportBtn}
+              onPress={() => setShowReportTypeModal(false)}
+            >
+              <Text style={styles.cancelReportText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       {/* Filter Modal */}
       <Modal visible={showFilter} transparent animationType="slide">
@@ -812,6 +1177,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.gray200,
     ...shadows.sm,
+    minWidth: 120,
   },
   refreshBtn: {
     flexDirection: 'row',
@@ -927,7 +1293,7 @@ const styles = StyleSheet.create({
 
   // Graph Components
   graphBody: {
-    height: 200, // Reduced from 240 to 200
+    height: 200,
     flexDirection: 'row',
     marginBottom: spacing.xl,
   },
@@ -956,7 +1322,7 @@ const styles = StyleSheet.create({
     minWidth: '100%',
   },
 
-  // Day Label (for daily view)
+  // Day Label
   dayLabel: {
     position: 'absolute',
     ...typography.tiny,
@@ -1001,7 +1367,7 @@ const styles = StyleSheet.create({
     borderColor: colors.white,
   },
 
-  // Value Labels (show by default)
+  // Value Labels
   valueLabel: {
     position: 'absolute',
     backgroundColor: 'rgba(255, 255, 255, 0.95)',
@@ -1112,36 +1478,65 @@ const styles = StyleSheet.create({
     marginHorizontal: spacing.md,
   },
 
-  // Data Summary
-  dataSummary: {
-    backgroundColor: colors.primaryLight,
-    borderRadius: borderRadius.lg,
-    padding: spacing.lg,
-    borderWidth: 1,
-    borderColor: colors.primary,
+  // Report Type Modal
+  reportTypeModal: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
   },
-  summaryTitle: {
-    ...typography.h3,
+  reportTypeContent: {
+    backgroundColor: colors.white,
+    borderRadius: 16,
+    padding: 24,
+    width: '90%',
+    maxWidth: 400,
+    ...shadows.lg,
+  },
+  reportTypeTitle: {
+    ...typography.h2,
     color: colors.primary,
-    marginBottom: spacing.md,
-    fontWeight: '600',
+    marginBottom: 20,
+    textAlign: 'center',
   },
-  summaryRow: {
+  reportTypeOption: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: spacing.xs,
+    alignItems: 'center',
+    padding: 16,
+    backgroundColor: colors.gray100,
+    borderRadius: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: colors.gray200,
   },
-  summaryLabel: {
+  reportTypeTextContainer: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  reportTypeName: {
+    ...typography.h3,
+    color: colors.black,
+    marginBottom: 4,
+  },
+  reportTypeDesc: {
     ...typography.small,
+    color: colors.gray500,
+  },
+  cancelReportBtn: {
+    marginTop: 16,
+    padding: 16,
+    backgroundColor: colors.gray200,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  cancelReportText: {
+    ...typography.body,
     color: colors.gray600,
-  },
-  summaryValue: {
-    ...typography.small,
-    color: colors.primary,
     fontWeight: '600',
   },
 
-  // Modal
+  // Filter Modal
   modalBg: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
