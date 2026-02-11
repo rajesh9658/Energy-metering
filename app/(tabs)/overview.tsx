@@ -98,7 +98,7 @@ export default function OverviewScreen({ route }) {
         
         // Priority 2: AsyncStorage से load करें
         const storageSiteInfo = await loadSiteInfo();
-        // console.log("storageSiteInfo", storageSiteInfo);
+        console.log("storageSiteInfo", storageSiteInfo);
         if (storageSiteInfo.siteId && storageSiteInfo.siteName) {
           setSiteInfo(storageSiteInfo);
         } else {
@@ -270,11 +270,19 @@ useEffect(() => {
       const response = await axios.get(getSiteDataUrl(slugToUse));
       // console.log("called the function");
       if (response.data && response.data.success) {
-        // console.log(response);
+        // console.log("this is the user data:",response.data);
         setSiteData(response.data);
+       
         setCurrentunit(response.data.asset_information.electric_parameters.unit);
         updateSanctionedLoad(response.data.asset_information);
         updateVoltageCurrentData(response.data.asset_information.electric_parameters);
+        await AsyncStorage.setItem(
+        "meterData",
+        JSON.stringify(response.data)
+      );
+//     const data = await AsyncStorage.getItem("meterData");
+// console.log("this is the data in meter data", JSON.parse(data));
+
       }
     } catch (err) {
       // Don't set global error for this - just log it

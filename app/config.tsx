@@ -1,8 +1,10 @@
 // app/config.ts
 
 const API_CONFIG = {
+
   // BASE_URL: "http://192.168.68.129:8004",
   BASE_URL: "https://em.sochiot.com",
+
 
 
   ENDPOINTS: {
