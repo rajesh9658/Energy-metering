@@ -76,9 +76,7 @@ export default function EnergyReport() {
     }
   };
 
-  const fetchDailyData = async (siteId) => {
-    const monthIndex = months.indexOf(selectedMonth) + 1;
-    const monthParam = `${selectedYear}-${monthIndex.toString().padStart(2, '0')}`;
+ 
  const fetchDailyData = async (siteId) => {
   const monthIndex = months.indexOf(selectedMonth) + 1;
   const monthParam = `${selectedYear}-${monthIndex.toString().padStart(2, '0')}`;
@@ -1653,9 +1651,5 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontWeight: '700',
     ...typography.body,
-  },
+  }
 });
-
-
-
-//test for changes 

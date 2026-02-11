@@ -299,15 +299,15 @@ export default function MoreScreen() {
               </Text>
             </View>
             
-            <View style={[styles.statusCard, !siteValues.force_off && styles.statusOk]}>
+            <View style={[styles.statusCard, siteValues.relay_status && styles.statusOk]}>
               <MaterialIcons 
-                name={siteValues.force_off ? "power-off" : "power-settings-new"} 
+                name={siteValues.relay_status ? "power-off" : "power-settings-new"} 
                 size={20} 
-                color={siteValues.force_off ? "#ef4444" : "#10b981"} 
+                color={siteValues.relay_status ? "#10b981" : "#ef4444"} 
               />
               <Text style={styles.statusTextSmall}>Supply</Text>
-              <Text style={[styles.statusValueSmall, siteValues.force_off && styles.statusError]}>
-                {siteValues.force_off ? 'Off' : 'Normal'}
+              <Text style={[styles.statusValueSmall, !siteValues.relay_status && styles.statusError]}>
+                {siteValues.relay_status ? 'Connected' : 'Disconnected'}
               </Text>
             </View>
           </View>
