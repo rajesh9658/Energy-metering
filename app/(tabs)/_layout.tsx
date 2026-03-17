@@ -10,9 +10,11 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "../context/AuthContext";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useTheme } from "../context/ThemeContext";
 
 export default function TabLayout() {
   const { user, loading, logout } = useAuth();
+  const { theme, isDarkMode, toggleTheme } = useTheme();
   const insets = useSafeAreaInsets();
 
   const [toastVisible, setToastVisible] = useState(false);
@@ -37,8 +39,8 @@ export default function TabLayout() {
 
   if (loading) {
     return (
-      <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
-        <ActivityIndicator size="large" color="#1E88E5" />
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: theme.background }}>
+        <ActivityIndicator size="large" color={theme.primary} />
       </View>
     );
   }
@@ -55,7 +57,7 @@ export default function TabLayout() {
   };
 
   return (
-    <>
+    <View style={{ flex: 1, backgroundColor: theme.background }}>
       {/* ================= TOAST ================= */}
       {toastVisible && (
         <Animated.View
@@ -64,7 +66,7 @@ export default function TabLayout() {
             top: insets.top + 16,
             left: 20,
             right: 20,
-            backgroundColor: "#334155",
+            backgroundColor: theme.card,
             padding: 14,
             borderRadius: 12,
             zIndex: 9999,
@@ -73,23 +75,29 @@ export default function TabLayout() {
             justifyContent: "center",
             opacity: fadeAnim,
             elevation: 10,
+            borderWidth: 1,
+            borderColor: theme.border,
+            shadowColor: "#000",
+            shadowOffset: { width: 0, height: 8 },
+            shadowOpacity: isDarkMode ? 0.2 : 0.08,
+            shadowRadius: 18,
           }}
         >
-          <Ionicons name="checkmark-circle" size={20} color="#10b981" />
-          <Text style={{ color: "white", fontWeight: "700", marginLeft: 8 }}>
+          <Ionicons name="checkmark-circle" size={20} color={theme.success} />
+          <Text style={{ color: theme.text, fontWeight: "700", marginLeft: 8 }}>
             {toastMsg}
           </Text>
         </Animated.View>
       )}
 
       {/* ================= HEADER ================= */}
-      <View style={{ backgroundColor: "#1E88E5" }}>
+      <View style={{ backgroundColor: theme.header }}>
        <View
         style={{
           paddingTop: insets.top + 12,
           paddingBottom: 18,
           paddingHorizontal: 20,
-          backgroundColor: "#1E88E5",
+          backgroundColor: theme.header,
           borderBottomLeftRadius: 28,
           borderBottomRightRadius: 28,
           flexDirection: "row",
@@ -104,29 +112,54 @@ export default function TabLayout() {
                 width: 46,
                 height: 46,
                 borderRadius: 23,
-                backgroundColor: "rgba(255,255,255,0.2)",
+                backgroundColor: isDarkMode ? "rgba(255,255,255,0.1)" : "rgba(255,255,255,0.18)",
                 justifyContent: "center",
                 alignItems: "center",
                 marginRight: 12,
               }}
             >
-              <Ionicons name="person" size={22} color="white" />
+              <Ionicons name="person" size={22} color={theme.headerText} />
             </View>
 
             <View>
-              <Text style={{ color: "white", fontSize: 18, fontWeight: "800" }}>
+              <Text style={{ color: theme.headerText, fontSize: 18, fontWeight: "800" }}>
                 {user.site_name?.split("@")[0].toUpperCase() || "USER"}
               </Text>
               <View style={{ flexDirection: "row", alignItems: "center" }}>
-                <Ionicons name="location-sharp" size={13} color="#bbdefb" />
-                <Text style={{ color: "#bbdefb", fontSize: 12, marginLeft: 4 }}>
+                <Ionicons name="location-sharp" size={13} color={isDarkMode ? "#93C5FD" : "rgba(255,255,255,0.82)"} />
+                <Text style={{ color: isDarkMode ? "#93C5FD" : "rgba(255,255,255,0.82)", fontSize: 12, marginLeft: 4 }}>
                   Site: {user.site?.location || "No Site"}
                 </Text>
               </View>
             </View>
           </View>
 
-          <TouchableOpacity
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+            <TouchableOpacity
+              onPress={toggleTheme}
+              activeOpacity={0.7}
+              style={{
+                width: 48,
+                height: 48,
+                borderRadius: 10,
+                justifyContent: "center",
+                alignItems: "center",
+                borderWidth: 1,
+                borderColor: isDarkMode ? "rgba(255,255,255,0.15)" : "rgba(255,255,255,0.28)",
+                backgroundColor: isDarkMode ? "rgba(255,255,255,0.04)" : "rgba(255,255,255,0.1)",
+              }}
+            >
+              <Ionicons
+                name={isDarkMode ? "sunny" : "moon"}
+                size={20}
+                color={theme.headerText}
+              />
+              <Text style={{ color: theme.headerText, fontSize: 7, fontWeight: "700", marginTop: 2 }}>
+                {isDarkMode ? "LIGHT" : "DARK"}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
             onPress={handleLogout}
             activeOpacity={0.7}
             style={{
@@ -136,14 +169,16 @@ export default function TabLayout() {
               justifyContent: "center",
               alignItems: "center",
               borderWidth: 1,
-              borderColor: "rgba(255,255,255,0.3)",
+              borderColor: isDarkMode ? "rgba(255,255,255,0.15)" : "rgba(255,255,255,0.28)",
+              backgroundColor: isDarkMode ? "transparent" : "rgba(255,255,255,0.08)",
             }}
           >
-            <Ionicons name="power" size={22} color="white" />
-            <Text style={{ color: "white", fontSize: 8, fontWeight: "700" }}>
+            <Ionicons name="power" size={22} color={theme.headerText} />
+            <Text style={{ color: theme.headerText, fontSize: 8, fontWeight: "700" }}>
               LOGOUT
             </Text>
           </TouchableOpacity>
+          </View>
         </View>
       </View>
 
@@ -151,15 +186,27 @@ export default function TabLayout() {
       <Tabs
         screenOptions={{
           headerShown: false,
-          tabBarActiveTintColor: "#1E88E5",
-          tabBarInactiveTintColor: "#94a3b8",
+          sceneStyle: {
+            backgroundColor: theme.background,
+          },
+          tabBarActiveTintColor: theme.primary,
+          tabBarInactiveTintColor: theme.gray,
           tabBarStyle: {
             height: 60 + insets.bottom,
             paddingBottom: insets.bottom,
             borderTopLeftRadius: 20,
             borderTopRightRadius: 20,
-            backgroundColor: "white",
-            elevation: 20,
+            backgroundColor: theme.tabBar,
+            elevation: 12,
+            borderTopWidth: 1,
+            borderTopColor: isDarkMode ? "transparent" : theme.border,
+            shadowColor: "#000",
+            shadowOffset: { width: 0, height: -6 },
+            shadowOpacity: isDarkMode ? 0.35 : 0.06,
+            shadowRadius: 18,
+          },
+          tabBarLabelStyle: {
+            fontWeight: "600",
           },
         }}
       >
@@ -200,6 +247,6 @@ export default function TabLayout() {
           }}
         />
       </Tabs>
-    </>
+    </View>
   );
 }

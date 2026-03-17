@@ -8,7 +8,8 @@ import {
   TouchableOpacity,
   Dimensions,
   ActivityIndicator,
-  RefreshControl
+  RefreshControl,
+  PanResponder
 } from "react-native";
 import Swiper from "react-native-swiper";
 import axios from "axios";
@@ -20,6 +21,7 @@ import {
   getMeterMonthlyConsumptionUrl 
 } from "../config";
 import { useAuth } from "../context/AuthContext";
+import { useTheme } from "../context/ThemeContext";
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -61,6 +63,7 @@ const loadSiteInfo = async () => {
 export default function OverviewScreen({ route }) {
   // AuthContext से data लें
   const { user, getSiteId, getSlug, getSiteName } = useAuth();
+  const { theme, isDarkMode } = useTheme();
   
   // State for site info
   const [siteInfo, setSiteInfo] = useState({
@@ -203,6 +206,8 @@ useEffect(() => {
   const swiperRef = useRef(null);
   const autoPlayTimerRef = useRef(null);
   const userInteractionTimerRef = useRef(null);
+  const activeIndexTimerRef = useRef(null);
+  const isUserSwipingRef = useRef(false);
   
   const active = slides[activeIndex];
   
@@ -676,8 +681,37 @@ newSlides[1].consumptionData = {
     }
   };
 
+  const swipeResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, gestureState) =>
+        Math.abs(gestureState.dx) > 18 && Math.abs(gestureState.dx) > Math.abs(gestureState.dy),
+      onPanResponderGrant: () => {
+        handleUserInteraction();
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        const swipeThreshold = 50;
+
+        if (gestureState.dx < -swipeThreshold) {
+          goToNextSlide();
+        } else if (gestureState.dx > swipeThreshold) {
+          goToPrevSlide();
+        }
+      },
+      onPanResponderTerminate: () => {
+        isUserSwipingRef.current = false;
+      },
+    })
+  ).current;
+
   // HANDLE USER INTERACTION
   const handleUserInteraction = () => {
+    isUserSwipingRef.current = true;
+
+    if (autoPlayTimerRef.current) {
+      clearInterval(autoPlayTimerRef.current);
+      autoPlayTimerRef.current = null;
+    }
+
     setIsAutoPlaying(false);
     
     if (userInteractionTimerRef.current) {
@@ -685,6 +719,7 @@ newSlides[1].consumptionData = {
     }
     
     userInteractionTimerRef.current = setTimeout(() => {
+      isUserSwipingRef.current = false;
       setIsAutoPlaying(true);
     }, RESUME_DELAY);
   };
@@ -710,11 +745,25 @@ newSlides[1].consumptionData = {
       if (userInteractionTimerRef.current) {
         clearTimeout(userInteractionTimerRef.current);
       }
+      if (activeIndexTimerRef.current) {
+        clearTimeout(activeIndexTimerRef.current);
+      }
     };
   }, [isAutoPlaying]);
 
   // HANDLE SWIPER INDEX CHANGE
   const handleIndexChanged = (index) => {
+    if (activeIndexTimerRef.current) {
+      clearTimeout(activeIndexTimerRef.current);
+    }
+
+    if (isUserSwipingRef.current) {
+      activeIndexTimerRef.current = setTimeout(() => {
+        setActiveIndex(index);
+      }, 180);
+      return;
+    }
+
     setActiveIndex(index);
   };
 
@@ -726,10 +775,10 @@ newSlides[1].consumptionData = {
   // Show loading while site info is being loaded
   if (isLoadingSiteInfo) {
     return (
-      <SafeAreaView style={styles.safe}>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#0b63a8" />
-          <Text style={styles.loadingText}>Loading site information...</Text>
+      <SafeAreaView style={[styles.safe, { backgroundColor: theme.background }]}>
+        <View style={[styles.loadingContainer, { backgroundColor: theme.background }]}>
+          <ActivityIndicator size="large" color={theme.primary} />
+          <Text style={[styles.loadingText, { color: theme.mutedText }]}>Loading site information...</Text>
         </View>
       </SafeAreaView>
     );
@@ -738,13 +787,13 @@ newSlides[1].consumptionData = {
   // Show error if no site info
   if (!siteInfo.siteId || !siteInfo.siteName) {
     return (
-      <SafeAreaView style={styles.safe}>
-        <View style={styles.errorContainer}>
-          <Text style={styles.errorText}>Site Information Not Found</Text>
-          <Text style={styles.errorSubText}>
+      <SafeAreaView style={[styles.safe, { backgroundColor: theme.background }]}>
+        <View style={[styles.errorContainer, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+          <Text style={[styles.errorText, { color: theme.text }]}>Site Information Not Found</Text>
+          <Text style={[styles.errorSubText, { color: theme.mutedText }]}>
             Please login again to access site data.
           </Text>
-          <Text style={styles.errorSubText}>
+          <Text style={[styles.errorSubText, { color: theme.mutedText }]}>
             Current user: {user?.name || "Not logged in"}
           </Text>
         </View>
@@ -755,11 +804,11 @@ newSlides[1].consumptionData = {
   // LOADING STATE for API data
   if (loading && !refreshing) {
     return (
-      <SafeAreaView style={styles.safe}>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#0b63a8" />
-          <Text style={styles.loadingText}>Loading...</Text>
-          <Text style={styles.siteInfoText}>
+      <SafeAreaView style={[styles.safe, { backgroundColor: theme.background }]}>
+        <View style={[styles.loadingContainer, { backgroundColor: theme.background }]}>
+          <ActivityIndicator size="large" color={theme.primary} />
+          <Text style={[styles.loadingText, { color: theme.mutedText }]}>Loading...</Text>
+          <Text style={[styles.siteInfoText, { color: theme.mutedText }]}>
            
           </Text>
         </View>
@@ -770,11 +819,11 @@ newSlides[1].consumptionData = {
   // ERROR STATE for API data
   if (error) {
     return (
-      <SafeAreaView style={styles.safe}>
-        <View style={styles.errorContainer}>
-          <Text style={styles.errorText}>Error loading data</Text>
-          <Text style={styles.errorSubText}>{error}</Text>
-          <Text style={styles.siteInfoText}>
+      <SafeAreaView style={[styles.safe, { backgroundColor: theme.background }]}>
+        <View style={[styles.errorContainer, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+          <Text style={[styles.errorText, { color: theme.text }]}>Error loading data</Text>
+          <Text style={[styles.errorSubText, { color: theme.mutedText }]}>{error}</Text>
+          <Text style={[styles.siteInfoText, { color: theme.mutedText }]}>
             Site: {siteInfo.siteName} | ID: {siteInfo.siteId}
           </Text>
           <TouchableOpacity 
@@ -789,17 +838,17 @@ newSlides[1].consumptionData = {
   }
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={[styles.safe, { backgroundColor: theme.background }]}>
       <ScrollView
-        style={styles.container}
+        style={[styles.container, { backgroundColor: theme.background }]}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
-            colors={["#0b63a8"]}
-            tintColor="#0b63a8"
+            colors={[theme.primary]}
+            tintColor={theme.primary}
           />
         }
       >
@@ -808,7 +857,7 @@ newSlides[1].consumptionData = {
         </View>
 
         {/* SWIPER SECTION */}
-        <View style={styles.swiperWrapper}>
+        <View style={styles.swiperWrapper} {...swipeResponder.panHandlers}>
           <Swiper
             ref={swiperRef}
             height={340}
@@ -821,9 +870,14 @@ newSlides[1].consumptionData = {
             onTouchStart={handleUserInteraction}
             onTouchEnd={handleUserInteraction}
             onScrollBeginDrag={handleUserInteraction}
+            onMomentumScrollEnd={() => {
+              isUserSwipingRef.current = false;
+            }}
             paginationStyle={{ bottom: 10 }}
-            scrollEnabled={true}
+            scrollEnabled={false}
             bounces={true}
+            decelerationRate="fast"
+            showsHorizontalScrollIndicator={false}
             removeClippedSubviews={false}
             loadMinimal={true}
             loadMinimalSize={1}
@@ -834,39 +888,41 @@ newSlides[1].consumptionData = {
             style={styles.swiperStyle}
           >
             {slides.map((item, index) => (
-              <View key={item.key} style={styles.swiperCard}>
-                {/* CARD HEADER */}
-                <View style={styles.cardHeader}>
-                  <View style={styles.cardIcon}>
-                    <Text style={styles.cardIconText}>{item.icon}</Text>
-                  </View>
-                  <Text style={styles.cardTitle}>{item.title}</Text>
-                </View>
-
-                {/* CARD BODY */}
-                <View style={styles.cardBody}>
-                  {item.rows.map((row, i) => (
-                    <View 
-                      key={i} 
-                      style={[
-                        styles.dataRow,
-                        i === item.rows.length - 1 && styles.lastRow
-                      ]}
-                    >
-                      <Text style={styles.rowLabel}>
-                        {row.label}
-                      </Text>
-                      
-                      <View style={styles.valueContainer}>
-                        <Text style={[
-                          styles.rowValue,
-                          { color: row.color || "#1e293b" },
-                        ]}>
-                          {row.value}
-                        </Text>
-                      </View>
+              <View key={item.key} style={styles.swiperSlide}>
+                <View style={[styles.swiperCard, { backgroundColor: theme.surface, shadowColor: theme.shadow }]}>
+                  {/* CARD HEADER */}
+                  <View style={styles.cardHeader}>
+                    <View style={styles.cardIcon}>
+                      <Text style={styles.cardIconText}>{item.icon}</Text>
                     </View>
-                  ))}
+                    <Text style={[styles.cardTitle, { color: theme.text }]}>{item.title}</Text>
+                  </View>
+
+                  {/* CARD BODY */}
+                  <View style={styles.cardBody}>
+                    {item.rows.map((row, i) => (
+                      <View 
+                        key={i} 
+                        style={[
+                          styles.dataRow,
+                          i === item.rows.length - 1 && styles.lastRow
+                        ]}
+                      >
+                        <Text style={[styles.rowLabel, { color: theme.mutedText }]}>
+                          {row.label}
+                        </Text>
+                        
+                        <View style={styles.valueContainer}>
+                          <Text style={[
+                            styles.rowValue,
+                            { color: row.color || theme.text },
+                          ]}>
+                            {row.value}
+                          </Text>
+                        </View>
+                      </View>
+                    ))}
+                  </View>
                 </View>
               </View>
             ))}
@@ -876,7 +932,7 @@ newSlides[1].consumptionData = {
           <View style={styles.controlContainer}>
             {/* Auto-Play Toggle */}
             <TouchableOpacity 
-              style={styles.autoPlayButton}
+              style={[styles.autoPlayButton, { backgroundColor: theme.surface, borderColor: theme.border }]}
               onPress={toggleAutoPlay}
               activeOpacity={0.7}
             >
@@ -885,7 +941,7 @@ newSlides[1].consumptionData = {
                   styles.autoPlayDot, 
                   isAutoPlaying ? styles.autoPlayActive : styles.autoPlayInactive
                 ]} />
-                <Text style={styles.autoPlayText}>
+                <Text style={[styles.autoPlayText, { color: theme.text }]}>
                   {isAutoPlaying ? 'Auto' : 'Paused'}
                 </Text>
               </View>
@@ -894,21 +950,21 @@ newSlides[1].consumptionData = {
             {/* Manual Navigation Buttons */}
             <View style={styles.navigationContainer}>
               <TouchableOpacity 
-                style={styles.navButton}
+                style={[styles.navButton, { backgroundColor: theme.surface, borderColor: theme.border }]}
                 onPress={goToPrevSlide}
                 activeOpacity={0.7}
               >
                 <Text style={styles.navButtonText}>←</Text>
               </TouchableOpacity>
               
-              <View style={styles.pageIndicator}>
-                <Text style={styles.pageIndicatorText}>
+              <View style={[styles.pageIndicator, { backgroundColor: isDarkMode ? theme.card : "#f8fafc", borderColor: theme.border }]}>
+                <Text style={[styles.pageIndicatorText, { color: theme.text }]}>
                   {activeIndex + 1} / {slides.length}
                 </Text>
               </View>
               
               <TouchableOpacity 
-                style={styles.navButton}
+                style={[styles.navButton, { backgroundColor: theme.surface, borderColor: theme.border }]}
                 onPress={goToNextSlide}
                 activeOpacity={0.7}
               >
@@ -919,12 +975,12 @@ newSlides[1].consumptionData = {
         </View>
 
         {/* DYNAMIC CONSUMPTION TILE */}
-        <View style={styles.tileContainer}>
+        <View style={[styles.tileContainer, { backgroundColor: theme.surface, shadowColor: theme.shadow }]}>
           <View style={styles.tileHeader}>
             <View style={styles.tileIcon}>
               <Text style={{ color: "#fff", fontSize: 20 }}>📊</Text>
             </View>
-            <Text style={styles.tileTitle}>
+            <Text style={[styles.tileTitle, { color: theme.text }]}>
               {active.key === "current" ? "Current Consumption" : 
                active.key === "today" ? "Today's Consumption" : "Monthly Consumption"}
             </Text>
@@ -933,32 +989,70 @@ newSlides[1].consumptionData = {
           <View style={styles.consumptionBreakdown}>
             {/* Grid */}
             
- <View style={[styles.consumptionBox, styles.gridBox]}>
-              <Text style={styles.consumptionLabel}>Consumption</Text>
-              <Text style={styles.consumptionValue}>
+ <View
+              style={[
+                styles.consumptionBox,
+                styles.gridBox,
+                isDarkMode && {
+                  backgroundColor: "#10261f",
+                  borderColor: "#1f7a5b",
+                  shadowOpacity: 0.2,
+                },
+              ]}
+            >
+              <Text style={[styles.consumptionLabel, { color: theme.mutedText }]}>Consumption</Text>
+              <Text style={[styles.consumptionValue, { color: theme.text }]}>
                 {Number(active.consumptionData.grid || 0).toFixed(2)}
               </Text>
-              <Text style={styles.consumptionUnit}>
+              <Text style={[styles.consumptionUnit, { color: theme.mutedText }]}>
                 {active.key === "monthly" ? "kWh" : "kWh"}
               </Text>
-              <View style={[styles.percentagePill, styles.gridPill]}>
-                <Text style={styles.percentageText}>
+              <View
+                style={[
+                  styles.percentagePill,
+                  styles.gridPill,
+                  isDarkMode && {
+                    backgroundColor: "rgba(16, 185, 129, 0.18)",
+                    borderColor: "rgba(16, 185, 129, 0.38)",
+                  },
+                ]}
+              >
+                <Text style={[styles.percentageText, { color: theme.text }]}>
                   {active.consumptionData.gridPercent}
                 </Text>
               </View>
             </View>
             
             {active.key === "today" && meterDailyData && (
-              <View style={[styles.consumptionBox, styles.dgBox]}>
-                <Text style={styles.consumptionLabel}>Days Tracked</Text>
-                <Text style={styles.consumptionValue}>
+              <View
+                style={[
+                  styles.consumptionBox,
+                  styles.dgBox,
+                  isDarkMode && {
+                    backgroundColor: "#2a1720",
+                    borderColor: "#a85574",
+                    shadowOpacity: 0.2,
+                  },
+                ]}
+              >
+                <Text style={[styles.consumptionLabel, { color: theme.mutedText }]}>Days Tracked</Text>
+                <Text style={[styles.consumptionValue, { color: theme.text }]}>
                   {meterDailyData.data?.length || 0}
                 </Text>
-                <Text style={styles.consumptionUnit}>
+                <Text style={[styles.consumptionUnit, { color: theme.mutedText }]}>
                   Days
                 </Text>
-                <View style={[styles.percentagePill, styles.dgPill]}>
-                  <Text style={styles.percentageText}>
+                <View
+                  style={[
+                    styles.percentagePill,
+                    styles.dgPill,
+                    isDarkMode && {
+                      backgroundColor: "rgba(244, 114, 182, 0.18)",
+                      borderColor: "rgba(244, 114, 182, 0.38)",
+                    },
+                  ]}
+                >
+                  <Text style={[styles.percentageText, { color: theme.text }]}>
                     This Month
                   </Text>
                 </View>
@@ -966,17 +1060,36 @@ newSlides[1].consumptionData = {
             )}
             
             {active.key !== "today" && (
-              <View style={[styles.consumptionBox, styles.dgBox]}>
-                <Text style={styles.consumptionLabel}>Status</Text>
-                <Text style={styles.consumptionValue}>
+              <View
+                style={[
+                  styles.consumptionBox,
+                  styles.dgBox,
+                  isDarkMode && {
+                    backgroundColor: "#132033",
+                    borderColor: "#2f5f9a",
+                    shadowOpacity: 0.2,
+                  },
+                ]}
+              >
+                <Text style={[styles.consumptionLabel, { color: theme.mutedText }]}>Status</Text>
+                <Text style={[styles.consumptionValue, { color: theme.text }]}>
                   {active.key === "current" ? "Live" : 
                    active.key === "monthly" ? (meterMonthlyData?.status === "running" ? "Active" : "Pending") : "N/A"}
                 </Text>
-                <Text style={styles.consumptionUnit}>
+                <Text style={[styles.consumptionUnit, { color: theme.mutedText }]}>
                   {active.key === "current" ? "Updated" : "Month"}
                 </Text>
-                <View style={[styles.percentagePill, styles.dgPill]}>
-                  <Text style={styles.percentageText}>
+                <View
+                  style={[
+                    styles.percentagePill,
+                    styles.dgPill,
+                    isDarkMode && {
+                      backgroundColor: "rgba(59, 130, 246, 0.18)",
+                      borderColor: "rgba(59, 130, 246, 0.35)",
+                    },
+                  ]}
+                >
+                  <Text style={[styles.percentageText, { color: theme.text }]}>
                     {active.key === "current" ? "🔴 Live" : "🟢 Good"}
                   </Text>
                 </View>
@@ -985,72 +1098,75 @@ newSlides[1].consumptionData = {
           </View>
           
           {/* Total Row */}
-          <View style={styles.totalRow}>
+          <View style={[styles.totalRow, { backgroundColor: isDarkMode ? theme.card : "#f8fafc", borderColor: theme.border }]}>
             <View style={styles.totalItem}>
-              <Text style={styles.totalLabel}>Today</Text>
-              <Text style={styles.totalValue}>
-                {Number(currentconsumption || 0).toFixed(2)} kWh
-
+              <Text style={[styles.totalLabel, { color: theme.mutedText }]}>Today</Text>
+              <Text style={[styles.totalValue, { color: theme.text }]}>
+                {Number(currentconsumption || 0).toFixed(2)}
               </Text>
+              <Text style={[styles.totalUnit, { color: theme.mutedText }]}>kWh</Text>
             </View>
             {meterCurrentData && active.key === "current" && (
               <View style={styles.totalItem}>
-                <Text style={styles.totalLabel}>Opening</Text>
-                <Text style={styles.totalValue}>
-                  {meterCurrentData.closing_kwh?.toFixed(2) || "0.00"} kWh
+                <Text style={[styles.totalLabel, { color: theme.mutedText }]}>Opening</Text>
+                <Text style={[styles.totalValue, { color: theme.text }]}>
+                  {meterCurrentData.closing_kwh?.toFixed(2) || "0.00"}
                 </Text>
+                <Text style={[styles.totalUnit, { color: theme.mutedText }]}>kWh</Text>
               </View>
             )}
             {meterCurrentData && active.key === "current" && (
               <View style={styles.totalItem}>
-                <Text style={styles.totalLabel}>Closing</Text>
-                <Text style={styles.totalValue}>
-                  
-                  {currentunit?.toFixed(2) || "0.00"} kWh
+                <Text style={[styles.totalLabel, { color: theme.mutedText }]}>Closing</Text>
+                <Text style={[styles.totalValue, { color: theme.text }]}>
+                  {currentunit?.toFixed(2) || "0.00"}
                 </Text>
+                <Text style={[styles.totalUnit, { color: theme.mutedText }]}>kWh</Text>
               </View>
             )}
             {active.key === "today" && meterDailyData && meterDailyData.data && (
               <View style={styles.totalItem}>
-                <Text style={styles.totalLabel}>Peak</Text>
-                <Text style={styles.totalValue}>
-                  {Math.max(...meterDailyData.data.map(item => item.kwh_delta || 0)).toFixed(2)} kWh
+                <Text style={[styles.totalLabel, { color: theme.mutedText }]}>Peak</Text>
+                <Text style={[styles.totalValue, { color: theme.text }]}>
+                  {Math.max(...meterDailyData.data.map(item => item.kwh_delta || 0)).toFixed(2)}
                 </Text>
+                <Text style={[styles.totalUnit, { color: theme.mutedText }]}>kWh</Text>
               </View>
             )}
             {active.key === "monthly" && meterMonthlyData && (
               <View style={styles.totalItem}>
-                <Text style={styles.totalLabel}>Avg/Day</Text>
-                <Text style={styles.totalValue}>
-                  {((meterMonthlyData.total_kwh || 0) / new Date().getDate()).toFixed(2)} kWh
+                <Text style={[styles.totalLabel, { color: theme.mutedText }]}>Avg/Day</Text>
+                <Text style={[styles.totalValue, { color: theme.text }]}>
+                  {((meterMonthlyData.total_kwh || 0) / new Date().getDate()).toFixed(2)}
                 </Text>
+                <Text style={[styles.totalUnit, { color: theme.mutedText }]}>kWh</Text>
               </View>
             )}
           </View>
         </View>
 
         {/* SANCTIONED LOAD TILE */}
-        <View style={styles.tileContainer}>
+        <View style={[styles.tileContainer, { backgroundColor: theme.surface, shadowColor: theme.shadow }]}>
           <View style={styles.tileHeader}>
             <View style={styles.tileIcon}>
               <Text style={{ color: "#fff", fontSize: 20 }}>⚡</Text>
             </View>
-            <Text style={styles.tileTitle}>Sanctioned Load</Text>
+            <Text style={[styles.tileTitle, { color: theme.text }]}>Sanctioned Load</Text>
           </View>
           
-          <View style={styles.sanctionedCard}>
+          <View style={[styles.sanctionedCard, { backgroundColor: isDarkMode ? theme.card : "#f8fafc" }]}>
             <View style={styles.sanctionedRow}>
-              <Text style={styles.sanctionedLabel}>EB (Grid)</Text>
-              <Text style={styles.sanctionedValue}>
+              <Text style={[styles.sanctionedLabel, { color: theme.mutedText }]}>EB (Grid)</Text>
+              <Text style={[styles.sanctionedValue, { color: theme.text }]}>
                 {staticData.sanctionedLoad.gridValue}
               </Text>
             </View>
 
-            <View style={styles.sanctionedDivider} />
+            <View style={[styles.sanctionedDivider, { backgroundColor: theme.border }]} />
 
             <View style={styles.sanctionedRow}>
-              <Text style={styles.sanctionedLabel}>DG (Grid)</Text>
-              <Text style={styles.sanctionedValue}>
+              <Text style={[styles.sanctionedLabel, { color: theme.mutedText }]}>DG (Grid)</Text>
+              <Text style={[styles.sanctionedValue, { color: theme.text }]}>
                 {staticData.sanctionedLoad.dgValue}
               </Text>
             </View>
@@ -1058,57 +1174,57 @@ newSlides[1].consumptionData = {
         </View>
 
         {/* THREE PHASE VOLTAGE & CURRENT TILE */}
-        <View style={styles.tileContainer}>
+        <View style={[styles.tileContainer, { backgroundColor: theme.surface, shadowColor: theme.shadow }]}>
           <View style={styles.tileHeader}>
             <View style={styles.tileIcon}>
               <Text style={{ color: "#fff", fontSize: 20 }}>🔌</Text>
             </View>
-            <Text style={[styles.tileTitle, { flexShrink: 1 }]}>
+            <Text style={[styles.tileTitle, { flexShrink: 1, color: theme.text }]}>
               Three Phase Voltage & Current
             </Text>
           </View>
           
           {/* Voltage Section */}
-          <View style={styles.phaseSection}>
-            <Text style={styles.phaseSectionTitle}>Voltage (L-L)</Text>
+          <View style={[styles.phaseSection, { backgroundColor: isDarkMode ? theme.card : "#f8fafc" }]}>
+            <Text style={[styles.phaseSectionTitle, { color: theme.text }]}>Voltage (L-L)</Text>
             <View style={styles.phaseRow}>
-              <Text style={styles.phaseLabel}>Phase R-Y</Text>
-              <Text style={styles.phaseValue}>
+              <Text style={[styles.phaseLabel, { color: theme.mutedText }]}>Phase R-Y</Text>
+              <Text style={[styles.phaseValue, { color: theme.text }]}>
                 {staticData.voltageCurrent.voltageR}
               </Text>
             </View>
             <View style={styles.phaseRow}>
-              <Text style={styles.phaseLabel}>Phase Y-B</Text>
-              <Text style={styles.phaseValue}>
+              <Text style={[styles.phaseLabel, { color: theme.mutedText }]}>Phase Y-B</Text>
+              <Text style={[styles.phaseValue, { color: theme.text }]}>
                 {staticData.voltageCurrent.voltageY}
               </Text>
             </View>
             <View style={styles.phaseRow}>
-              <Text style={styles.phaseLabel}>Phase B-R</Text>
-              <Text style={styles.phaseValue}>
+              <Text style={[styles.phaseLabel, { color: theme.mutedText }]}>Phase B-R</Text>
+              <Text style={[styles.phaseValue, { color: theme.text }]}>
                 {staticData.voltageCurrent.voltageB}
               </Text>
             </View>
           </View>
           
           {/* Current Section */}
-          <View style={styles.phaseSection}>
-            <Text style={styles.phaseSectionTitle}>Current</Text>
+          <View style={[styles.phaseSection, { backgroundColor: isDarkMode ? theme.card : "#f8fafc" }]}>
+            <Text style={[styles.phaseSectionTitle, { color: theme.text }]}>Current</Text>
             <View style={styles.phaseRow}>
-              <Text style={styles.phaseLabel}>Phase R</Text>
-              <Text style={styles.phaseValue}>
+              <Text style={[styles.phaseLabel, { color: theme.mutedText }]}>Phase R</Text>
+              <Text style={[styles.phaseValue, { color: theme.text }]}>
                 {staticData.voltageCurrent.currentR}
               </Text>
             </View>
             <View style={styles.phaseRow}>
-              <Text style={styles.phaseLabel}>Phase Y</Text>
-              <Text style={styles.phaseValue}>
+              <Text style={[styles.phaseLabel, { color: theme.mutedText }]}>Phase Y</Text>
+              <Text style={[styles.phaseValue, { color: theme.text }]}>
                 {staticData.voltageCurrent.currentY}
               </Text>
             </View>
             <View style={styles.phaseRow}>
-              <Text style={styles.phaseLabel}>Phase B</Text>
-              <Text style={styles.phaseValue}>
+              <Text style={[styles.phaseLabel, { color: theme.mutedText }]}>Phase B</Text>
+              <Text style={[styles.phaseValue, { color: theme.text }]}>
                 {staticData.voltageCurrent.currentB}
               </Text>
             </View>
@@ -1123,8 +1239,8 @@ newSlides[1].consumptionData = {
 }
 
 // STYLES (same as before with small additions)
-const CARD_WIDTH = screenWidth - 48;
-const CARD_MARGIN = 8;
+const CARD_WIDTH = screenWidth - 32;
+const CARD_MARGIN = 0;
 
 const styles = StyleSheet.create({
   safe: { 
@@ -1216,11 +1332,20 @@ const styles = StyleSheet.create({
     height: 400,
     marginBottom: 20,
     paddingHorizontal: 16,
+    overflow: "hidden",
   },
   
   // SWIPER STYLE
   swiperStyle: {
-    overflow: 'visible',
+    overflow: "hidden",
+  },
+
+  swiperSlide: {
+    width: "100%",
+    flex: 1,
+    overflow: "hidden",
+    justifyContent: "center",
+    alignItems: "center",
   },
   
   // SWIPER CARD
@@ -1228,16 +1353,16 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     borderRadius: 20,
     padding: 20,
-    width: CARD_WIDTH,
+    width: "100%",
     marginHorizontal: CARD_MARGIN,
-    shadowColor: "rgba(0, 0, 0, 0.35) 0px 5px 15px",
+    shadowColor: "#000",
     shadowOffset: { 
       width: 0, 
       height: 8 
     },
-    shadowOpacity: 0.15,
+    shadowOpacity: 0.18,
     shadowRadius: 15,
-    elevation: 12,
+    elevation: 14,
     height: 340,
     borderWidth: 1,
     borderColor: "rgba(11, 99, 168, 0.1)",
@@ -1360,8 +1485,9 @@ const styles = StyleSheet.create({
   },
   cardTitle: {
     color: "#0b63a8",
-    fontSize: 20,
+    fontSize: 17,
     fontWeight: "700",
+    flexShrink: 1,
   },
   cardBody: {
     flex: 1,
@@ -1370,7 +1496,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingVertical: 8,
+    paddingVertical: 7,
     borderBottomWidth: 1,
     borderBottomColor: "#f1f5f9",
   },
@@ -1380,7 +1506,8 @@ const styles = StyleSheet.create({
   },
   rowLabel: {
     color: "#64748b",
-    fontSize: 15,
+    fontSize: 13,
+    lineHeight: 18,
     flex: 1,
   },
   valueContainer: {
@@ -1393,12 +1520,15 @@ const styles = StyleSheet.create({
     marginRight: 4,
   },
   rowValue: {
-    fontSize: 15,
+    fontSize: 13,
+    lineHeight: 18,
     fontWeight: "600",
     color: "#1e293b",
+    textAlign: "right",
+    flexShrink: 1,
   },
   boldValue: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: "700",
   },
   badge: {
@@ -1426,9 +1556,9 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     marginBottom: 16,
     shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.12,
-    shadowRadius: 12,
-    elevation: 8,
+    shadowOpacity: 0.16,
+    shadowRadius: 15,
+    elevation: 10,
     borderWidth: 1,
     borderColor: "rgba(11, 99, 168, 0.08)",
     overflow: 'visible',
@@ -1454,7 +1584,7 @@ const styles = StyleSheet.create({
   },
   tileTitle: {
     color: "#0b63a8",
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: "700",
     flex: 1,
   },
@@ -1468,7 +1598,8 @@ const styles = StyleSheet.create({
   consumptionBox: {
     flex: 1,
     borderRadius: 16,
-    padding: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
     alignItems: "center",
     justifyContent: "center",
     marginHorizontal: 6,
@@ -1489,25 +1620,29 @@ const styles = StyleSheet.create({
     borderColor: "#fca5a5",
   },
   consumptionLabel: {
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: "600",
-    marginBottom: 8,
+    marginBottom: 6,
     color: "#4b5563",
+    textAlign: "center",
   },
   consumptionValue: {
-    fontSize: 24,
+    fontSize: 17,
+    lineHeight: 21,
     fontWeight: "800",
     color: "#111827",
-    marginBottom: 4,
+    marginBottom: 2,
+    textAlign: "center",
   },
   consumptionUnit: {
-    fontSize: 12,
+    fontSize: 11,
     color: "#6b7280",
-    marginBottom: 8,
+    marginBottom: 6,
+    textAlign: "center",
   },
   percentagePill: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingHorizontal: 9,
+    paddingVertical: 3,
     borderRadius: 12,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
@@ -1526,7 +1661,7 @@ const styles = StyleSheet.create({
     borderColor: "rgba(239, 68, 68, 0.3)",
   },
   percentageText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "700",
     color: "#111827",
   },
@@ -1535,7 +1670,8 @@ const styles = StyleSheet.create({
   totalRow: {
     backgroundColor: "#f8fafc",
     borderRadius: 12,
-    padding: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
     flexDirection: "row",
     justifyContent: "space-around",
     borderWidth: 1,
@@ -1544,17 +1680,27 @@ const styles = StyleSheet.create({
   totalItem: {
     alignItems: "center",
     flex: 1,
+    paddingHorizontal: 4,
   },
   totalLabel: {
-    fontSize: 12,
+    fontSize: 11,
     color: "#64748b",
-    marginBottom: 4,
-    fontWeight: "500",
+    marginBottom: 3,
+    fontWeight: "600",
+    textAlign: "center",
   },
   totalValue: {
-    fontSize: 16,
-    fontWeight: "700",
+    fontSize: 14,
+    fontWeight: "800",
     color: "#2e7d32",
+    textAlign: "center",
+    lineHeight: 18,
+  },
+  totalUnit: {
+    fontSize: 10,
+    fontWeight: "600",
+    marginTop: 2,
+    textAlign: "center",
   },
   
   noteText: {

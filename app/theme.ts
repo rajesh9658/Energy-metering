@@ -1,34 +1,67 @@
-// app/theme.ts (NEW FILE BANAYEIN)
-export const lightTheme = {
-  background: '#FFFFFF',
-  text: '#000000',
-  primary: '#1E88E5',
-  secondary: '#1565C0',
-  card: '#F8FAFC',
-  border: '#E2E8F0',
-  success: '#10B981',
-  warning: '#F59E0B',
-  error: '#EF4444',
-  gray: '#94A3B8',
-  lightGray: '#F1F5F9',
-  white: '#FFFFFF',
-  black: '#000000',
+export type ThemeColors = {
+  background: string;
+  text: string;
+  primary: string;
+  secondary: string;
+  card: string;
+  border: string;
+  success: string;
+  warning: string;
+  error: string;
+  gray: string;
+  lightGray: string;
+  white: string;
+  black: string;
+  mutedText: string;
+  surface: string;
+  header: string;
+  headerText: string;
+  tabBar: string;
+  shadow: string;
 };
 
-export const darkTheme = {
-  background: '#0F172A',
-  text: '#F1F5F9',
-  primary: '#3B82F6',
-  secondary: '#1D4ED8',
-  card: '#1E293B',
-  border: '#334155',
+export const lightTheme: ThemeColors = {
+  background: '#F3F6FA',
+  text: '#142033',
+  primary: '#2E7BC7',
+  secondary: '#245F9E',
+  card: '#EAF0F6',
+  border: '#D4DEE9',
   success: '#10B981',
   warning: '#F59E0B',
   error: '#EF4444',
-  gray: '#64748B',
-  lightGray: '#334155',
+  gray: '#8595AA',
+  lightGray: '#E9EFF5',
+  white: '#FFFFFF',
+  black: '#0F172A',
+  mutedText: '#617287',
+  surface: '#FDFEFF',
+  header: '#3A8AD6',
+  headerText: '#FFFFFF',
+  tabBar: '#F7FAFD',
+  shadow: 'rgba(0, 0, 0, 0.14)',
+};
+
+export const darkTheme: ThemeColors = {
+  background: '#0D1422',
+  text: '#F3F7FC',
+  primary: '#4A8FFF',
+  secondary: '#2B6FE0',
+  card: '#182235',
+  border: '#27354B',
+  success: '#10B981',
+  warning: '#F59E0B',
+  error: '#EF4444',
+  gray: '#7B8EA8',
+  lightGray: '#25344A',
   white: '#FFFFFF',
   black: '#000000',
+  mutedText: '#B0BFD1',
+  surface: '#121C2E',
+  header: '#111A2D',
+  headerText: '#F8FAFC',
+  tabBar: '#10192B',
+  shadow: 'rgba(0, 0, 0, 0.42)',
 };
 
 export const getThemeColors = (isDark: boolean) => {
