@@ -70,10 +70,11 @@ export default function Login() {
               {
                 text: "Change Password",
                 onPress: () => {
-                  // Navigate to change-password screen with the email
+                  const emailToSend = userid.trim();
+
                   router.push({
-                    pathname: "/(auth)/change-password",
-                    params: { email: userid.trim() }
+                    pathname: "/change-password",
+                    params: emailToSend ? { email: emailToSend } : {}
                   });
                 },
               },
@@ -160,14 +161,16 @@ export default function Login() {
                   </TouchableOpacity>
 
                   <View style={styles.utilityRow}>
-                    <TouchableOpacity 
+                  <TouchableOpacity 
                     style={styles.forgotPassword} 
-                    onPress={() =>
+                    onPress={() => {
+                      const emailToSend = userid.trim();
+
                       router.push({
                         pathname: "/change-password",
-                        params: { email: userid.trim() },
-                      })
-                    }
+                        params: emailToSend ? { email: emailToSend } : {},
+                      });
+                    }}
                     disabled={isLoading}
                   >
                     <Text style={styles.forgotPasswordText}>Change Password</Text>

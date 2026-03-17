@@ -15,7 +15,7 @@ import {
   SafeAreaView,
   ActivityIndicator,
 } from 'react-native';
-import { WebView } from 'react-native-webview';
+import RazorpayCheckout from 'react-native-razorpay';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import * as Animatable from 'react-native-animatable';
 import { getSiteDataUrl } from '../config'; // Assuming config is in same directory
@@ -28,8 +28,6 @@ export default function RechargeScreen() {
   const [paymentAmount, setPaymentAmount] = useState('');
   const [showNumpad, setShowNumpad] = useState(false);
   const [numpadValue, setNumpadValue] = useState('');
-  const [showPaymentWeb, setShowPaymentWeb] = useState(false);
-  const [razorpayHtml, setRazorpayHtml] = useState('');
   const [customAmount, setCustomAmount] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('card');
   const [loading, setLoading] = useState(false);
@@ -231,77 +229,77 @@ const customerDetails = {
   //   }
 
   //   setLoading(true);
-  //   setTimeout(() => {
+    
+  //   const totalAmount = Math.round((amountToPay + 10 + 1.8) * 100);
+
+  //   const options = {
+  //     description: `Meter Recharge - ${customerDetails.accountId}`,
+  //     image: 'https://i.imgur.com/39go799.png',
+  //     currency: 'INR',
+  //     key: 'rzp_test_SR4qKtwChbUt4f',
+  //     amount: totalAmount,
+  //     name: 'Sochiot Innovation Pvt. Ltd.',
+  //     prefill: {
+  //       email: siteInfo.user?.email || 'customer@gmail.com',
+  //       contact: siteInfo.user?.phone || '9999999999',
+  //       name: customerDetails.name
+  //     },
+  //     theme: { 
+  //       color: '#4f46e5',
+  //       hide_topbar: false
+  //     },
+  //     retry: {
+  //       enabled: true,
+  //       max_count: 5
+  //     },
+  //     // Explicitly enable all methods and prioritize UPI/Cards
+  //     config: {
+  //       display: {
+  //         blocks: {
+  //           upi: {
+  //             name: 'Pay via UPI / QR',
+  //             instruments: [
+  //               { method: 'upi' }
+  //             ]
+  //           }
+  //         },
+  //         sequence: ['block.upi', 'block.other'],
+  //         preferences: {
+  //           show_default_blocks: true
+  //         }
+  //       }
+  //     }
+  //   };
+
+  //   RazorpayCheckout.open(options).then((data) => {
+  //     // handle success
   //     setLoading(false);
-  //     const totalAmount = Math.round((amountToPay + 10 + 1.8) * 100);
-
-  //     const html = `
-  //       <!DOCTYPE html>
-  //       <html>
-  //         <head>
-  //           <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  //           <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
-  //         </head>
-  //         <body style="background: #4f46e5; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 20px;">
-  //           <div id="loader" style="color: white; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; text-align: center;">
-  //             <div style="background: rgba(255,255,255,0.1); padding: 40px; border-radius: 20px; backdrop-filter: blur(10px);">
-  //               <h2 style="margin-bottom: 10px;">Processing Payment...</h2>
-  //               <p style="opacity: 0.9; margin-bottom: 20px;">₹${amountToPay} via ${paymentMethod.toUpperCase()}</p>
-  //               <div style="width: 40px; height: 40px; border: 3px solid rgba(255,255,255,0.3); border-top-color: white; border-radius: 50%; margin: 0 auto; animation: spin 1s linear infinite;"></div>
-  //             </div>
-  //           </div>
-  //           <style>
-  //             @keyframes spin {
-  //               to { transform: rotate(360deg); }
-  //             }
-  //           </style>
-  //           <script>
-  //             setTimeout(function() {
-  //               var options = {
-  //                 key: "rzp_test_S2t1onSDtI24BI",
-  //                 amount: ${totalAmount},
-  //                 currency: "INR",
-  //                 name: "Sochiot Innovation Pvt. Ltd.",
-  //                 description: "Meter Recharge - ${customerDetails.accountId}",
-  //                 prefill: {
-  //                   name: "${customerDetails.name}",
-  //                   email: "customer@gmail.com",
-  //                   contact: "9999999999"
-  //                 },
-  //                 theme: {
-  //                   color: "#4f46e5"
-  //                 },
-  //                 handler: function (response) {
-  //                   window.ReactNativeWebView.postMessage(
-  //                     JSON.stringify({ 
-  //                       status: "success", 
-  //                       data: response,
-  //                       amount: ${amountToPay}
-  //                     })
-  //                   );
-  //                 },
-  //                 modal: {
-  //                   ondismiss: function () {
-  //                     window.ReactNativeWebView.postMessage(
-  //                       JSON.stringify({ status: "cancel" })
-  //                     );
-  //                   }
-  //                 }
-  //               };
-  //               var rzp = new Razorpay(options);
-  //               rzp.open();
-  //             }, 1500);
-  //           </script>
-  //         </body>
-  //       </html>
-  //     `;
-
-  //     setRazorpayHtml(html);
-  //     setShowPaymentWeb(true);
-  //   }, 800);
+  //     Alert.alert(
+  //       'Payment Successful! 🎉',
+  //       `Your recharge of ₹${amountToPay} has been processed successfully.\n\nPayment ID: ${data.razorpay_payment_id}`,
+  //       [{ 
+  //         text: 'Done', 
+  //         onPress: () => {
+  //           setSelectedAmount(null);
+  //           setCustomAmount('');
+  //           setPaymentAmount('');
+  //         },
+  //         style: 'default'
+  //       }]
+  //     );
+  //   }).catch((error) => {
+  //     // handle failure
+  //     setLoading(false);
+  //     if (error.code === 2) {
+  //       // User cancelled
+  //       Alert.alert('Payment Cancelled', 'Your payment was not completed. You can try again.');
+  //     } else {
+  //       Alert.alert('Payment Failed', error.description || 'Something went wrong. Please try again.');
+  //     }
+  //   });
   // };
 
-  const handlePayment = () => {
+  const handlePayment = async () => {
   let amountToPay = selectedAmount;
 
   if (customAmount && parseFloat(customAmount) >= 100) {
@@ -309,48 +307,74 @@ const customerDetails = {
   }
 
   if (!amountToPay || amountToPay < 100) {
-    Alert.alert(
-      'Invalid Amount',
-      'Please select or enter an amount (minimum ₹100)'
-    );
+    Alert.alert('Invalid Amount', 'Please select or enter minimum ₹100');
     return;
   }
 
-  // 🔒 TEMPORARY: Payment under development
-  Alert.alert(
-    '🚧 Under Development',
-    `Payment feature is currently under development.\n\n`,
-    [
-      { text: 'OK', style: 'default' }
-    ]
-  );
+  setLoading(true);
 
-  // ❌ Razorpay logic disabled for now
-  // Later you can re-enable it here
+  try {
+
+    const totalAmount = Math.round((amountToPay + 10 + 1.8) * 100);
+
+    const options = {
+      description: `Meter Recharge - ${customerDetails.accountId}`,
+      currency: 'INR',
+      key: 'rzp_test_SR4qKtwChbUt4f',
+      amount: totalAmount,
+      name: 'Sochiot Innovation Pvt. Ltd.',
+      image: 'https://i.imgur.com/39go799.png',
+
+      prefill: {
+        email: siteInfo.user?.email || 'customer@gmail.com',
+        contact: siteInfo.user?.phone || '9999999999',
+        name: customerDetails.name || "Test User"
+      },
+
+      theme: {
+        color: '#4f46e5'
+      },
+
+      retry: {
+        enabled: true,
+        max_count: 3
+      },
+
+      send_sms_hash: true
+    };
+
+    const data = await RazorpayCheckout.open(options);
+
+    setLoading(false);
+
+    Alert.alert(
+      "Payment Successful",
+      `Payment ID: ${data.razorpay_payment_id}`
+    );
+
+    console.log("Payment Success:", data);
+
+    setSelectedAmount(null);
+    setCustomAmount('');
+    setPaymentAmount('');
+
+  } catch (error) {
+
+    setLoading(false);
+
+    console.log("Payment Error:", error);
+
+    if (error.code === 2) {
+      Alert.alert("Payment Cancelled", "User cancelled the payment");
+    } else {
+      Alert.alert(
+        "Payment Failed",
+        error.description || "Payment could not be completed"
+      );
+    }
+  }
 };
 
-  const onPaymentMessage = (event) => {
-    const msg = JSON.parse(event.nativeEvent.data);
-    setShowPaymentWeb(false);
-
-    if (msg.status === 'success') {
-      Alert.alert(
-        'Payment Successful! 🎉',
-        `Your recharge of ₹${msg.amount} has been processed successfully.\n\nPayment ID: ${msg.data.razorpay_payment_id}`,
-        [{ 
-          text: 'Done', 
-          onPress: () => {
-            setSelectedAmount(null);
-            setCustomAmount('');
-            setPaymentAmount('');
-          },
-          style: 'default'
-        }]
-      );
-    } else {
-      Alert.alert('Payment Cancelled', 'Your payment was not completed. You can try again.');
-    }
-  };
 
   /* -------------------- MANUAL AMOUNT INPUT -------------------- */
 
@@ -753,29 +777,6 @@ const customerDetails = {
         </View>
       </Modal>
 
-      {/* PAYMENT WEBVIEW MODAL */}
-      <Modal 
-        visible={showPaymentWeb} 
-        animationType="slide"
-        statusBarTranslucent
-      >
-        <View style={styles.webviewHeader}>
-          <TouchableOpacity 
-            style={styles.closeButton}
-            onPress={() => setShowPaymentWeb(false)}
-          >
-            <Icon name="arrow-back" size={24} color="#fff" />
-          </TouchableOpacity>
-          <Text style={styles.webviewTitle}>Complete Payment</Text>
-          <View style={styles.headerRight} />
-        </View>
-        <WebView 
-          source={{ html: razorpayHtml }} 
-          onMessage={onPaymentMessage}
-          style={styles.webview}
-          startInLoadingState={true}
-        />
-      </Modal>
     </SafeAreaView>
   );
 }
