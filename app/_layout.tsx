@@ -1,23 +1,14 @@
 
 import { Stack, Redirect } from "expo-router";
+import { isRunningInExpoGo } from "expo";
 
 import { AuthProvider, useAuth } from "./context/AuthContext"; 
 import { ActivityIndicator, View, StyleSheet, StatusBar } from "react-native";
 import { useEffect } from "react";
 import * as SplashScreen from 'expo-splash-screen';
-import * as Notifications from 'expo-notifications';
 import { ThemeProvider, useTheme } from "./context/ThemeContext";
 
 SplashScreen.preventAutoHideAsync();
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: false,
-    shouldSetBadge: false,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
-});
 
 function LayoutContent() {
   const { user, loading } = useAuth();
@@ -28,6 +19,38 @@ function LayoutContent() {
       SplashScreen.hideAsync();
     }
   }, [loading, themeLoading]);
+
+  useEffect(() => {
+    if (isRunningInExpoGo()) return;
+
+    let mounted = true;
+
+    (async () => {
+      try {
+        const Notifications = await import("expo-notifications");
+        if (!mounted) return;
+
+        Notifications.setNotificationHandler({
+          handleNotification: async () => ({
+            shouldShowAlert: true,
+            shouldPlaySound: false,
+            shouldSetBadge: false,
+          }),
+        });
+
+        await Notifications.setNotificationChannelAsync("downloads", {
+          name: "Downloads",
+          importance: Notifications.AndroidImportance.DEFAULT,
+        });
+      } catch {
+        // Ignore notification setup issues outside native/dev builds.
+      }
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   if (loading || themeLoading) {
     return (

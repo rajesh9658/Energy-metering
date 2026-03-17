@@ -8,7 +8,8 @@ import {
   TouchableOpacity,
   Dimensions,
   ActivityIndicator,
-  RefreshControl
+  RefreshControl,
+  PanResponder
 } from "react-native";
 import Swiper from "react-native-swiper";
 import axios from "axios";
@@ -205,6 +206,8 @@ useEffect(() => {
   const swiperRef = useRef(null);
   const autoPlayTimerRef = useRef(null);
   const userInteractionTimerRef = useRef(null);
+  const activeIndexTimerRef = useRef(null);
+  const isUserSwipingRef = useRef(false);
   
   const active = slides[activeIndex];
   
@@ -678,8 +681,37 @@ newSlides[1].consumptionData = {
     }
   };
 
+  const swipeResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, gestureState) =>
+        Math.abs(gestureState.dx) > 18 && Math.abs(gestureState.dx) > Math.abs(gestureState.dy),
+      onPanResponderGrant: () => {
+        handleUserInteraction();
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        const swipeThreshold = 50;
+
+        if (gestureState.dx < -swipeThreshold) {
+          goToNextSlide();
+        } else if (gestureState.dx > swipeThreshold) {
+          goToPrevSlide();
+        }
+      },
+      onPanResponderTerminate: () => {
+        isUserSwipingRef.current = false;
+      },
+    })
+  ).current;
+
   // HANDLE USER INTERACTION
   const handleUserInteraction = () => {
+    isUserSwipingRef.current = true;
+
+    if (autoPlayTimerRef.current) {
+      clearInterval(autoPlayTimerRef.current);
+      autoPlayTimerRef.current = null;
+    }
+
     setIsAutoPlaying(false);
     
     if (userInteractionTimerRef.current) {
@@ -687,6 +719,7 @@ newSlides[1].consumptionData = {
     }
     
     userInteractionTimerRef.current = setTimeout(() => {
+      isUserSwipingRef.current = false;
       setIsAutoPlaying(true);
     }, RESUME_DELAY);
   };
@@ -712,11 +745,25 @@ newSlides[1].consumptionData = {
       if (userInteractionTimerRef.current) {
         clearTimeout(userInteractionTimerRef.current);
       }
+      if (activeIndexTimerRef.current) {
+        clearTimeout(activeIndexTimerRef.current);
+      }
     };
   }, [isAutoPlaying]);
 
   // HANDLE SWIPER INDEX CHANGE
   const handleIndexChanged = (index) => {
+    if (activeIndexTimerRef.current) {
+      clearTimeout(activeIndexTimerRef.current);
+    }
+
+    if (isUserSwipingRef.current) {
+      activeIndexTimerRef.current = setTimeout(() => {
+        setActiveIndex(index);
+      }, 180);
+      return;
+    }
+
     setActiveIndex(index);
   };
 
@@ -810,7 +857,7 @@ newSlides[1].consumptionData = {
         </View>
 
         {/* SWIPER SECTION */}
-        <View style={styles.swiperWrapper}>
+        <View style={styles.swiperWrapper} {...swipeResponder.panHandlers}>
           <Swiper
             ref={swiperRef}
             height={340}
@@ -823,9 +870,14 @@ newSlides[1].consumptionData = {
             onTouchStart={handleUserInteraction}
             onTouchEnd={handleUserInteraction}
             onScrollBeginDrag={handleUserInteraction}
+            onMomentumScrollEnd={() => {
+              isUserSwipingRef.current = false;
+            }}
             paginationStyle={{ bottom: 10 }}
-            scrollEnabled={true}
+            scrollEnabled={false}
             bounces={true}
+            decelerationRate="fast"
+            showsHorizontalScrollIndicator={false}
             removeClippedSubviews={false}
             loadMinimal={true}
             loadMinimalSize={1}
@@ -836,39 +888,41 @@ newSlides[1].consumptionData = {
             style={styles.swiperStyle}
           >
             {slides.map((item, index) => (
-              <View key={item.key} style={[styles.swiperCard, { backgroundColor: theme.surface, shadowColor: theme.shadow }]}>
-                {/* CARD HEADER */}
-                <View style={styles.cardHeader}>
-                  <View style={styles.cardIcon}>
-                    <Text style={styles.cardIconText}>{item.icon}</Text>
-                  </View>
-                  <Text style={[styles.cardTitle, { color: theme.text }]}>{item.title}</Text>
-                </View>
-
-                {/* CARD BODY */}
-                <View style={styles.cardBody}>
-                  {item.rows.map((row, i) => (
-                    <View 
-                      key={i} 
-                      style={[
-                        styles.dataRow,
-                        i === item.rows.length - 1 && styles.lastRow
-                      ]}
-                    >
-                      <Text style={[styles.rowLabel, { color: theme.mutedText }]}>
-                        {row.label}
-                      </Text>
-                      
-                      <View style={styles.valueContainer}>
-                        <Text style={[
-                          styles.rowValue,
-                          { color: row.color || theme.text },
-                        ]}>
-                          {row.value}
-                        </Text>
-                      </View>
+              <View key={item.key} style={styles.swiperSlide}>
+                <View style={[styles.swiperCard, { backgroundColor: theme.surface, shadowColor: theme.shadow }]}>
+                  {/* CARD HEADER */}
+                  <View style={styles.cardHeader}>
+                    <View style={styles.cardIcon}>
+                      <Text style={styles.cardIconText}>{item.icon}</Text>
                     </View>
-                  ))}
+                    <Text style={[styles.cardTitle, { color: theme.text }]}>{item.title}</Text>
+                  </View>
+
+                  {/* CARD BODY */}
+                  <View style={styles.cardBody}>
+                    {item.rows.map((row, i) => (
+                      <View 
+                        key={i} 
+                        style={[
+                          styles.dataRow,
+                          i === item.rows.length - 1 && styles.lastRow
+                        ]}
+                      >
+                        <Text style={[styles.rowLabel, { color: theme.mutedText }]}>
+                          {row.label}
+                        </Text>
+                        
+                        <View style={styles.valueContainer}>
+                          <Text style={[
+                            styles.rowValue,
+                            { color: row.color || theme.text },
+                          ]}>
+                            {row.value}
+                          </Text>
+                        </View>
+                      </View>
+                    ))}
+                  </View>
                 </View>
               </View>
             ))}
@@ -1185,8 +1239,8 @@ newSlides[1].consumptionData = {
 }
 
 // STYLES (same as before with small additions)
-const CARD_WIDTH = screenWidth - 48;
-const CARD_MARGIN = 8;
+const CARD_WIDTH = screenWidth - 32;
+const CARD_MARGIN = 0;
 
 const styles = StyleSheet.create({
   safe: { 
@@ -1278,11 +1332,20 @@ const styles = StyleSheet.create({
     height: 400,
     marginBottom: 20,
     paddingHorizontal: 16,
+    overflow: "hidden",
   },
   
   // SWIPER STYLE
   swiperStyle: {
-    overflow: 'visible',
+    overflow: "hidden",
+  },
+
+  swiperSlide: {
+    width: "100%",
+    flex: 1,
+    overflow: "hidden",
+    justifyContent: "center",
+    alignItems: "center",
   },
   
   // SWIPER CARD
@@ -1290,16 +1353,16 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     borderRadius: 20,
     padding: 20,
-    width: CARD_WIDTH,
+    width: "100%",
     marginHorizontal: CARD_MARGIN,
-    shadowColor: "rgba(0, 0, 0, 0.35) 0px 5px 15px",
+    shadowColor: "#000",
     shadowOffset: { 
       width: 0, 
       height: 8 
     },
-    shadowOpacity: 0.15,
+    shadowOpacity: 0.18,
     shadowRadius: 15,
-    elevation: 12,
+    elevation: 14,
     height: 340,
     borderWidth: 1,
     borderColor: "rgba(11, 99, 168, 0.1)",
@@ -1422,8 +1485,9 @@ const styles = StyleSheet.create({
   },
   cardTitle: {
     color: "#0b63a8",
-    fontSize: 20,
+    fontSize: 17,
     fontWeight: "700",
+    flexShrink: 1,
   },
   cardBody: {
     flex: 1,
@@ -1432,7 +1496,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingVertical: 8,
+    paddingVertical: 7,
     borderBottomWidth: 1,
     borderBottomColor: "#f1f5f9",
   },
@@ -1442,7 +1506,8 @@ const styles = StyleSheet.create({
   },
   rowLabel: {
     color: "#64748b",
-    fontSize: 15,
+    fontSize: 13,
+    lineHeight: 18,
     flex: 1,
   },
   valueContainer: {
@@ -1455,12 +1520,15 @@ const styles = StyleSheet.create({
     marginRight: 4,
   },
   rowValue: {
-    fontSize: 15,
+    fontSize: 13,
+    lineHeight: 18,
     fontWeight: "600",
     color: "#1e293b",
+    textAlign: "right",
+    flexShrink: 1,
   },
   boldValue: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: "700",
   },
   badge: {
@@ -1488,9 +1556,9 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     marginBottom: 16,
     shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.12,
-    shadowRadius: 12,
-    elevation: 8,
+    shadowOpacity: 0.16,
+    shadowRadius: 15,
+    elevation: 10,
     borderWidth: 1,
     borderColor: "rgba(11, 99, 168, 0.08)",
     overflow: 'visible',
@@ -1516,7 +1584,7 @@ const styles = StyleSheet.create({
   },
   tileTitle: {
     color: "#0b63a8",
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: "700",
     flex: 1,
   },
@@ -1530,7 +1598,8 @@ const styles = StyleSheet.create({
   consumptionBox: {
     flex: 1,
     borderRadius: 16,
-    padding: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
     alignItems: "center",
     justifyContent: "center",
     marginHorizontal: 6,
@@ -1551,25 +1620,29 @@ const styles = StyleSheet.create({
     borderColor: "#fca5a5",
   },
   consumptionLabel: {
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: "600",
-    marginBottom: 8,
+    marginBottom: 6,
     color: "#4b5563",
+    textAlign: "center",
   },
   consumptionValue: {
-    fontSize: 24,
+    fontSize: 17,
+    lineHeight: 21,
     fontWeight: "800",
     color: "#111827",
-    marginBottom: 4,
+    marginBottom: 2,
+    textAlign: "center",
   },
   consumptionUnit: {
-    fontSize: 12,
+    fontSize: 11,
     color: "#6b7280",
-    marginBottom: 8,
+    marginBottom: 6,
+    textAlign: "center",
   },
   percentagePill: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingHorizontal: 9,
+    paddingVertical: 3,
     borderRadius: 12,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
@@ -1588,7 +1661,7 @@ const styles = StyleSheet.create({
     borderColor: "rgba(239, 68, 68, 0.3)",
   },
   percentageText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "700",
     color: "#111827",
   },

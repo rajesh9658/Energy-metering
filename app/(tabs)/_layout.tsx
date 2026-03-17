@@ -14,7 +14,7 @@ import { useTheme } from "../context/ThemeContext";
 
 export default function TabLayout() {
   const { user, loading, logout } = useAuth();
-  const { theme, isDarkMode } = useTheme();
+  const { theme, isDarkMode, toggleTheme } = useTheme();
   const insets = useSafeAreaInsets();
 
   const [toastVisible, setToastVisible] = useState(false);
@@ -77,6 +77,10 @@ export default function TabLayout() {
             elevation: 10,
             borderWidth: 1,
             borderColor: theme.border,
+            shadowColor: "#000",
+            shadowOffset: { width: 0, height: 8 },
+            shadowOpacity: isDarkMode ? 0.2 : 0.08,
+            shadowRadius: 18,
           }}
         >
           <Ionicons name="checkmark-circle" size={20} color={theme.success} />
@@ -108,7 +112,7 @@ export default function TabLayout() {
                 width: 46,
                 height: 46,
                 borderRadius: 23,
-                backgroundColor: isDarkMode ? "rgba(255,255,255,0.1)" : "rgba(255,255,255,0.2)",
+                backgroundColor: isDarkMode ? "rgba(255,255,255,0.1)" : "rgba(255,255,255,0.18)",
                 justifyContent: "center",
                 alignItems: "center",
                 marginRight: 12,
@@ -122,15 +126,40 @@ export default function TabLayout() {
                 {user.site_name?.split("@")[0].toUpperCase() || "USER"}
               </Text>
               <View style={{ flexDirection: "row", alignItems: "center" }}>
-                <Ionicons name="location-sharp" size={13} color={isDarkMode ? "#93C5FD" : "#bbdefb"} />
-                <Text style={{ color: isDarkMode ? "#93C5FD" : "#bbdefb", fontSize: 12, marginLeft: 4 }}>
+                <Ionicons name="location-sharp" size={13} color={isDarkMode ? "#93C5FD" : "rgba(255,255,255,0.82)"} />
+                <Text style={{ color: isDarkMode ? "#93C5FD" : "rgba(255,255,255,0.82)", fontSize: 12, marginLeft: 4 }}>
                   Site: {user.site?.location || "No Site"}
                 </Text>
               </View>
             </View>
           </View>
 
-          <TouchableOpacity
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+            <TouchableOpacity
+              onPress={toggleTheme}
+              activeOpacity={0.7}
+              style={{
+                width: 48,
+                height: 48,
+                borderRadius: 10,
+                justifyContent: "center",
+                alignItems: "center",
+                borderWidth: 1,
+                borderColor: isDarkMode ? "rgba(255,255,255,0.15)" : "rgba(255,255,255,0.28)",
+                backgroundColor: isDarkMode ? "rgba(255,255,255,0.04)" : "rgba(255,255,255,0.1)",
+              }}
+            >
+              <Ionicons
+                name={isDarkMode ? "sunny" : "moon"}
+                size={20}
+                color={theme.headerText}
+              />
+              <Text style={{ color: theme.headerText, fontSize: 7, fontWeight: "700", marginTop: 2 }}>
+                {isDarkMode ? "LIGHT" : "DARK"}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
             onPress={handleLogout}
             activeOpacity={0.7}
             style={{
@@ -140,7 +169,8 @@ export default function TabLayout() {
               justifyContent: "center",
               alignItems: "center",
               borderWidth: 1,
-              borderColor: isDarkMode ? "rgba(255,255,255,0.15)" : "rgba(255,255,255,0.3)",
+              borderColor: isDarkMode ? "rgba(255,255,255,0.15)" : "rgba(255,255,255,0.28)",
+              backgroundColor: isDarkMode ? "transparent" : "rgba(255,255,255,0.08)",
             }}
           >
             <Ionicons name="power" size={22} color={theme.headerText} />
@@ -148,6 +178,7 @@ export default function TabLayout() {
               LOGOUT
             </Text>
           </TouchableOpacity>
+          </View>
         </View>
       </View>
 
@@ -167,11 +198,12 @@ export default function TabLayout() {
             borderTopRightRadius: 20,
             backgroundColor: theme.tabBar,
             elevation: 12,
-            borderTopWidth: 0,
+            borderTopWidth: 1,
+            borderTopColor: isDarkMode ? "transparent" : theme.border,
             shadowColor: "#000",
-            shadowOffset: { width: 0, height: -5 },
-            shadowOpacity: isDarkMode ? 0.35 : 0.1,
-            shadowRadius: 15,
+            shadowOffset: { width: 0, height: -6 },
+            shadowOpacity: isDarkMode ? 0.35 : 0.06,
+            shadowRadius: 18,
           },
           tabBarLabelStyle: {
             fontWeight: "600",

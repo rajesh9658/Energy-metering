@@ -22,20 +22,20 @@ const { width } = Dimensions.get('window');
 export default function MoreScreen() {
   // AuthContext से data लें
   const { user, getSiteId, getSlug, getSiteName } = useAuth();
-  const { theme, isDarkMode, setThemeMode } = useTheme();
+  const { theme, isDarkMode } = useTheme();
   const elevatedCardStyle = {
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 5 },
-    shadowOpacity: isDarkMode ? 0.35 : 0.12,
+    shadowOpacity: isDarkMode ? 0.35 : 0.16,
     shadowRadius: 15,
-    elevation: isDarkMode ? 12 : 6,
+    elevation: isDarkMode ? 14 : 8,
   };
   const softCardStyle = {
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 5 },
-    shadowOpacity: isDarkMode ? 0.2 : 0.08,
+    shadowOpacity: isDarkMode ? 0.24 : 0.12,
     shadowRadius: 15,
-    elevation: isDarkMode ? 8 : 3,
+    elevation: isDarkMode ? 10 : 5,
   };
 
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
@@ -475,27 +475,6 @@ export default function MoreScreen() {
               />
             </View>
 
-            <View style={[styles.horizontalDivider, { backgroundColor: theme.border }]} />
-
-            <View style={styles.settingItem}>
-              <View style={styles.settingLeft}>
-                <View style={[styles.settingIconContainer, { backgroundColor: theme.card }]}>
-                  <Ionicons name={isDarkMode ? "moon" : "sunny-outline"} size={22} color={theme.primary} />
-                </View>
-                <View>
-                  <Text style={[styles.settingTitle, { color: theme.text }]}>Dark Mode</Text>
-                  <Text style={[styles.settingDesc, { color: theme.mutedText }]}>
-                    Apply {isDarkMode ? 'dark' : 'light'} mode across the app
-                  </Text>
-                </View>
-              </View>
-              <Switch
-                value={isDarkMode}
-                onValueChange={(value) => setThemeMode(value ? 'dark' : 'light')}
-                trackColor={{ false: theme.border, true: '#a7f3d0' }}
-                thumbColor={isDarkMode ? theme.success : theme.gray}
-              />
-            </View>
           </View>
         </View>
         

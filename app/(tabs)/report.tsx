@@ -4,11 +4,11 @@ import {
   ActivityIndicator, Alert, Platform, NativeModules
 } from 'react-native';
 
+import { isRunningInExpoGo } from 'expo';
 import { Ionicons } from '@expo/vector-icons';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
-import * as Notifications from 'expo-notifications';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import axios from 'axios';
@@ -211,6 +211,9 @@ export default function EnergyReport() {
     try {
       const showDownloadNotification = async (message) => {
         try {
+          if (isRunningInExpoGo()) return;
+
+          const Notifications = await import('expo-notifications');
           const permissions = await Notifications.getPermissionsAsync();
           let finalStatus = permissions.status;
 
@@ -224,6 +227,7 @@ export default function EnergyReport() {
               content: {
                 title: 'Download Complete',
                 body: message,
+                ...(Platform.OS === 'android' ? { channelId: 'downloads' } : {}),
               },
               trigger: null,
             });
@@ -1109,7 +1113,13 @@ export default function EnergyReport() {
 
             
             <TouchableOpacity 
-              style={[styles.reportTypeOption, { borderColor: theme.border }]}
+              style={[
+                styles.reportTypeOption,
+                {
+                  borderColor: theme.border,
+                  backgroundColor: isDarkMode ? theme.card : colors.gray100,
+                },
+              ]}
               onPress={() => {
                 setShowReportTypeModal(false);
                 exportDetailedPDF();
@@ -1123,10 +1133,16 @@ export default function EnergyReport() {
             </TouchableOpacity>
             
             <TouchableOpacity 
-              style={styles.cancelReportBtn}
+              style={[
+                styles.cancelReportBtn,
+                {
+                  backgroundColor: isDarkMode ? theme.card : colors.gray200,
+                  borderColor: theme.border,
+                },
+              ]}
               onPress={() => setShowReportTypeModal(false)}
             >
-              <Text style={[styles.cancelReportText, { color: theme.text }]}>Cancel</Text>
+              <Text style={[styles.cancelReportText, { color: isDarkMode ? "#E2E8F0" : theme.text }]}>Cancel</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -1690,6 +1706,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.gray200,
     borderRadius: 12,
     alignItems: 'center',
+    borderWidth: 1,
   },
   cancelReportText: {
     ...typography.body,
