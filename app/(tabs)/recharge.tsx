@@ -21,9 +21,11 @@ import * as Animatable from 'react-native-animatable';
 import { getSiteDataUrl } from '../config'; // Assuming config is in same directory
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "../context/AuthContext";
+import { useTheme } from "../context/ThemeContext";
 const { width, height } = Dimensions.get('window');
 
 export default function RechargeScreen() {
+  const { theme, isDarkMode } = useTheme();
   const [selectedAmount, setSelectedAmount] = useState(null);
   const [paymentAmount, setPaymentAmount] = useState('');
   const [showNumpad, setShowNumpad] = useState(false);
@@ -417,14 +419,14 @@ const customerDetails = {
   /* -------------------- UI -------------------- */
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#4f46e5" />
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+      <StatusBar barStyle={isDarkMode ? "light-content" : "dark-content"} backgroundColor={theme.background} />
       <KeyboardAvoidingView 
         style={styles.keyboardAvoid}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         <ScrollView 
-          style={styles.scrollView}
+          style={[styles.scrollView, { backgroundColor: theme.background }]}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.scrollContent}
         >
@@ -435,16 +437,16 @@ const customerDetails = {
           <Animatable.View 
             animation="fadeInUp" 
             duration={800}
-            style={styles.customerDetailsCard}
+            style={[styles.customerDetailsCard, { backgroundColor: theme.surface, shadowColor: theme.shadow }]}
           >
             {siteLoading ? (
               <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color="#4f46e5" />
-                <Text style={styles.loadingText}>Loading site information...</Text>
+                <ActivityIndicator size="large" color={theme.primary} />
+                <Text style={[styles.loadingText, { color: theme.mutedText }]}>Loading site information...</Text>
               </View>
             ) : siteError ? (
               <View style={styles.errorContainer}>
-                <Icon name="error" size={40} color="#ef4444" />
+                <Icon name="error" size={40} color={theme.error} />
                 <Text style={styles.errorText}>{siteError}</Text>
                 <TouchableOpacity 
                   style={styles.retryButton}
@@ -460,38 +462,38 @@ const customerDetails = {
     <Icon name="account-circle" size={40} color="#fff" />
   </View>
   <View style={styles.customerInfo}>
-    <Text style={styles.customerName}>{customerDetails.name}</Text>
-    <Text style={styles.customerId}>Account ID: {customerDetails.accountId}</Text>
+    <Text style={[styles.customerName, { color: theme.text }]}>{customerDetails.name}</Text>
+    <Text style={[styles.customerId, { color: theme.mutedText }]}>Account ID: {customerDetails.accountId}</Text>
   </View>
 </View>
 
 <View style={styles.siteInfoSection}>
   <View style={styles.siteInfoRow}>
-    <View style={styles.siteInfoItem}>
+    <View style={[styles.siteInfoItem, { backgroundColor: theme.card }]}>
       <Icon name="speed" size={20} color="#4f46e5" />
-      <Text style={styles.infoLabel}>Site Name</Text>
-      <Text style={styles.infoValue}>{customerDetails.meterNo}</Text>
+      <Text style={[styles.infoLabel, { color: theme.mutedText }]}>Site Name</Text>
+      <Text style={[styles.infoValue, { color: theme.text }]}>{customerDetails.meterNo}</Text>
     </View>
-    <View style={styles.siteInfoItem}>
+    <View style={[styles.siteInfoItem, { backgroundColor: theme.card }]}>
       <Icon name="store" size={20} color="#4f46e5" />
-      <Text style={styles.infoLabel}>Meter Name</Text>
-      <Text style={styles.infoValue}>{customerDetails.shopName}</Text>
+      <Text style={[styles.infoLabel, { color: theme.mutedText }]}>Meter Name</Text>
+      <Text style={[styles.infoValue, { color: theme.text }]}>{customerDetails.shopName}</Text>
     </View>
   </View>
 </View>
 
 <View style={styles.balanceSection}>
   <View style={styles.balanceRow}>
-    <View style={styles.balanceItem}>
-      <Text style={styles.balanceLabel}>Available Balance</Text>
+    <View style={[styles.balanceItem, { backgroundColor: isDarkMode ? '#052e2b' : '#ecfdf5', borderColor: isDarkMode ? '#14532d' : '#bbf7d0' }]}>
+      <Text style={[styles.balanceLabel, { color: theme.mutedText }]}>Available Balance</Text>
       <Text style={styles.balanceAmount}>{customerDetails.availableBalance}</Text>
     </View>
-    <View style={styles.addressItem}>
+    <View style={[styles.addressItem, { backgroundColor: theme.card, borderColor: theme.border }]}>
       <View style={styles.addressContent}>
         <Icon name="location-on" size={20} color="#4f46e5" />
         <View style={styles.addressTextContainer}>
-          <Text style={styles.infoLabel}>Address</Text>
-          <Text style={styles.infoValue} numberOfLines={2}>{customerDetails.address}</Text>
+          <Text style={[styles.infoLabel, { color: theme.mutedText }]}>Address</Text>
+          <Text style={[styles.infoValue, { color: theme.text }]} numberOfLines={2}>{customerDetails.address}</Text>
         </View>
       </View>
     </View>
@@ -511,9 +513,9 @@ const customerDetails = {
             <View style={styles.sectionHeader}>
               <View style={styles.sectionTitleRow}>
                 <Icon name="bolt" size={20} color="#f59e0b" />
-                <Text style={styles.sectionTitle}>Quick Recharge Packs</Text>
+                <Text style={[styles.sectionTitle, { color: theme.text }]}>Quick Recharge Packs</Text>
               </View>
-              <Text style={styles.sectionSubtitle}>Select from popular options</Text>
+              <Text style={[styles.sectionSubtitle, { color: theme.mutedText }]}>Select from popular options</Text>
             </View>
             
             <View style={styles.gridContainer}>
@@ -523,7 +525,7 @@ const customerDetails = {
                   style={[
                     styles.rechargeOptionCard,
                     selectedAmount === opt.amount && styles.selectedCard,
-                    { backgroundColor: selectedAmount === opt.amount ? opt.bgColor : '#fff' }
+                    { backgroundColor: selectedAmount === opt.amount ? opt.bgColor : theme.surface }
                   ]}
                   onPress={() => {
                     if (selectedAmount === opt.amount) {
@@ -552,12 +554,12 @@ const customerDetails = {
                     
                     <Text style={[
                       styles.amountText,
-                      { color: selectedAmount === opt.amount ? opt.color : '#1e293b' }
+                      { color: selectedAmount === opt.amount ? opt.color : theme.text }
                     ]}>
                       ₹{opt.amount.toLocaleString()}
                     </Text>
                     
-                    <Text style={styles.optionDescription}>{opt.description}</Text>
+                    <Text style={[styles.optionDescription, { color: theme.mutedText }]}>{opt.description}</Text>
                     
                     {selectedAmount === opt.amount && (
                       <View style={styles.selectedIndicator}>
@@ -580,24 +582,24 @@ const customerDetails = {
             <View style={styles.sectionHeader}>
               <View style={styles.sectionTitleRow}>
                 <Icon name="create" size={20} color="#4f46e5" />
-                <Text style={styles.sectionTitle}>Custom Amount</Text>
+                <Text style={[styles.sectionTitle, { color: theme.text }]}>Custom Amount</Text>
               </View>
-              <Text style={styles.sectionSubtitle}>Enter any amount between ₹100 - ₹50,000</Text>
+              <Text style={[styles.sectionSubtitle, { color: theme.mutedText }]}>Enter any amount between ₹100 - ₹50,000</Text>
             </View>
-            <View style={styles.customAmountContainer}>
-              <View style={styles.amountInputWrapper}>
+            <View style={[styles.customAmountContainer, { backgroundColor: theme.surface, shadowColor: theme.shadow }]}>
+              <View style={[styles.amountInputWrapper, { borderColor: theme.border, backgroundColor: theme.card }]}>
                 <View style={styles.currencyWrapper}>
                   <Text style={styles.currencySymbol}>₹</Text>
                 </View>
                 <TextInput
                   ref={customAmountInputRef}
-                  style={styles.amountInput}
+                  style={[styles.amountInput, { color: theme.text }]}
                   value={customAmount}
                   onChangeText={handleCustomAmountChange}
                   placeholder="Enter amount"
                   keyboardType="numeric"
                   maxLength={6}
-                  placeholderTextColor="#94a3b8"
+                  placeholderTextColor={theme.gray}
                 />
                 <TouchableOpacity 
                   style={styles.keyboardButton}
@@ -609,18 +611,18 @@ const customerDetails = {
                 </TouchableOpacity>
               </View>
               
-              <Text style={styles.quickAmountsLabel}>Quick select:</Text>
+              <Text style={[styles.quickAmountsLabel, { color: theme.mutedText }]}>Quick select:</Text>
               <View style={styles.quickAmounts}>
                 {quickAmounts.map((item, index) => (
                   <TouchableOpacity
                     key={item.amount}
-                    style={[styles.quickAmountButton, { backgroundColor: item.color }]}
+                    style={[styles.quickAmountButton, { backgroundColor: isDarkMode ? theme.card : item.color, borderColor: theme.border }]}
                     onPress={() => {
                       setCustomAmount(item.amount.toString());
                       setSelectedAmount(null);
                     }}
                   >
-                    <Text style={styles.quickAmountText}>₹{item.amount}</Text>
+                    <Text style={[styles.quickAmountText, { color: theme.text }]}>₹{item.amount}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
@@ -632,30 +634,30 @@ const customerDetails = {
             <Animatable.View 
               animation="fadeInUp"
               duration={600}
-              style={styles.paymentSummary}
+              style={[styles.paymentSummary, { backgroundColor: theme.surface, shadowColor: theme.shadow }]}
             >
               <View style={styles.summaryHeader}>
                 <Icon name="receipt" size={20} color="#4f46e5" />
-                <Text style={styles.summaryTitle}>Payment Summary</Text>
+                <Text style={[styles.summaryTitle, { color: theme.text }]}>Payment Summary</Text>
               </View>
               <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Recharge Amount</Text>
-                <Text style={styles.summaryValue}>₹ {selectedAmount || customAmount}</Text>
+                <Text style={[styles.summaryLabel, { color: theme.mutedText }]}>Recharge Amount</Text>
+                <Text style={[styles.summaryValue, { color: theme.text }]}>₹ {selectedAmount || customAmount}</Text>
               </View>
               <View style={styles.summaryRow}>
                 <View style={styles.feeRow}>
-                  <Text style={styles.summaryLabel}>Service Fee</Text>
+                  <Text style={[styles.summaryLabel, { color: theme.mutedText }]}>Service Fee</Text>
                   <Icon name="info-outline" size={16} color="#94a3b8" />
                 </View>
-                <Text style={styles.summaryValue}>₹ 10.00</Text>
+                <Text style={[styles.summaryValue, { color: theme.text }]}>₹ 10.00</Text>
               </View>
               <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>GST (18%)</Text>
-                <Text style={styles.summaryValue}>₹ 1.80</Text>
+                <Text style={[styles.summaryLabel, { color: theme.mutedText }]}>GST (18%)</Text>
+                <Text style={[styles.summaryValue, { color: theme.text }]}>₹ 1.80</Text>
               </View>
-              <View style={styles.divider} />
+              <View style={[styles.divider, { backgroundColor: theme.border }]} />
               <View style={styles.summaryRow}>
-                <Text style={styles.totalLabel}>Total Payable</Text>
+                <Text style={[styles.totalLabel, { color: theme.text }]}>Total Payable</Text>
                 <Text style={styles.totalValue}>
                   ₹ {((selectedAmount || parseFloat(customAmount) || 0) + 10 + 1.8).toFixed(2)}
                 </Text>
@@ -705,7 +707,7 @@ const customerDetails = {
             </TouchableOpacity>
             <View style={styles.secureInfo}>
               <Icon name="security" size={16} color="#10b981" />
-              <Text style={styles.secureText}>
+              <Text style={[styles.secureText, { color: theme.mutedText }]}>
                 100% Secure Payment • Protected by Razorpay
               </Text>
             </View>
@@ -723,9 +725,9 @@ const customerDetails = {
         animationType="slide"
       >
         <View style={styles.numpadModalOverlay}>
-          <View style={styles.numpadModal}>
+          <View style={[styles.numpadModal, { backgroundColor: theme.surface }]}>
             <View style={styles.numpadHeader}>
-              <Text style={styles.numpadTitle}>Enter Amount</Text>
+              <Text style={[styles.numpadTitle, { color: theme.text }]}>Enter Amount</Text>
               <TouchableOpacity 
                 style={styles.numpadClose}
                 onPress={() => setShowNumpad(false)}
@@ -734,23 +736,23 @@ const customerDetails = {
               </TouchableOpacity>
             </View>
             
-            <View style={styles.numpadDisplay}>
+            <View style={[styles.numpadDisplay, { backgroundColor: theme.card, borderColor: theme.border }]}>
               <Text style={styles.numpadCurrency}>₹</Text>
-              <Text style={styles.numpadValue}>{numpadValue || '0'}</Text>
+              <Text style={[styles.numpadValue, { color: theme.text }]}>{numpadValue || '0'}</Text>
             </View>
             
             <View style={styles.numpadGrid}>
               {[1, 2, 3, 4, 5, 6, 7, 8, 9, '.', 0, 'backspace'].map((item) => (
                 <TouchableOpacity
                   key={item}
-                  style={styles.numpadKey}
+                  style={[styles.numpadKey, { backgroundColor: theme.card, borderColor: theme.border }]}
                   onPress={() => handleNumpadPress(item.toString())}
                   activeOpacity={0.7}
                 >
                   {item === 'backspace' ? (
                     <Icon name="backspace" size={24} color="#4f46e5" />
                   ) : (
-                    <Text style={styles.numpadKeyText}>{item}</Text>
+                    <Text style={[styles.numpadKeyText, { color: theme.text }]}>{item}</Text>
                   )}
                 </TouchableOpacity>
               ))}
@@ -761,7 +763,7 @@ const customerDetails = {
                 style={styles.numpadActionButton}
                 onPress={() => handleNumpadPress('clear')}
               >
-                <Text style={styles.numpadActionText}>Clear</Text>
+                <Text style={[styles.numpadActionText, { backgroundColor: theme.card, color: theme.mutedText }]}>Clear</Text>
               </TouchableOpacity>
               <TouchableOpacity 
                 style={[styles.numpadActionButton, styles.numpadDoneButton]}

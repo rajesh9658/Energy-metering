@@ -15,15 +15,30 @@ import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getSiteDataUrl } from '../config';
 import { useAuth } from '../context/AuthContext'; // Adjust path as per your project
+import { useTheme } from '../context/ThemeContext';
 
 const { width } = Dimensions.get('window');
 
 export default function MoreScreen() {
   // AuthContext से data लें
   const { user, getSiteId, getSlug, getSiteName } = useAuth();
-  
+  const { theme, isDarkMode, setThemeMode } = useTheme();
+  const elevatedCardStyle = {
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: isDarkMode ? 0.35 : 0.12,
+    shadowRadius: 15,
+    elevation: isDarkMode ? 12 : 6,
+  };
+  const softCardStyle = {
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: isDarkMode ? 0.2 : 0.08,
+    shadowRadius: 15,
+    elevation: isDarkMode ? 8 : 3,
+  };
+
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
-  const [darkModeEnabled, setDarkModeEnabled] = useState(false);
   const [siteData, setSiteData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -142,9 +157,9 @@ export default function MoreScreen() {
   const renderAPIDataTile = () => {
     if (!siteData || !siteData.asset_information) {
       return (
-        <View style={styles.errorContainer}>
-          <Ionicons name="alert-circle-outline" size={50} color="#6b7280" />
-          <Text style={styles.errorText}>
+        <View style={[styles.errorContainer, { backgroundColor: theme.surface, borderColor: theme.border }, elevatedCardStyle]}>
+          <Ionicons name="alert-circle-outline" size={50} color={theme.mutedText} />
+          <Text style={[styles.errorText, { color: theme.text }]}>
             {siteInfo.siteName ? 
               `No data available for ${siteInfo.siteName}` : 
               'No site information found'
@@ -156,7 +171,7 @@ export default function MoreScreen() {
               <Text style={styles.retryButtonText}> Try Again</Text>
             </TouchableOpacity>
           ) : (
-            <Text style={styles.loginPrompt}>
+            <Text style={[styles.loginPrompt, { color: theme.error }]}>
               Please login to view site details
             </Text>
           )}
@@ -173,18 +188,18 @@ export default function MoreScreen() {
     return (
       <View style={styles.contentContainer}>
         {/* Site Header */}
-        <View style={styles.siteHeader}>
+        <View style={[styles.siteHeader, { backgroundColor: theme.surface, borderColor: theme.border }, elevatedCardStyle]}>
           <View style={styles.siteHeaderLeft}>
-            <View style={styles.siteIcon}>
-              <FontAwesome5 name="building" size={24} color="#0b63a8" />
+            <View style={[styles.siteIcon, { backgroundColor: theme.card }]}>
+              <FontAwesome5 name="building" size={24} color={theme.primary} />
             </View>
             <View>
-              <Text style={styles.siteName}>
+              <Text style={[styles.siteName, { color: theme.text }]}>
                 {asset_information.site_name || siteInfo.siteName || 'Site Name'}
               </Text>
               <View style={styles.siteLocation}>
-                <Ionicons name="location-outline" size={14} color="#6b7280" />
-                <Text style={styles.locationText}>
+                <Ionicons name="location-outline" size={14} color={theme.mutedText} />
+                <Text style={[styles.locationText, { color: theme.mutedText }]}>
                   {asset_information.location || 'Location not specified'}
                 </Text>
               </View>
@@ -205,52 +220,52 @@ export default function MoreScreen() {
 
         {/* Charges Information */}
         <View style={styles.chargesContainer}>
-          <Text style={styles.sectionHeaderText}>Charges</Text>
+          <Text style={[styles.sectionHeaderText, { color: theme.text }]}>Charges</Text>
           
           <View style={styles.chargesGrid}>
-            <View style={styles.chargeCard}>
-              <View style={styles.chargeIcon}>
-                <Ionicons name="receipt-outline" size={18} color="#0b63a8" />
+            <View style={[styles.chargeCard, { backgroundColor: theme.surface, borderColor: theme.border }, softCardStyle]}>
+              <View style={[styles.chargeIcon, { backgroundColor: theme.card }]}>
+                <Ionicons name="receipt-outline" size={18} color={theme.primary} />
               </View>
               <View style={styles.chargeContent}>
-                <Text style={styles.chargeLabel}>Meter Unit Charge</Text>
-                <Text style={styles.chargeValue}>
+                <Text style={[styles.chargeLabel, { color: theme.mutedText }]}>Meter Unit Charge</Text>
+                <Text style={[styles.chargeValue, { color: theme.text }]}>
                   ₹{asset_information.m_unit_charge?.toFixed(2) || '0.00'}
                 </Text>
               </View>
             </View>
             
-            <View style={styles.chargeCard}>
-              <View style={styles.chargeIcon}>
-                <Ionicons name="calendar-outline" size={18} color="#0b63a8" />
+            <View style={[styles.chargeCard, { backgroundColor: theme.surface, borderColor: theme.border }, softCardStyle]}>
+              <View style={[styles.chargeIcon, { backgroundColor: theme.card }]}>
+                <Ionicons name="calendar-outline" size={18} color={theme.primary} />
               </View>
               <View style={styles.chargeContent}>
-                <Text style={styles.chargeLabel}>Meter Fixed Charge</Text>
-                <Text style={styles.chargeValue}>
+                <Text style={[styles.chargeLabel, { color: theme.mutedText }]}>Meter Fixed Charge</Text>
+                <Text style={[styles.chargeValue, { color: theme.text }]}>
                   ₹{asset_information.m_fixed_charge?.toFixed(2) || '0.00'}
                 </Text>
               </View>
             </View>
             
-            <View style={styles.chargeCard}>
-              <View style={styles.chargeIcon}>
+            <View style={[styles.chargeCard, { backgroundColor: theme.surface, borderColor: theme.border }, softCardStyle]}>
+              <View style={[styles.chargeIcon, { backgroundColor: theme.card }]}>
                 <Ionicons name="flash-outline" size={18} color="#f59e0b" />
               </View>
               <View style={styles.chargeContent}>
-                <Text style={styles.chargeLabel}>DG Unit Charge</Text>
-                <Text style={styles.chargeValue}>
+                <Text style={[styles.chargeLabel, { color: theme.mutedText }]}>DG Unit Charge</Text>
+                <Text style={[styles.chargeValue, { color: theme.text }]}>
                   ₹{asset_information.dg_unit_charge?.toFixed(2) || '0.00'}
                 </Text>
               </View>
             </View>
             
-            <View style={styles.chargeCard}>
-              <View style={styles.chargeIcon}>
+            <View style={[styles.chargeCard, { backgroundColor: theme.surface, borderColor: theme.border }, softCardStyle]}>
+              <View style={[styles.chargeIcon, { backgroundColor: theme.card }]}>
                 <Ionicons name="time-outline" size={18} color="#f59e0b" />
               </View>
               <View style={styles.chargeContent}>
-                <Text style={styles.chargeLabel}>DG Fixed Charge</Text>
-                <Text style={styles.chargeValue}>
+                <Text style={[styles.chargeLabel, { color: theme.mutedText }]}>DG Fixed Charge</Text>
+                <Text style={[styles.chargeValue, { color: theme.text }]}>
                   ₹{asset_information.dg_fixed_charge?.toFixed(2) || '0.00'}
                 </Text>
               </View>
@@ -260,53 +275,93 @@ export default function MoreScreen() {
 
         {/* Site Status */}
         <View style={styles.statusContainer}>
-          <Text style={styles.sectionHeaderText}>Site Status</Text>
+          <Text style={[styles.sectionHeaderText, { color: theme.text }]}>Site Status</Text>
           
           <View style={styles.statusGrid}>
-            <View style={[styles.statusCard, !siteValues.low_balance_cut && styles.statusOk]}>
+            <View
+              style={[
+                styles.statusCard,
+                { backgroundColor: theme.surface, borderColor: theme.border },
+                softCardStyle,
+                !siteValues.low_balance_cut &&
+                  (isDarkMode
+                    ? { backgroundColor: "#10261f", borderColor: "#1f7a5b" }
+                    : styles.statusOk),
+              ]}
+            >
               <MaterialIcons 
                 name={siteValues.low_balance_cut ? "warning" : "check-circle"} 
                 size={20} 
                 color={siteValues.low_balance_cut ? "#ef4444" : "#10b981"} 
               />
-              <Text style={styles.statusTextSmall}>Low Balance</Text>
-              <Text style={[styles.statusValueSmall, siteValues.low_balance_cut && styles.statusError]}>
+              <Text style={[styles.statusTextSmall, { color: theme.mutedText }]}>Low Balance</Text>
+              <Text style={[styles.statusValueSmall, { color: theme.text }, siteValues.low_balance_cut && styles.statusError]}>
                 {siteValues.low_balance_cut ? 'Cut' : 'Normal'}
               </Text>
             </View>
             
-            <View style={[styles.statusCard, !siteValues.dg_overload_trip && styles.statusOk]}>
+            <View
+              style={[
+                styles.statusCard,
+                { backgroundColor: theme.surface, borderColor: theme.border },
+                softCardStyle,
+                !siteValues.dg_overload_trip &&
+                  (isDarkMode
+                    ? { backgroundColor: "#10261f", borderColor: "#1f7a5b" }
+                    : styles.statusOk),
+              ]}
+            >
               <Ionicons 
                 name={siteValues.dg_overload_trip ? "alert-circle-outline" : "checkmark-circle-outline"} 
                 size={20} 
                 color={siteValues.dg_overload_trip ? "#ef4444" : "#10b981"} 
               />
-              <Text style={styles.statusTextSmall}>DG Overload</Text>
-              <Text style={[styles.statusValueSmall, siteValues.dg_overload_trip && styles.statusError]}>
+              <Text style={[styles.statusTextSmall, { color: theme.mutedText }]}>DG Overload</Text>
+              <Text style={[styles.statusValueSmall, { color: theme.text }, siteValues.dg_overload_trip && styles.statusError]}>
                 {siteValues.dg_overload_trip ? 'Tripped' : 'Normal'}
               </Text>
             </View>
             
-            <View style={[styles.statusCard, !siteValues.overload_limit_reached && styles.statusOk]}>
+            <View
+              style={[
+                styles.statusCard,
+                { backgroundColor: theme.surface, borderColor: theme.border },
+                softCardStyle,
+                !siteValues.overload_limit_reached &&
+                  (isDarkMode
+                    ? { backgroundColor: "#10261f", borderColor: "#1f7a5b" }
+                    : styles.statusOk),
+              ]}
+            >
               <MaterialIcons 
                 name={siteValues.overload_limit_reached ? "error-outline" : "done-outline"} 
                 size={20} 
                 color={siteValues.overload_limit_reached ? "#ef4444" : "#10b981"} 
               />
-              <Text style={styles.statusTextSmall}>Overload Limit</Text>
-              <Text style={[styles.statusValueSmall, siteValues.overload_limit_reached && styles.statusError]}>
+              <Text style={[styles.statusTextSmall, { color: theme.mutedText }]}>Overload Limit</Text>
+              <Text style={[styles.statusValueSmall, { color: theme.text }, siteValues.overload_limit_reached && styles.statusError]}>
                 {siteValues.overload_limit_reached ? 'Reached' : 'Normal'}
               </Text>
             </View>
             
-            <View style={[styles.statusCard, siteValues.relay_status && styles.statusOk]}>
+            <View
+              style={[
+                styles.statusCard,
+                { backgroundColor: theme.surface, borderColor: theme.border },
+                softCardStyle,
+                siteValues.relay_status &&
+                  (isDarkMode
+                    ? { backgroundColor: "#10261f", borderColor: "#1f7a5b" }
+                    : styles.statusOk),
+              ]}
+            >
               <MaterialIcons 
                 name={siteValues.relay_status ? "power-off" : "power-settings-new"} 
                 size={20} 
                 color={siteValues.relay_status ? "#10b981" : "#ef4444"} 
               />
-              <Text style={styles.statusTextSmall}>Supply</Text>
-              <Text style={[styles.statusValueSmall, !siteValues.relay_status && styles.statusError]}>
+              <Text style={[styles.statusTextSmall, { color: theme.mutedText }]}>Supply</Text>
+              <Text style={[styles.statusValueSmall, { color: theme.text }, !siteValues.relay_status && styles.statusError]}>
                 {siteValues.relay_status ? 'Connected' : 'Disconnected'}
               </Text>
             </View>
@@ -315,44 +370,44 @@ export default function MoreScreen() {
 
         {/* Meter Information */}
         <View style={styles.meterContainer}>
-          <Text style={styles.sectionHeaderText}>Meter Details</Text>
+          <Text style={[styles.sectionHeaderText, { color: theme.text }]}>Meter Details</Text>
           
-          <View style={styles.meterCard}>
+          <View style={[styles.meterCard, { backgroundColor: theme.surface, borderColor: theme.border }, elevatedCardStyle]}>
             <View style={styles.meterRow}>
-              <View style={styles.meterIcon}>
-                <Ionicons name="hardware-chip-outline" size={18} color="#6b7280" />
+              <View style={[styles.meterIcon, { backgroundColor: theme.card }]}>
+                <Ionicons name="hardware-chip-outline" size={18} color={theme.mutedText} />
               </View>
               <View style={styles.meterContent}>
-                <Text style={styles.meterLabel}>Meter Name</Text>
-                <Text style={styles.meterValue}>
+                <Text style={[styles.meterLabel, { color: theme.mutedText }]}>Meter Name</Text>
+                <Text style={[styles.meterValue, { color: theme.text }]}>
                   {asset_information.meter_name || 'Not specified'}
                 </Text>
               </View>
             </View>
             
-            <View style={styles.divider} />
+            <View style={[styles.divider, { backgroundColor: theme.border }]} />
             
             <View style={styles.meterRow}>
-              <View style={styles.meterIcon}>
-                <MaterialIcons name="developer-board" size={18} color="#6b7280" />
+              <View style={[styles.meterIcon, { backgroundColor: theme.card }]}>
+                <MaterialIcons name="developer-board" size={18} color={theme.mutedText} />
               </View>
               <View style={styles.meterContent}>
-                <Text style={styles.meterLabel}>Controller</Text>
-                <Text style={styles.meterValue}>
+                <Text style={[styles.meterLabel, { color: theme.mutedText }]}>Controller</Text>
+                <Text style={[styles.meterValue, { color: theme.text }]}>
                   {asset_information.controller || 'Not specified'}
                 </Text>
               </View>
             </View>
             
-            <View style={styles.divider} />
+            <View style={[styles.divider, { backgroundColor: theme.border }]} />
             
             <View style={styles.meterRow}>
-              <View style={styles.meterIcon}>
-                <Ionicons name="person-circle-outline" size={18} color="#6b7280" />
+              <View style={[styles.meterIcon, { backgroundColor: theme.card }]}>
+                <Ionicons name="person-circle-outline" size={18} color={theme.mutedText} />
               </View>
               <View style={styles.meterContent}>
-                <Text style={styles.meterLabel}>Custom Name</Text>
-                <Text style={styles.meterValue}>
+                <Text style={[styles.meterLabel, { color: theme.mutedText }]}>Custom Name</Text>
+                <Text style={[styles.meterValue, { color: theme.text }]}>
                   {asset_information.custom_name || 'Not specified'}
                 </Text>
               </View>
@@ -365,9 +420,9 @@ export default function MoreScreen() {
 
   if (loading && !refreshing) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#0b63a8" />
-        <Text style={styles.loadingText}>
+      <View style={[styles.loadingContainer, { backgroundColor: theme.background }]}>
+        <ActivityIndicator size="large" color={theme.primary} />
+        <Text style={[styles.loadingText, { color: theme.mutedText }]}>
           {siteInfo.siteName ? 
             `Loading ${siteInfo.siteName} details...` : 
             'Loading site information...'
@@ -380,14 +435,14 @@ export default function MoreScreen() {
 
   return (
     <ScrollView 
-      style={styles.container}
+      style={[styles.container, { backgroundColor: theme.background }]}
       showsVerticalScrollIndicator={false}
       refreshControl={
         <RefreshControl
           refreshing={refreshing}
           onRefresh={onRefresh}
-          colors={['#0b63a8']}
-          tintColor="#0b63a8"
+          colors={[theme.primary]}
+          tintColor={theme.primary}
         />
       }
     >
@@ -397,6 +452,52 @@ export default function MoreScreen() {
       {/* Main Content */}
       <View style={styles.mainContent}>
         {renderAPIDataTile()}
+
+        <View style={styles.settingsSection}>
+          <Text style={[styles.sectionTitle, { color: theme.text }]}>Settings</Text>
+
+          <View style={[styles.settingsCard, { backgroundColor: theme.surface, borderColor: theme.border }, elevatedCardStyle]}>
+            <View style={styles.settingItem}>
+              <View style={styles.settingLeft}>
+                <View style={[styles.settingIconContainer, { backgroundColor: theme.card }]}>
+                  <Ionicons name="notifications-outline" size={22} color={theme.primary} />
+                </View>
+                <View>
+                  <Text style={[styles.settingTitle, { color: theme.text }]}>Notifications</Text>
+                  <Text style={[styles.settingDesc, { color: theme.mutedText }]}>Receive alerts and updates</Text>
+                </View>
+              </View>
+              <Switch
+                value={notificationsEnabled}
+                onValueChange={setNotificationsEnabled}
+                trackColor={{ false: theme.border, true: '#a7f3d0' }}
+                thumbColor={notificationsEnabled ? theme.success : theme.gray}
+              />
+            </View>
+
+            <View style={[styles.horizontalDivider, { backgroundColor: theme.border }]} />
+
+            <View style={styles.settingItem}>
+              <View style={styles.settingLeft}>
+                <View style={[styles.settingIconContainer, { backgroundColor: theme.card }]}>
+                  <Ionicons name={isDarkMode ? "moon" : "sunny-outline"} size={22} color={theme.primary} />
+                </View>
+                <View>
+                  <Text style={[styles.settingTitle, { color: theme.text }]}>Dark Mode</Text>
+                  <Text style={[styles.settingDesc, { color: theme.mutedText }]}>
+                    Apply {isDarkMode ? 'dark' : 'light'} mode across the app
+                  </Text>
+                </View>
+              </View>
+              <Switch
+                value={isDarkMode}
+                onValueChange={(value) => setThemeMode(value ? 'dark' : 'light')}
+                trackColor={{ false: theme.border, true: '#a7f3d0' }}
+                thumbColor={isDarkMode ? theme.success : theme.gray}
+              />
+            </View>
+          </View>
+        </View>
         
         {/* Settings */}
        {/* <View style={styles.settingsSection}>
@@ -461,13 +562,13 @@ export default function MoreScreen() {
         </View>
 
         {/* App Info */}
-        <View style={styles.appInfo}>
-          <View style={styles.appLogo}>
-            <Ionicons name="flash-outline" size={32} color="#0b63a8" />
+        <View style={[styles.appInfo, { backgroundColor: theme.surface, borderColor: theme.border }, elevatedCardStyle]}>
+          <View style={[styles.appLogo, { backgroundColor: theme.card }]}>
+            <Ionicons name="flash-outline" size={32} color={theme.primary} />
           </View>
-          <Text style={styles.appName}>Energy Meter</Text>
-          <Text style={styles.appVersion}>Version 2.1.0</Text>
-          <Text style={styles.appTagline}>Smart Energy Monitoring</Text>
+          <Text style={[styles.appName, { color: theme.text }]}>Energy Meter</Text>
+          <Text style={[styles.appVersion, { color: theme.mutedText }]}>Version 2.1.0</Text>
+          <Text style={[styles.appTagline, { color: theme.text }]}>Smart Energy Monitoring</Text>
           
           
           <Text style={styles.appCopyright}>© 2026 Sochiot Smart Meter</Text>
@@ -598,8 +699,8 @@ const styles = StyleSheet.create({
     marginRight: 12,
   },
   siteName: {
-    fontSize: 18,
-    fontWeight: '600',
+    fontSize: 19,
+    fontWeight: '700',
     color: '#111827',
     marginBottom: 2,
   },
@@ -646,11 +747,11 @@ const styles = StyleSheet.create({
   },
   statusText: {
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   sectionHeaderText: {
-    fontSize: 18,
-    fontWeight: '600',
+    fontSize: 19,
+    fontWeight: '700',
     color: '#111827',
     marginBottom: 16,
     marginHorizontal: 16,
@@ -691,10 +792,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#6b7280',
     marginBottom: 2,
+    lineHeight: 17,
   },
   chargeValue: {
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: 15,
+    fontWeight: '700',
     color: '#111827',
   },
   statusContainer: {
@@ -721,15 +823,17 @@ const styles = StyleSheet.create({
     borderColor: '#86efac',
   },
   statusTextSmall: {
-    fontSize: 12,
+    fontSize: 13,
     color: '#6b7280',
     marginTop: 8,
     marginBottom: 2,
+    textAlign: 'center',
   },
   statusValueSmall: {
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: 15,
+    fontWeight: '700',
     color: '#111827',
+    textAlign: 'center',
   },
   statusError: {
     color: '#ef4444',
@@ -766,10 +870,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#6b7280',
     marginBottom: 2,
+    lineHeight: 17,
   },
   meterValue: {
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: 15,
+    fontWeight: '700',
     color: '#111827',
   },
   divider: {
@@ -787,8 +892,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   sectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
+    fontSize: 21,
+    fontWeight: '800',
     color: '#111827',
     marginBottom: 16,
   },
@@ -819,14 +924,15 @@ const styles = StyleSheet.create({
     marginRight: 12,
   },
   settingTitle: {
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 17,
+    fontWeight: '800',
     color: '#111827',
-    marginBottom: 2,
+    marginBottom: 4,
   },
   settingDesc: {
-    fontSize: 12,
+    fontSize: 13,
     color: '#6b7280',
+    lineHeight: 18,
   },
   menuSection: {
     marginBottom: 24,
@@ -890,20 +996,20 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   appName: {
-    fontSize: 20,
-    fontWeight: '700',
+    fontSize: 22,
+    fontWeight: '800',
     color: '#111827',
     marginBottom: 4,
   },
   appVersion: {
     fontSize: 14,
     color: '#6b7280',
-    marginBottom: 4,
+    marginBottom: 6,
   },
   appTagline: {
     fontSize: 14,
     color: '#4b5563',
-    marginBottom: 4,
+    marginBottom: 6,
   },
   userEmail: {
     fontSize: 12,
@@ -916,9 +1022,10 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   appCopyright: {
-    fontSize: 12,
+    fontSize: 13,
     color: '#9ca3af',
     marginTop: 12,
+    textAlign: 'center',
   },
   bottomSpacer: {
     height: 20,

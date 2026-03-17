@@ -1,21 +1,26 @@
 import React, { useState, useEffect } from 'react';
 import {
   Dimensions, ScrollView, StyleSheet, Text, TouchableOpacity, View, Modal,
-  ActivityIndicator, Alert
+  ActivityIndicator, Alert, Platform, NativeModules
 } from 'react-native';
 
 import { Ionicons } from '@expo/vector-icons';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Notifications from 'expo-notifications';
 import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../context/ThemeContext';
 import axios from 'axios';
 import { getMeterDailyConsumptionUrl, getMeterMonthlyConsumptionUrl, getYearlyConsumptionUrl, getMeterMonthlyReportUrl } from '../config';
 
 
 const { width } = Dimensions.get('window');
+const { ReportDownload } = NativeModules;
 
 export default function EnergyReport() {
   const { getSiteId } = useAuth();
+  const { theme, isDarkMode } = useTheme();
   
   const [timeView, setTimeView] = useState('daily');
   const [showFilter, setShowFilter] = useState(false);
@@ -202,6 +207,79 @@ export default function EnergyReport() {
     setShowAllValues(true);
   };
 
+  const savePdfToDevice = async (uri, fileName) => {
+    try {
+      const showDownloadNotification = async (message) => {
+        try {
+          const permissions = await Notifications.getPermissionsAsync();
+          let finalStatus = permissions.status;
+
+          if (finalStatus !== 'granted') {
+            const request = await Notifications.requestPermissionsAsync();
+            finalStatus = request.status;
+          }
+
+          if (finalStatus === 'granted') {
+            await Notifications.scheduleNotificationAsync({
+              content: {
+                title: 'Download Complete',
+                body: message,
+              },
+              trigger: null,
+            });
+          }
+        } catch (notificationError) {
+          console.log('Notification error:', notificationError);
+        }
+      };
+
+      if (Platform.OS === 'android') {
+        if (ReportDownload?.savePdfToDownloads) {
+          await ReportDownload.savePdfToDownloads(uri, fileName);
+
+          const successMessage = `${fileName} has been saved in your Downloads folder.`;
+          await showDownloadNotification(successMessage);
+          Alert.alert('Download Complete', successMessage);
+          return true;
+        }
+
+        const localUri = `${FileSystem.documentDirectory}${fileName}`;
+        await FileSystem.copyAsync({ from: uri, to: localUri });
+
+        if (await Sharing.isAvailableAsync()) {
+          await Sharing.shareAsync(localUri, {
+            mimeType: 'application/pdf',
+            dialogTitle: 'Save Energy Report',
+            UTI: 'com.adobe.pdf'
+          });
+        } else {
+          Alert.alert('Saved', `${fileName} has been generated successfully.`);
+        }
+
+        return true;
+      }
+
+      const localUri = `${FileSystem.documentDirectory}${fileName}`;
+      await FileSystem.copyAsync({ from: uri, to: localUri });
+
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(localUri, {
+          mimeType: 'application/pdf',
+          dialogTitle: 'Save Energy Report',
+          UTI: 'com.adobe.pdf'
+        });
+      } else {
+        Alert.alert('Saved', `${fileName} has been generated successfully.`);
+      }
+
+      return true;
+    } catch (error) {
+      console.error('Save PDF error:', error);
+      Alert.alert('Error', 'Failed to save PDF to device.');
+      return false;
+    }
+  };
+
   // Summary Report (Existing)
   const exportSummaryPDF = async () => {
     try {
@@ -274,16 +352,8 @@ export default function EnergyReport() {
         </html>`;
       
       const { uri } = await Print.printToFileAsync({ html });
-      
-      if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(uri, {
-          mimeType: 'application/pdf',
-          dialogTitle: 'Save Energy Report',
-          UTI: 'com.adobe.pdf'
-        });
-      } else {
-        Alert.alert('Success', 'PDF generated successfully');
-      }
+      const fileName = `energy-report-${timeView}-${selectedYear}-${Date.now()}.pdf`;
+      await savePdfToDevice(uri, fileName);
     } catch (error) {
       console.error('PDF export error:', error);
       Alert.alert('Error', 'Failed to generate PDF report');
@@ -629,16 +699,8 @@ export default function EnergyReport() {
       `;
       
       const { uri } = await Print.printToFileAsync({ html });
-      
-      if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(uri, {
-          mimeType: 'application/pdf',
-          dialogTitle: 'Save Monthly Meter Report',
-          UTI: 'com.adobe.pdf'
-        });
-      } else {
-        Alert.alert('Success', 'Monthly report PDF generated successfully');
-      }
+      const fileName = `monthly-meter-report-${selectedYear}-${monthParam}-${Date.now()}.pdf`;
+      await savePdfToDevice(uri, fileName);
     } catch (error) {
       console.error('Detailed PDF export error:', error);
       Alert.alert('Error', 'Failed to generate monthly report. Please try again.');
@@ -671,13 +733,27 @@ export default function EnergyReport() {
     };
 
     return (
-      <View style={styles.card}>
+      <View
+        style={[
+          styles.card,
+          {
+            backgroundColor: isDarkMode ? theme.surface : "#FFFFFF",
+            borderColor: isDarkMode ? theme.border : "#E2E8F0",
+          },
+        ]}
+      >
         <View style={styles.cardHeader}>
-          <View style={styles.iconBox}>
+          <View style={[styles.iconBox, { backgroundColor: isDarkMode ? theme.card : "#EAF2FB" }]}>
             {isAmount ? <Text style={styles.currIcon}>₹</Text> : <Ionicons name="speedometer-outline" size={18} color="#02569B" />}
           </View>
-          <Text style={styles.cardTitle}>{title}</Text>
-          <TouchableOpacity style={styles.filterBadge} onPress={() => setShowFilter(true)}>
+          <Text style={[styles.cardTitle, { color: theme.text }]}>{title}</Text>
+          <TouchableOpacity
+            style={[
+              styles.filterBadge,
+              { backgroundColor: isDarkMode ? theme.primary : "#0F6CBD" },
+            ]}
+            onPress={() => setShowFilter(true)}
+          >
             <Ionicons name="options-outline" size={12} color="white" />
             <Text style={styles.badgeText}>
               {timeView === 'daily' ? `${selectedMonth.slice(0,3)} ${selectedYear}` : selectedYear}
@@ -686,24 +762,30 @@ export default function EnergyReport() {
         </View>
 
         <TouchableOpacity 
-          style={styles.toggleValuesButton}
+          style={[
+            styles.toggleValuesButton,
+            {
+              backgroundColor: isDarkMode ? theme.card : "#F8FBFF",
+              borderColor: isDarkMode ? theme.primary : "#0F6CBD",
+            },
+          ]}
           onPress={handleToggleValues}
           activeOpacity={0.7}
         >
           <Ionicons 
             name={showAllValues ? "eye-off-outline" : "eye-outline"} 
             size={16} 
-            color="#02569B" 
+            color={isDarkMode ? "#93C5FD" : theme.primary} 
           />
-          <Text style={styles.toggleValuesText}>
+          <Text style={[styles.toggleValuesText, { color: isDarkMode ? "#BFDBFE" : theme.primary }]}>
             {showAllValues ? 'Hide Values' : 'Show Values'}
           </Text>
         </TouchableOpacity>
 
         <View style={styles.graphBody}>
           <View style={styles.yAxis}>
-            <Text style={styles.axisLabel}>{(maxValue * 1.2).toFixed(0)}</Text>
-            <Text style={styles.axisLabel}>0</Text>
+            <Text style={[styles.axisLabel, { color: theme.mutedText }]}>{(maxValue * 1.2).toFixed(0)}</Text>
+            <Text style={[styles.axisLabel, { color: theme.mutedText }]}>0</Text>
           </View>
           
           <View style={styles.chartSpace}>
@@ -750,7 +832,8 @@ export default function EnergyReport() {
                                 bottom: i % 2 === 0 ? 118 : 98,
                                 left: '50%',
                                 transform: [{ translateX: -12 }],
-                                backgroundColor: 'rgba(0,0,0,0.65)',
+                                backgroundColor: isDarkMode ? '#0f172a' : 'rgba(0,0,0,0.65)',
+                                borderColor: isDarkMode ? theme.border : 'transparent',
                                 paddingHorizontal: 4,
                                 paddingVertical: 2,
                                 minWidth: 26,
@@ -775,7 +858,9 @@ export default function EnergyReport() {
                         <Text style={[styles.dayLabel, { 
                           bottom: -20,
                           fontSize: dataLength > 20 ? 9 : 10,
-                          color: isSelected ? colors.primary : colors.gray400
+                          color: isSelected
+                            ? (isDarkMode ? "#BFDBFE" : colors.primary)
+                            : (isDarkMode ? "#94A3B8" : colors.gray400)
                         }]}>
                           {i + 1}
                         </Text>
@@ -820,11 +905,16 @@ export default function EnergyReport() {
                             transform: [{ translateX: -20 }],
                             backgroundColor: isSelected ? 
                               (isAmount ? '#1E88E5' : '#02569B') : 
-                              'rgba(255, 255, 255, 0.95)'
+                              (isDarkMode ? theme.card : 'rgba(255, 255, 255, 0.95)'),
+                            borderColor: isDarkMode ? theme.border : colors.gray200,
                           }]}>
                             <Text style={[
                               styles.barValueText,
-                              { color: isSelected ? '#FFFFFF' : colors.primary }
+                              {
+                                color: isSelected
+                                  ? '#FFFFFF'
+                                  : (isDarkMode ? '#E2E8F0' : colors.primary)
+                              }
                             ]}>
                               {value.toFixed(isAmount ? 0 : 1)}
                             </Text>
@@ -836,7 +926,9 @@ export default function EnergyReport() {
                           fontSize: 10,
                           textAlign: 'center',
                           width: barWidth + 10,
-                          color: isSelected ? colors.primary : colors.gray400
+                          color: isSelected
+                            ? (isDarkMode ? "#BFDBFE" : colors.primary)
+                            : (isDarkMode ? "#94A3B8" : colors.gray400)
                         }]}>
                           {currentData.labels[i]?.slice(0,3) || months[i]?.slice(0,3)}
                         </Text>
@@ -849,33 +941,33 @@ export default function EnergyReport() {
           </View>
         </View>
 
-        <View style={styles.statsContainer}>
+        <View style={[styles.statsContainer, { backgroundColor: isDarkMode ? theme.card : colors.gray100, borderColor: theme.border }]}>
           <View style={styles.statBox}>
-            <Text style={styles.statTitle}>Average</Text>
-            <Text style={styles.statValBlue}>
+            <Text style={[styles.statTitle, { color: isDarkMode ? "#CBD5E1" : theme.mutedText }]}>Average</Text>
+            <Text style={[styles.statValBlue, { color: isDarkMode ? "#60A5FA" : colors.primary }]}>
               {isAmount ? stats.avgA : stats.avgU}
             </Text>
-            <Text style={styles.statUnit}>{unit}</Text>
+            <Text style={[styles.statUnit, { color: isDarkMode ? "#94A3B8" : theme.mutedText }]}>{unit}</Text>
           </View>
           
-          <View style={styles.vDivider} />
+          <View style={[styles.vDivider, { backgroundColor: theme.border }]} />
           
           <View style={styles.statBox}>
-            <Text style={styles.statTitle}>Maximum</Text>
-            <Text style={styles.statValRed}>
+            <Text style={[styles.statTitle, { color: isDarkMode ? "#CBD5E1" : theme.mutedText }]}>Maximum</Text>
+            <Text style={[styles.statValRed, { color: isDarkMode ? "#F87171" : colors.danger }]}>
               {isAmount ? stats.maxA : stats.maxU}
             </Text>
-            <Text style={styles.statUnit}>{unit}</Text>
+            <Text style={[styles.statUnit, { color: isDarkMode ? "#94A3B8" : theme.mutedText }]}>{unit}</Text>
           </View>
           
-          <View style={styles.vDivider} />
+          <View style={[styles.vDivider, { backgroundColor: theme.border }]} />
           
           <View style={styles.statBox}>
-            <Text style={styles.statTitle}>Total</Text>
-            <Text style={styles.statValGreen}>
+            <Text style={[styles.statTitle, { color: isDarkMode ? "#CBD5E1" : theme.mutedText }]}>Total</Text>
+            <Text style={[styles.statValGreen, { color: isDarkMode ? "#4ADE80" : colors.secondary }]}>
               {isAmount ? stats.totalAmount : stats.totalUnits}
             </Text>
-            <Text style={styles.statUnit}>{unit}</Text>
+            <Text style={[styles.statUnit, { color: isDarkMode ? "#94A3B8" : theme.mutedText }]}>{unit}</Text>
           </View>
         </View>
       </View>
@@ -888,9 +980,9 @@ export default function EnergyReport() {
 
   if (loading && dailyData.length === 0 && monthlyData.length === 0) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#02569B" />
-        <Text style={styles.loadingText}>
+      <View style={[styles.loadingContainer, { backgroundColor: theme.background }]}>
+        <ActivityIndicator size="large" color={theme.primary} />
+        <Text style={[styles.loadingText, { color: theme.mutedText }]}>
           Loading {timeView === 'daily' ? 'daily' : 'monthly'} consumption data...
         </Text>
       </View>
@@ -898,51 +990,112 @@ export default function EnergyReport() {
   }
 
   return (
-    <View style={styles.container}>
-      <View style={styles.topSection}>
+    <View style={[styles.container, { backgroundColor: theme.background }]}>
+      <View
+        style={[
+          styles.topSection,
+          {
+            backgroundColor: isDarkMode ? theme.background : "#F8FAFC",
+            borderBottomColor: isDarkMode ? theme.border : "#E2E8F0",
+          },
+        ]}
+      >
         <View style={styles.actionRow}>
           <TouchableOpacity 
-            style={styles.downloadBtn} 
+            style={[
+              styles.downloadBtn,
+              {
+                backgroundColor: isDarkMode ? theme.surface : "#FFFFFF",
+                borderColor: isDarkMode ? theme.border : "#D8E1EC",
+              },
+            ]} 
             onPress={() => setShowReportTypeModal(true)}
             disabled={isGeneratingReport}
           >
             {isGeneratingReport ? (
-              <ActivityIndicator size="small" color="#02569B" />
+              <ActivityIndicator size="small" color={theme.primary} />
             ) : (
-              <Ionicons name="document-text" size={16} color="#02569B" />
+              <Ionicons name="document-text" size={16} color={theme.primary} />
             )}
-            <Text style={styles.downloadText}>
+            <Text style={[styles.downloadText, { color: theme.primary }]}>
               {isGeneratingReport ? 'Generating...' : 'Download Report'}
             </Text>
           </TouchableOpacity>
           
-          <TouchableOpacity style={styles.refreshBtn} onPress={fetchData}>
-            <Ionicons name="refresh-outline" size={16} color="#02569B" />
-            <Text style={styles.downloadText}>Refresh</Text>
+          <TouchableOpacity
+            style={[
+              styles.refreshBtn,
+              {
+                backgroundColor: isDarkMode ? theme.surface : "#FFFFFF",
+                borderColor: isDarkMode ? theme.border : "#D8E1EC",
+              },
+            ]}
+            onPress={fetchData}
+          >
+            <Ionicons name="refresh-outline" size={16} color={theme.primary} />
+            <Text style={[styles.downloadText, { color: theme.primary }]}>Refresh</Text>
           </TouchableOpacity>
         </View>
 
-        <View style={styles.tabBar}>
+        <View
+          style={[
+            styles.tabBar,
+            {
+              backgroundColor: isDarkMode ? theme.surface : "#E8EEF5",
+              borderColor: isDarkMode ? theme.border : "#D8E1EC",
+            },
+          ]}
+        >
           <TouchableOpacity 
             onPress={() => handleViewChange('daily')} 
-            style={[styles.tab, timeView === 'daily' && styles.activeTab]}
+            style={[
+              styles.tab,
+              timeView === 'daily' && styles.activeTab,
+              timeView === 'daily' && {
+                backgroundColor: isDarkMode ? theme.primary : "#FFFFFF",
+                borderWidth: 1,
+                borderColor: isDarkMode ? theme.primary : "#D8E1EC",
+              },
+              timeView !== 'daily' && { backgroundColor: 'transparent' },
+            ]}
           >
-            <Text style={[styles.tabText, timeView === 'daily' && styles.activeTabText]}>
+            <Text
+              style={[
+                styles.tabText,
+                timeView === 'daily' && styles.activeTabText,
+                { color: timeView === 'daily' ? (isDarkMode ? "#F8FAFC" : "#334155") : theme.mutedText },
+              ]}
+            >
               Daily View
             </Text>
           </TouchableOpacity>
           <TouchableOpacity 
             onPress={() => handleViewChange('monthly')} 
-            style={[styles.tab, timeView === 'monthly' && styles.activeTab]}
+            style={[
+              styles.tab,
+              timeView === 'monthly' && styles.activeTab,
+              timeView === 'monthly' && {
+                backgroundColor: isDarkMode ? theme.primary : "#FFFFFF",
+                borderWidth: 1,
+                borderColor: isDarkMode ? theme.primary : "#D8E1EC",
+              },
+              timeView !== 'monthly' && { backgroundColor: 'transparent' },
+            ]}
           >
-            <Text style={[styles.tabText, timeView === 'monthly' && styles.activeTabText]}>
+            <Text
+              style={[
+                styles.tabText,
+                timeView === 'monthly' && styles.activeTabText,
+                { color: timeView === 'monthly' ? (isDarkMode ? "#F8FAFC" : "#334155") : theme.mutedText },
+              ]}
+            >
               Monthly View
             </Text>
           </TouchableOpacity>
         </View>
       </View>
 
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={[styles.scroll, { backgroundColor: theme.background }]} showsVerticalScrollIndicator={false}>
         <GraphCard title="Units (kWh)" unit="kWh" />
         <View style={styles.spacer} />
       </ScrollView>
@@ -950,22 +1103,22 @@ export default function EnergyReport() {
       {/* Report Type Selection Modal */}
       <Modal visible={showReportTypeModal} transparent animationType="fade">
         <View style={styles.reportTypeModal}>
-          <View style={styles.reportTypeContent}>
-            <Text style={styles.reportTypeTitle}>Select Report Type</Text>
+          <View style={[styles.reportTypeContent, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+            <Text style={[styles.reportTypeTitle, { color: theme.text }]}>Select Report Type</Text>
             
 
             
             <TouchableOpacity 
-              style={styles.reportTypeOption}
+              style={[styles.reportTypeOption, { borderColor: theme.border }]}
               onPress={() => {
                 setShowReportTypeModal(false);
                 exportDetailedPDF();
               }}
             >
-              <Ionicons name="document-attach" size={20} color="#02569B" />
+              <Ionicons name="document-attach" size={20} color={theme.primary} />
               <View style={styles.reportTypeTextContainer}>
-                <Text style={styles.reportTypeName}>Detailed Monthly Report</Text>
-                <Text style={styles.reportTypeDesc}>Official meter report with all details</Text>
+                <Text style={[styles.reportTypeName, { color: theme.text }]}>Detailed Monthly Report</Text>
+                <Text style={[styles.reportTypeDesc, { color: theme.mutedText }]}>Official meter report with all details</Text>
               </View>
             </TouchableOpacity>
             
@@ -973,7 +1126,7 @@ export default function EnergyReport() {
               style={styles.cancelReportBtn}
               onPress={() => setShowReportTypeModal(false)}
             >
-              <Text style={styles.cancelReportText}>Cancel</Text>
+              <Text style={[styles.cancelReportText, { color: theme.text }]}>Cancel</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -982,12 +1135,12 @@ export default function EnergyReport() {
       {/* Filter Modal */}
       <Modal visible={showFilter} transparent animationType="slide">
         <View style={styles.modalBg}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Select Filter</Text>
+          <View style={[styles.modalContent, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>Select Filter</Text>
             
             {timeView === 'daily' && (
               <View style={styles.filterSection}>
-                <Text style={styles.filterLabel}>Select Month</Text>
+                <Text style={[styles.filterLabel, { color: theme.text }]}>Select Month</Text>
                 <ScrollView 
                   horizontal 
                   showsHorizontalScrollIndicator={false}
@@ -996,10 +1149,10 @@ export default function EnergyReport() {
                   {months.map(m => (
                     <TouchableOpacity 
                       key={m} 
-                      style={[styles.monthBtn, selectedMonth === m && styles.monthBtnActive]} 
+                      style={[styles.monthBtn, { backgroundColor: isDarkMode ? theme.card : '#fff', borderColor: theme.border }, selectedMonth === m && styles.monthBtnActive]} 
                       onPress={() => setSelectedMonth(m)}
                     >
-                      <Text style={[styles.monthText, selectedMonth === m && styles.monthTextActive]}>
+                      <Text style={[styles.monthText, { color: selectedMonth === m ? '#fff' : theme.text }, selectedMonth === m && styles.monthTextActive]}>
                         {m.slice(0,3)}
                       </Text>
                     </TouchableOpacity>
@@ -1009,7 +1162,7 @@ export default function EnergyReport() {
             )}
             
             <View style={styles.filterSection}>
-              <Text style={styles.filterLabel}>Select Year</Text>
+              <Text style={[styles.filterLabel, { color: theme.text }]}>Select Year</Text>
               <ScrollView 
                 horizontal 
                 showsHorizontalScrollIndicator={false}
@@ -1018,10 +1171,10 @@ export default function EnergyReport() {
                 {years.map(y => (
                   <TouchableOpacity 
                     key={y} 
-                    style={[styles.yearBtn, selectedYear === y && styles.yearBtnActive]} 
+                    style={[styles.yearBtn, { backgroundColor: isDarkMode ? theme.card : '#fff', borderColor: theme.border }, selectedYear === y && styles.yearBtnActive]} 
                     onPress={() => setSelectedYear(y)}
                   >
-                    <Text style={[styles.yearText, selectedYear === y && styles.yearTextActive]}>
+                    <Text style={[styles.yearText, { color: selectedYear === y ? '#fff' : theme.text }, selectedYear === y && styles.yearTextActive]}>
                       {y}
                     </Text>
                   </TouchableOpacity>
@@ -1031,14 +1184,14 @@ export default function EnergyReport() {
             
             <View style={styles.filterActions}>
               <TouchableOpacity 
-                style={styles.cancelBtn}
+                style={[styles.cancelBtn, { backgroundColor: isDarkMode ? theme.card : colors.gray100, borderColor: theme.border }]}
                 onPress={() => setShowFilter(false)}
               >
-                <Text style={styles.cancelText}>Cancel</Text>
+                <Text style={[styles.cancelText, { color: theme.text }]}>Cancel</Text>
               </TouchableOpacity>
               
               <TouchableOpacity 
-                style={styles.applyBtn}
+                style={[styles.applyBtn, { backgroundColor: theme.primary }]}
                 onPress={handleFilterApply}
               >
                 <Text style={styles.applyText}>Apply Filter</Text>
@@ -1431,7 +1584,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     backgroundColor: colors.gray100,
     borderRadius: borderRadius.lg,
-    padding: spacing.lg,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
     borderWidth: 1,
     borderColor: colors.gray200,
     marginBottom: spacing.lg,
@@ -1439,41 +1593,50 @@ const styles = StyleSheet.create({
   statBox: {
     flex: 1,
     alignItems: 'center',
-    paddingVertical: spacing.xs,
+    paddingVertical: 2,
+    paddingHorizontal: 2,
   },
   statTitle: {
     ...typography.tiny,
     color: colors.gray500,
-    marginBottom: spacing.xs,
-    fontWeight: '500',
+    marginBottom: 6,
+    fontWeight: '600',
+    textAlign: 'center',
   },
   statValBlue: {
-    ...typography.h2,
-    fontWeight: '700',
+    fontSize: 15,
+    lineHeight: 18,
+    fontWeight: '800',
     color: colors.primary,
-    marginBottom: spacing.xs,
+    marginBottom: 4,
+    textAlign: 'center',
   },
   statValRed: {
-    ...typography.h2,
-    fontWeight: '700',
+    fontSize: 15,
+    lineHeight: 18,
+    fontWeight: '800',
     color: colors.danger,
-    marginBottom: spacing.xs,
+    marginBottom: 4,
+    textAlign: 'center',
   },
   statValGreen: {
-    ...typography.h2,
-    fontWeight: '700',
+    fontSize: 15,
+    lineHeight: 18,
+    fontWeight: '800',
     color: colors.secondary,
-    marginBottom: spacing.xs,
+    marginBottom: 4,
+    textAlign: 'center',
   },
   statUnit: {
     ...typography.tiny,
     color: colors.gray400,
-    fontWeight: '500',
+    fontWeight: '600',
+    textAlign: 'center',
   },
   vDivider: {
     width: 1,
     backgroundColor: colors.gray300,
-    marginHorizontal: spacing.md,
+    marginHorizontal: 8,
   },
 
   // Report Type Modal

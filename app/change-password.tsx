@@ -18,6 +18,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { getChangePasswordUrl } from "./config";
+import { useTheme } from "./context/ThemeContext";
 
 const { height } = Dimensions.get("window");
 const PLACEHOLDER_COLOR = "#4B5563";
@@ -42,6 +43,7 @@ export default function ChangePasswordSimple() {
     next: false,
     confirm: false,
   });
+  const { isDarkMode, theme } = useTheme();
   const [fieldPositions, setFieldPositions] = useState({
     current: 0,
     next: 0,
@@ -185,8 +187,11 @@ export default function ChangePasswordSimple() {
   };
 
   return (
-    <LinearGradient colors={["#667eea", "#764ba2", "#667eea"]} style={styles.gradientBackground}>
-      <View style={styles.overlay}>
+    <LinearGradient
+      colors={isDarkMode ? ["#0F172A", "#111827", "#1E293B"] : ["#667eea", "#764ba2", "#667eea"]}
+      style={styles.gradientBackground}
+    >
+      <View style={[styles.overlay, { backgroundColor: isDarkMode ? "rgba(0, 0, 0, 0.25)" : "rgba(0, 0, 0, 0.1)" }]}>
         <KeyboardAvoidingView
           behavior={Platform.OS === "ios" ? "padding" : undefined}
           keyboardVerticalOffset={Platform.OS === "ios" ? 24 : 0}
@@ -205,7 +210,11 @@ export default function ChangePasswordSimple() {
 
             <View style={styles.card}>
               <LinearGradient
-                colors={["rgba(255, 255, 255, 0.9)", "rgba(255, 255, 255, 0.95)"]}
+                colors={
+                  isDarkMode
+                    ? ["rgba(15, 23, 42, 0.92)", "rgba(30, 41, 59, 0.96)"]
+                    : ["rgba(255, 255, 255, 0.9)", "rgba(255, 255, 255, 0.95)"]
+                }
                 style={styles.cardGradient}
               >
                 {email ? (
@@ -227,14 +236,14 @@ export default function ChangePasswordSimple() {
                   <Ionicons
                     name="lock-closed-outline"
                     size={22}
-                    color={isFocused.current ? "#667eea" : "#9CA3AF"}
+                    color={isFocused.current ? theme.primary : theme.gray}
                   />
                   <TextInput
                     ref={currentPasswordRef}
                     placeholder="Current Password"
-                    placeholderTextColor={PLACEHOLDER_COLOR}
+                    placeholderTextColor={theme.gray}
                     secureTextEntry={!isPasswordVisible.current}
-                    style={styles.input}
+                    style={[styles.input, { color: theme.text }]}
                     value={currentPassword}
                     onChangeText={setCurrentPassword}
                     editable={!loading}
@@ -259,7 +268,7 @@ export default function ChangePasswordSimple() {
                     <Ionicons
                       name={isPasswordVisible.current ? "eye-off-outline" : "eye-outline"}
                       size={22}
-                      color="#9CA3AF"
+                      color={theme.gray}
                     />
                   </TouchableOpacity>
                 </TouchableOpacity>
@@ -276,14 +285,14 @@ export default function ChangePasswordSimple() {
                   <Ionicons
                     name="key-outline"
                     size={22}
-                    color={isFocused.next ? "#667eea" : "#9CA3AF"}
+                    color={isFocused.next ? theme.primary : theme.gray}
                   />
                   <TextInput
                     ref={newPasswordRef}
                     placeholder="New Password"
-                    placeholderTextColor={PLACEHOLDER_COLOR}
+                    placeholderTextColor={theme.gray}
                     secureTextEntry={!isPasswordVisible.next}
-                    style={styles.input}
+                    style={[styles.input, { color: theme.text }]}
                     value={newPassword}
                     onChangeText={setNewPassword}
                     editable={!loading}
@@ -308,7 +317,7 @@ export default function ChangePasswordSimple() {
                     <Ionicons
                       name={isPasswordVisible.next ? "eye-off-outline" : "eye-outline"}
                       size={22}
-                      color="#9CA3AF"
+                      color={theme.gray}
                     />
                   </TouchableOpacity>
                 </TouchableOpacity>
@@ -325,14 +334,14 @@ export default function ChangePasswordSimple() {
                   <Ionicons
                     name="shield-checkmark-outline"
                     size={22}
-                    color={isFocused.confirm ? "#667eea" : "#9CA3AF"}
+                    color={isFocused.confirm ? theme.primary : theme.gray}
                   />
                   <TextInput
                     ref={confirmPasswordRef}
                     placeholder="Confirm Password"
-                    placeholderTextColor={PLACEHOLDER_COLOR}
+                    placeholderTextColor={theme.gray}
                     secureTextEntry={!isPasswordVisible.confirm}
-                    style={styles.input}
+                    style={[styles.input, { color: theme.text }]}
                     value={confirmPassword}
                     onChangeText={setConfirmPassword}
                     editable={!loading}
@@ -356,7 +365,7 @@ export default function ChangePasswordSimple() {
                     <Ionicons
                       name={isPasswordVisible.confirm ? "eye-off-outline" : "eye-outline"}
                       size={22}
-                      color="#9CA3AF"
+                      color={theme.gray}
                     />
                   </TouchableOpacity>
                 </TouchableOpacity>
@@ -369,7 +378,7 @@ export default function ChangePasswordSimple() {
                   disabled={loading}
                 >
                   <LinearGradient
-                    colors={loading ? ["#9CA3AF", "#9CA3AF"] : ["#667eea", "#764ba2"]}
+                    colors={loading ? [theme.gray, theme.gray] : [theme.primary, theme.secondary]}
                     style={styles.btnGradient}
                   >
                     {loading ? (

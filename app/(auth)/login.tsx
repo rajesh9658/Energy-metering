@@ -17,6 +17,7 @@ import { useAuth } from "../context/AuthContext";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from 'expo-linear-gradient';
+import { useTheme } from "../context/ThemeContext";
 
 const { width, height } = Dimensions.get('window');
 
@@ -28,6 +29,7 @@ export default function Login() {
   const [isFocused, setIsFocused] = useState({ userid: false, password: false });
   
   const { login, error: loginError, setError } = useAuth();
+  const { isDarkMode, theme } = useTheme();
   const router = useRouter();
   
   const useridInputRef = useRef<TextInput>(null);
@@ -96,8 +98,8 @@ export default function Login() {
   };
 
   return (
-    <LinearGradient colors={['#667eea', '#764ba2', '#667eea']} style={styles.gradientBackground}>
-      <View style={styles.overlay}>
+    <LinearGradient colors={isDarkMode ? ['#0F172A', '#111827', '#1E293B'] : ['#667eea', '#764ba2', '#667eea']} style={styles.gradientBackground}>
+      <View style={[styles.overlay, { backgroundColor: isDarkMode ? 'rgba(0, 0, 0, 0.25)' : 'rgba(0, 0, 0, 0.1)' }]}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.keyboardView}>
           <ScrollView contentContainerStyle={styles.scrollContainer} keyboardShouldPersistTaps="handled">
             <Animated.View style={[styles.animatedContainer, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
@@ -107,26 +109,37 @@ export default function Login() {
               </View>
 
               <View style={styles.card}>
-                <LinearGradient colors={['rgba(255, 255, 255, 0.9)', 'rgba(255, 255, 255, 0.95)']} style={styles.cardGradient}>
+                <LinearGradient
+                  colors={
+                    isDarkMode
+                      ? ['rgba(15, 23, 42, 0.92)', 'rgba(30, 41, 59, 0.96)']
+                      : ['rgba(255, 255, 255, 0.9)', 'rgba(255, 255, 255, 0.95)']
+                  }
+                  style={styles.cardGradient}
+                >
                   
                   {/* User ID Input Section */}
                   <TouchableOpacity 
-                    style={[styles.inputWrapper, isFocused.userid && styles.inputWrapperFocused]}
+                    style={[
+                      styles.inputWrapper,
+                      { backgroundColor: isDarkMode ? theme.surface : 'white', borderColor: isDarkMode ? theme.border : '#E5E7EB' },
+                      isFocused.userid && styles.inputWrapperFocused,
+                    ]}
                     activeOpacity={1}
                     onPress={() => useridInputRef.current?.focus()}
                   >
-                    <Ionicons name="person-outline" size={22} color={isFocused.userid ? "#667eea" : "#9CA3AF"} />
+                    <Ionicons name="person-outline" size={22} color={isFocused.userid ? theme.primary : theme.gray} />
                     <TextInput
                       ref={useridInputRef}
                       placeholder="Email Address"
-                      style={styles.input}
+                      style={[styles.input, { color: theme.text }]}
                       value={userid} 
                       onChangeText={setUserid}
                       onFocus={() => setIsFocused(prev => ({ ...prev, userid: true }))}
                       onBlur={() => setIsFocused(prev => ({ ...prev, userid: false }))}
                       editable={!isLoading}
                       autoCapitalize="none"
-                      placeholderTextColor="#9CA3AF"
+                      placeholderTextColor={theme.gray}
                       keyboardType="email-address"
                       returnKeyType="next"
                       onSubmitEditing={() => passwordInputRef.current?.focus()}
@@ -136,27 +149,31 @@ export default function Login() {
 
                   {/* Password Input Section */}
                   <TouchableOpacity 
-                    style={[styles.inputWrapper, isFocused.password && styles.inputWrapperFocused]}
+                    style={[
+                      styles.inputWrapper,
+                      { backgroundColor: isDarkMode ? theme.surface : 'white', borderColor: isDarkMode ? theme.border : '#E5E7EB' },
+                      isFocused.password && styles.inputWrapperFocused,
+                    ]}
                     activeOpacity={1}
                     onPress={() => passwordInputRef.current?.focus()}
                   >
-                    <Ionicons name="lock-closed-outline" size={22} color={isFocused.password ? "#667eea" : "#9CA3AF"} />
+                    <Ionicons name="lock-closed-outline" size={22} color={isFocused.password ? theme.primary : theme.gray} />
                     <TextInput
                       ref={passwordInputRef}
                       placeholder="Password"
-                      style={styles.input}
+                      style={[styles.input, { color: theme.text }]}
                       value={password}
                       onChangeText={setPassword}
                       onFocus={() => setIsFocused(prev => ({ ...prev, password: true }))}
                       onBlur={() => setIsFocused(prev => ({ ...prev, password: false }))}
                       editable={!isLoading}
                       secureTextEntry={!isPasswordVisible}
-                      placeholderTextColor="#9CA3AF"
+                      placeholderTextColor={theme.gray}
                       returnKeyType="done"
                       onSubmitEditing={handleLogin}
                     />
                     <TouchableOpacity onPress={() => setIsPasswordVisible(!isPasswordVisible)} style={styles.eyeIcon}>
-                      <Ionicons name={isPasswordVisible ? "eye-off-outline" : "eye-outline"} size={22} color="#9CA3AF" />
+                      <Ionicons name={isPasswordVisible ? "eye-off-outline" : "eye-outline"} size={22} color={theme.gray} />
                     </TouchableOpacity>
                   </TouchableOpacity>
 
@@ -173,7 +190,7 @@ export default function Login() {
                     }}
                     disabled={isLoading}
                   >
-                    <Text style={styles.forgotPasswordText}>Change Password</Text>
+                    <Text style={[styles.forgotPasswordText, { color: theme.primary }]}>Change Password</Text>
                   </TouchableOpacity>
 
                   </View>
@@ -184,7 +201,7 @@ export default function Login() {
                     disabled={isLoading}
                   >
                     <LinearGradient 
-                      colors={isLoading ? ['#9CA3AF', '#9CA3AF'] : ['#667eea', '#764ba2']} 
+                      colors={isLoading ? [theme.gray, theme.gray] : [theme.primary, theme.secondary]} 
                       style={styles.btnGradient}
                     >
                       {isLoading ? (
