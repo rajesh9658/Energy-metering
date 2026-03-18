@@ -165,7 +165,15 @@ export default function MoreScreen() {
 
   const updateNotificationPref = (key, value) => {
     setNotificationPrefs(prev => {
-      const nextPrefs = { ...prev, [key]: value };
+      const nextPrefs = key === 'enabled' && !value
+        ? {
+            ...prev,
+            enabled: false,
+            lowBalance: false,
+            supply: false,
+            overload: false,
+          }
+        : { ...prev, [key]: value };
       if (key === 'enabled') {
         setNotificationsEnabled(value);
       }
@@ -988,7 +996,7 @@ const styles = StyleSheet.create({
   },
   settingsSection: {
     marginBottom: 24,
-    paddingHorizontal: 16,
+    paddingHorizontal: 24,
   },
   sectionTitle: {
     fontSize: 21,
@@ -999,7 +1007,8 @@ const styles = StyleSheet.create({
   settingsCard: {
     backgroundColor: '#fff',
     borderRadius: 12,
-    padding: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
     borderWidth: 1,
     borderColor: '#f3f4f6',
   },
@@ -1147,36 +1156,37 @@ const styles = StyleSheet.create({
   appInfo: {
     backgroundColor: '#fff',
     borderRadius: 12,
-    padding: 24,
-    marginHorizontal: 16,
+    paddingVertical: 18,
+    paddingHorizontal: 20,
+    marginHorizontal: 24,
     alignItems: 'center',
     borderWidth: 1,
     borderColor: '#f3f4f6',
   },
   appLogo: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     backgroundColor: '#eff6ff',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 10,
   },
   appName: {
-    fontSize: 22,
+    fontSize: 19,
     fontWeight: '800',
     color: '#111827',
-    marginBottom: 4,
+    marginBottom: 2,
   },
   appVersion: {
-    fontSize: 14,
+    fontSize: 12,
     color: '#6b7280',
-    marginBottom: 6,
+    marginBottom: 4,
   },
   appTagline: {
-    fontSize: 14,
+    fontSize: 13,
     color: '#4b5563',
-    marginBottom: 6,
+    marginBottom: 4,
   },
   userEmail: {
     fontSize: 12,
@@ -1189,9 +1199,9 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   appCopyright: {
-    fontSize: 13,
+    fontSize: 12,
     color: '#9ca3af',
-    marginTop: 12,
+    marginTop: 8,
     textAlign: 'center',
   },
   bottomSpacer: {

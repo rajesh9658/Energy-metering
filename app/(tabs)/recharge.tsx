@@ -238,7 +238,7 @@ const customerDetails = {
   //     description: `Meter Recharge - ${customerDetails.accountId}`,
   //     image: 'https://i.imgur.com/39go799.png',
   //     currency: 'INR',
-  //     key: 'rzp_test_SR4qKtwChbUt4f',
+  //     key: 'rzp_test_SSfXhot4B0w4lN',
   //     amount: totalAmount,
   //     name: 'Sochiot Innovation Pvt. Ltd.',
   //     prefill: {
@@ -322,7 +322,7 @@ const customerDetails = {
     const options = {
       description: `Meter Recharge - ${customerDetails.accountId}`,
       currency: 'INR',
-      key: 'rzp_test_SR4qKtwChbUt4f',
+      key: 'rzp_test_SSfXhot4B0w4lN',
       amount: totalAmount,
       name: 'Sochiot Innovation Pvt. Ltd.',
       image: 'https://i.imgur.com/39go799.png',
@@ -656,7 +656,7 @@ const customerDetails = {
                 <Text style={[styles.summaryValue, { color: theme.text }]}>₹ 1.80</Text>
               </View>
               <View style={[styles.divider, { backgroundColor: theme.border }]} />
-              <View style={styles.summaryRow}>
+              <View style={[styles.summaryRow, styles.totalSummaryRow]}>
                 <Text style={[styles.totalLabel, { color: theme.text }]}>Total Payable</Text>
                 <Text style={styles.totalValue}>
                   ₹ {((selectedAmount || parseFloat(customAmount) || 0) + 10 + 1.8).toFixed(2)}
@@ -989,10 +989,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   rechargeOptionCard: {
-    width: (width - 64) / 2 - 6,
+    width: (width - 42) / 2 - 6,
     backgroundColor: '#fff',
-    borderRadius: 16,
-    marginBottom: 14,
+    borderRadius: 14,
+    marginBottom: 9,
     shadowColor: '#4f46e5',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.06,
@@ -1002,6 +1002,7 @@ const styles = StyleSheet.create({
     borderColor: 'transparent',
     position: 'relative',
     overflow: 'hidden',
+    minHeight: 112,
   },
   selectedCard: {
     borderColor: '#4f46e5',
@@ -1010,21 +1011,24 @@ const styles = StyleSheet.create({
     transform: [{ scale: 1.02 }],
   },
   cardContent: {
-    padding: 14,
+    padding: 10,
+    flex: 1,
+    justifyContent: 'space-between',
   },
   cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: 12,
+    marginBottom: 6,
+    minHeight: 22,
   },
   optionIcon: {
-    fontSize: 20,
+    fontSize: 16,
   },
   tagBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 999,
   },
   tagPopular: {
     backgroundColor: '#fef3c7',
@@ -1036,19 +1040,22 @@ const styles = StyleSheet.create({
     backgroundColor: '#dcfce7',
   },
   tagText: {
-    fontSize: 9,
+    fontSize: 8,
     fontWeight: '700',
     color: '#1e293b',
   },
   amountText: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '800',
-    marginBottom: 5,
+    marginBottom: 2,
+    lineHeight: 19,
   },
   optionDescription: {
     fontSize: 10,
     color: '#64748b',
     fontWeight: '500',
+    lineHeight: 13,
+    minHeight: 13,
   },
   selectedIndicator: {
     position: 'absolute',
@@ -1164,6 +1171,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 16,
   },
+  totalSummaryRow: {
+    flexDirection: 'column',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 4,
+  },
   feeRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1187,11 +1200,13 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '800',
     color: '#1e293b',
+    marginBottom: 6,
   },
   totalValue: {
-    fontSize: 20,
+    fontSize: 28,
     fontWeight: '800',
     color: '#4f46e5',
+    textAlign: 'center',
   },
   payButtonContainer: {
     paddingHorizontal: 20,
