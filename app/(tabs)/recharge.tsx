@@ -462,7 +462,7 @@ const customerDetails = {
     <Icon name="account-circle" size={40} color="#fff" />
   </View>
   <View style={styles.customerInfo}>
-    <Text style={[styles.customerName, { color: theme.text }]}>{customerDetails.name}</Text>
+    <Text numberOfLines={1} style={[styles.customerName, { color: theme.text }]}>{customerDetails.name}</Text>
     <Text style={[styles.customerId, { color: theme.mutedText }]}>Account ID: {customerDetails.accountId}</Text>
   </View>
 </View>
@@ -472,12 +472,12 @@ const customerDetails = {
     <View style={[styles.siteInfoItem, { backgroundColor: theme.card }]}>
       <Icon name="speed" size={20} color="#4f46e5" />
       <Text style={[styles.infoLabel, { color: theme.mutedText }]}>Site Name</Text>
-      <Text style={[styles.infoValue, { color: theme.text }]}>{customerDetails.meterNo}</Text>
+      <Text numberOfLines={1} style={[styles.infoValue, { color: theme.text }]}>{customerDetails.meterNo}</Text>
     </View>
     <View style={[styles.siteInfoItem, { backgroundColor: theme.card }]}>
       <Icon name="store" size={20} color="#4f46e5" />
       <Text style={[styles.infoLabel, { color: theme.mutedText }]}>Meter Name</Text>
-      <Text style={[styles.infoValue, { color: theme.text }]}>{customerDetails.shopName}</Text>
+      <Text numberOfLines={1} style={[styles.infoValue, { color: theme.text }]}>{customerDetails.shopName}</Text>
     </View>
   </View>
 </View>
@@ -559,7 +559,7 @@ const customerDetails = {
                       ₹{opt.amount.toLocaleString()}
                     </Text>
                     
-                    <Text style={[styles.optionDescription, { color: theme.mutedText }]}>{opt.description}</Text>
+                    <Text numberOfLines={1} style={[styles.optionDescription, { color: theme.mutedText }]}>{opt.description}</Text>
                     
                     {selectedAmount === opt.amount && (
                       <View style={styles.selectedIndicator}>
@@ -810,13 +810,13 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     marginHorizontal: 20,
     marginTop: -30,
-    padding: 24,
-    borderRadius: 24,
+    padding: 20,
+    borderRadius: 22,
     shadowColor: '#4f46e5',
     shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.15,
-    shadowRadius: 20,
-    elevation: 15,
+    shadowOpacity: 0.12,
+    shadowRadius: 18,
+    elevation: 12,
     marginBottom: 24,
     minHeight: 250,
   },
@@ -857,28 +857,28 @@ const styles = StyleSheet.create({
   customerHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 24,
+    marginBottom: 18,
   },
   avatarContainer: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 16,
+    marginRight: 14,
     backgroundColor: '#4f46e5',
   },
   customerInfo: {
     flex: 1,
   },
   customerName: {
-    fontSize: 20,
-    fontWeight: '700',
+    fontSize: 17,
+    fontWeight: '800',
     color: '#1e293b',
-    marginBottom: 4,
+    marginBottom: 3,
   },
   customerId: {
-    fontSize: 14,
+    fontSize: 12,
     color: '#64748b',
   },
   detailsGrid: {
@@ -920,16 +920,16 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   balanceLabel: {
-    fontSize: 12,
+    fontSize: 11,
     color: '#64748b',
     fontWeight: '600',
     marginBottom: 4,
   },
   balanceAmount: {
-  fontSize: 28,
-  fontWeight: '900',
-  color: '#059669',
-},
+    fontSize: 23,
+    fontWeight: '800',
+    color: '#059669',
+  },
 
   lastPayment: {
     fontSize: 16,
@@ -948,24 +948,24 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   infoLabel: {
-    fontSize: 11,
+    fontSize: 10,
     color: '#64748b',
     marginTop: 6,
-    marginBottom: 4,
+    marginBottom: 3,
     fontWeight: '600',
   },
   infoValue: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
     color: '#1e293b',
   },
   section: {
-  marginBottom: 32,
-},
+    marginBottom: 28,
+  },
 
   sectionHeader: {
     paddingHorizontal: 20,
-    marginBottom: 16,
+    marginBottom: 14,
   },
   sectionTitleRow: {
     flexDirection: 'row',
@@ -973,31 +973,31 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   sectionTitle: {
-    fontSize: 18,
-    fontWeight: '700',
+    fontSize: 16,
+    fontWeight: '800',
     color: '#1e293b',
     marginLeft: 8,
   },
   sectionSubtitle: {
-    fontSize: 14,
+    fontSize: 12,
     color: '#64748b',
   },
   gridContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
   },
   rechargeOptionCard: {
-    width: (width - 48) / 2 - 8,
+    width: (width - 64) / 2 - 6,
     backgroundColor: '#fff',
-    borderRadius: 20,
-    marginBottom: 16,
+    borderRadius: 16,
+    marginBottom: 14,
     shadowColor: '#4f46e5',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 6,
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
+    elevation: 4,
     borderWidth: 2,
     borderColor: 'transparent',
     position: 'relative',
@@ -1010,7 +1010,7 @@ const styles = StyleSheet.create({
     transform: [{ scale: 1.02 }],
   },
   cardContent: {
-    padding: 20,
+    padding: 14,
   },
   cardHeader: {
     flexDirection: 'row',
@@ -1019,7 +1019,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   optionIcon: {
-    fontSize: 28,
+    fontSize: 20,
   },
   tagBadge: {
     paddingHorizontal: 8,
@@ -1036,17 +1036,17 @@ const styles = StyleSheet.create({
     backgroundColor: '#dcfce7',
   },
   tagText: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '700',
     color: '#1e293b',
   },
   amountText: {
-    fontSize: 24,
+    fontSize: 18,
     fontWeight: '800',
-    marginBottom: 8,
+    marginBottom: 5,
   },
   optionDescription: {
-    fontSize: 12,
+    fontSize: 10,
     color: '#64748b',
     fontWeight: '500',
   },
@@ -1065,14 +1065,14 @@ const styles = StyleSheet.create({
   },
   customAmountContainer: {
     backgroundColor: '#fff',
-    borderRadius: 20,
-    padding: 24,
+    borderRadius: 18,
+    padding: 20,
     marginHorizontal: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 6,
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
+    elevation: 4,
   },
   amountInputWrapper: {
     flexDirection: 'row',
@@ -1088,16 +1088,16 @@ const styles = StyleSheet.create({
     marginRight: 12,
   },
   currencySymbol: {
-    fontSize: 28,
+    fontSize: 24,
     fontWeight: '800',
     color: '#4f46e5',
   },
   amountInput: {
     flex: 1,
-    fontSize: 28,
+    fontSize: 22,
     fontWeight: '700',
     color: '#1e293b',
-    paddingVertical: 16,
+    paddingVertical: 14,
     paddingHorizontal: 0,
   },
   keyboardButton: {
@@ -1112,7 +1112,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#4f46e5',
   },
   quickAmountsLabel: {
-    fontSize: 14,
+    fontSize: 12,
     color: '#64748b',
     fontWeight: '600',
     marginBottom: 12,
@@ -1131,7 +1131,7 @@ const styles = StyleSheet.create({
     borderColor: '#f1f5f9',
   },
   quickAmountText: {
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: '700',
     color: '#475569',
   },
@@ -1139,13 +1139,13 @@ const styles = StyleSheet.create({
     marginHorizontal: 20,
     marginBottom: 24,
     backgroundColor: '#fff',
-    borderRadius: 20,
-    padding: 24,
+    borderRadius: 18,
+    padding: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 6,
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
+    elevation: 4,
   },
   summaryHeader: {
     flexDirection: 'row',
@@ -1153,8 +1153,8 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   summaryTitle: {
-    fontSize: 16,
-    fontWeight: '700',
+    fontSize: 15,
+    fontWeight: '800',
     color: '#1e293b',
     marginLeft: 8,
   },
@@ -1169,12 +1169,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   summaryLabel: {
-    fontSize: 14,
+    fontSize: 13,
     color: '#64748b',
     marginRight: 6,
   },
   summaryValue: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
     color: '#1e293b',
   },
@@ -1184,12 +1184,12 @@ const styles = StyleSheet.create({
     marginVertical: 16,
   },
   totalLabel: {
-    fontSize: 16,
-    fontWeight: '700',
+    fontSize: 15,
+    fontWeight: '800',
     color: '#1e293b',
   },
   totalValue: {
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: '800',
     color: '#4f46e5',
   },
@@ -1206,8 +1206,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 22,
-    paddingHorizontal: 24,
+    paddingVertical: 18,
+    paddingHorizontal: 20,
     backgroundColor: '#4f46e5',
   },
   disabledButtonInner: {
@@ -1237,7 +1237,7 @@ const styles = StyleSheet.create({
   },
   payButtonText: {
     color: '#fff',
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '700',
     marginHorizontal: 8,
   },
@@ -1393,8 +1393,8 @@ siteInfoRow: {
 siteInfoItem: {
   flex: 1,
   backgroundColor: '#f8fafc',
-  padding: 16,
-  borderRadius: 16,
+  padding: 14,
+  borderRadius: 14,
   marginHorizontal: 4,
   alignItems: 'center',
 },
@@ -1411,8 +1411,8 @@ balanceRow: {
 balanceItem: {
   flex: 1,
   backgroundColor: '#ecfdf5',
-  padding: 20,
-  borderRadius: 20,
+  padding: 16,
+  borderRadius: 18,
   marginRight: 10,
   justifyContent: 'center',
   borderWidth: 1,
@@ -1434,7 +1434,7 @@ addressItem: {
   flex: 1,
   backgroundColor: '#f8fafc',
   padding: 10,
-  borderRadius: 20,
+  borderRadius: 18,
   marginLeft: 10,
   justifyContent: 'center',
   borderWidth: 1,
