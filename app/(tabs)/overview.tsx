@@ -684,17 +684,23 @@ newSlides[1].consumptionData = {
   const swipeResponder = useRef(
     PanResponder.create({
       onMoveShouldSetPanResponder: (_, gestureState) =>
-        Math.abs(gestureState.dx) > 18 && Math.abs(gestureState.dx) > Math.abs(gestureState.dy),
+        Math.abs(gestureState.dx) > 8 && Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 1.1,
+      onMoveShouldSetPanResponderCapture: (_, gestureState) =>
+        Math.abs(gestureState.dx) > 8 && Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 1.1,
       onPanResponderGrant: () => {
         handleUserInteraction();
       },
+      onPanResponderTerminationRequest: () => false,
       onPanResponderRelease: (_, gestureState) => {
-        const swipeThreshold = 50;
+        const shouldGoNext = gestureState.dx < -18 || gestureState.vx < -0.18;
+        const shouldGoPrev = gestureState.dx > 18 || gestureState.vx > 0.18;
 
-        if (gestureState.dx < -swipeThreshold) {
+        if (shouldGoNext) {
           goToNextSlide();
-        } else if (gestureState.dx > swipeThreshold) {
+        } else if (shouldGoPrev) {
           goToPrevSlide();
+        } else {
+          isUserSwipingRef.current = false;
         }
       },
       onPanResponderTerminate: () => {
@@ -867,9 +873,6 @@ newSlides[1].consumptionData = {
             dotStyle={styles.dot}
             activeDotStyle={styles.activeDot}
             onIndexChanged={handleIndexChanged}
-            onTouchStart={handleUserInteraction}
-            onTouchEnd={handleUserInteraction}
-            onScrollBeginDrag={handleUserInteraction}
             onMomentumScrollEnd={() => {
               isUserSwipingRef.current = false;
             }}
@@ -884,7 +887,7 @@ newSlides[1].consumptionData = {
             autoplayTimeout={4}
             autoplayDirection={true}
             showsButtons={false}
-            animationDuration={500}
+            animationDuration={300}
             style={styles.swiperStyle}
           >
             {slides.map((item, index) => (

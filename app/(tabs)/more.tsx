@@ -8,7 +8,8 @@ import {
   View,
   Dimensions,
   ActivityIndicator,
-  RefreshControl
+  RefreshControl,
+  Modal
 } from 'react-native';
 import { Ionicons, MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
 import axios from 'axios';
@@ -18,6 +19,13 @@ import { useAuth } from '../context/AuthContext'; // Adjust path as per your pro
 import { useTheme } from '../context/ThemeContext';
 
 const { width } = Dimensions.get('window');
+const NOTIFICATION_PREFS_KEY = 'notificationPreferences';
+const defaultNotificationPrefs = {
+  enabled: true,
+  lowBalance: true,
+  supply: true,
+  overload: true,
+};
 
 export default function MoreScreen() {
   // AuthContext से data लें
@@ -42,6 +50,8 @@ export default function MoreScreen() {
   const [siteData, setSiteData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [showNotificationModal, setShowNotificationModal] = useState(false);
+  const [notificationPrefs, setNotificationPrefs] = useState(defaultNotificationPrefs);
   const [siteInfo, setSiteInfo] = useState({
     siteName: null,
     siteId: null,
@@ -80,6 +90,12 @@ export default function MoreScreen() {
   useEffect(() => {
     const loadSiteInfo = async () => {
       try {
+        const savedPrefs = await AsyncStorage.getItem(NOTIFICATION_PREFS_KEY);
+        if (savedPrefs) {
+          const parsedPrefs = JSON.parse(savedPrefs);
+          setNotificationPrefs({ ...defaultNotificationPrefs, ...parsedPrefs });
+          setNotificationsEnabled(parsedPrefs.enabled ?? true);
+        }
         // Priority 1: AuthContext से
         const authSiteName = getSiteName();
         const authSiteId = getSiteId();
@@ -146,6 +162,34 @@ export default function MoreScreen() {
     setRefreshing(true);
     fetchSiteData();
   };
+
+  const updateNotificationPref = (key, value) => {
+    setNotificationPrefs(prev => {
+      const nextPrefs = { ...prev, [key]: value };
+      if (key === 'enabled') {
+        setNotificationsEnabled(value);
+      }
+      return nextPrefs;
+    });
+  };
+
+  const saveNotificationPreferences = async () => {
+    try {
+      await AsyncStorage.setItem(NOTIFICATION_PREFS_KEY, JSON.stringify(notificationPrefs));
+      setNotificationsEnabled(notificationPrefs.enabled);
+      setShowNotificationModal(false);
+    } catch (error) {
+      console.error('Error saving notification preferences:', error);
+    }
+  };
+
+  const notificationSummary = !notificationPrefs.enabled
+    ? 'Alerts are turned off'
+    : [
+        notificationPrefs.lowBalance ? 'low balance' : null,
+        notificationPrefs.supply ? 'supply' : null,
+        notificationPrefs.overload ? 'overload' : null,
+      ].filter(Boolean).join(', ') || 'No alert types selected';
 
   const getConnectionStatus = () => {
     if (!siteData) return 'UNKNOWN';
@@ -457,23 +501,21 @@ export default function MoreScreen() {
           <Text style={[styles.sectionTitle, { color: theme.text }]}>Settings</Text>
 
           <View style={[styles.settingsCard, { backgroundColor: theme.surface, borderColor: theme.border }, elevatedCardStyle]}>
-            <View style={styles.settingItem}>
+            <TouchableOpacity style={styles.settingItem} activeOpacity={0.8} onPress={() => setShowNotificationModal(true)}>
               <View style={styles.settingLeft}>
                 <View style={[styles.settingIconContainer, { backgroundColor: theme.card }]}>
                   <Ionicons name="notifications-outline" size={22} color={theme.primary} />
                 </View>
                 <View>
                   <Text style={[styles.settingTitle, { color: theme.text }]}>Notifications</Text>
-                  <Text style={[styles.settingDesc, { color: theme.mutedText }]}>Receive alerts and updates</Text>
+                  <Text style={[styles.settingDesc, { color: theme.mutedText }]}>{notificationSummary}</Text>
                 </View>
               </View>
-              <Switch
-                value={notificationsEnabled}
-                onValueChange={setNotificationsEnabled}
-                trackColor={{ false: theme.border, true: '#a7f3d0' }}
-                thumbColor={notificationsEnabled ? theme.success : theme.gray}
-              />
-            </View>
+              <View style={styles.settingAction}>
+                <View style={[styles.notificationStatusDot, { backgroundColor: notificationsEnabled ? theme.success : theme.gray }]} />
+                <Ionicons name="chevron-forward" size={20} color={theme.mutedText} />
+              </View>
+            </TouchableOpacity>
 
           </View>
         </View>
@@ -554,6 +596,84 @@ export default function MoreScreen() {
         </View>
         <View style={styles.bottomSpacer} />
       </View>
+
+      <Modal visible={showNotificationModal} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.notificationModal, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+            <Text style={[styles.notificationModalTitle, { color: theme.text }]}>Notification Settings</Text>
+            <Text style={[styles.notificationModalDesc, { color: theme.mutedText }]}>
+              Choose which alerts should appear in the navbar bell.
+            </Text>
+
+            <View style={[styles.notificationOptionRow, { borderColor: theme.border }]}>
+              <View style={styles.notificationOptionText}>
+                <Text style={[styles.notificationOptionTitle, { color: theme.text }]}>Enable Notifications</Text>
+                <Text style={[styles.notificationOptionDesc, { color: theme.mutedText }]}>Show bell alerts in the navbar</Text>
+              </View>
+              <Switch
+                value={notificationPrefs.enabled}
+                onValueChange={(value) => updateNotificationPref('enabled', value)}
+                trackColor={{ false: theme.border, true: '#a7f3d0' }}
+                thumbColor={notificationPrefs.enabled ? theme.success : theme.gray}
+              />
+            </View>
+
+            <View style={[styles.notificationOptionRow, { borderColor: theme.border }]}>
+              <View style={styles.notificationOptionText}>
+                <Text style={[styles.notificationOptionTitle, { color: theme.text }]}>Low Balance</Text>
+                <Text style={[styles.notificationOptionDesc, { color: theme.mutedText }]}>Show an alert when balance gets low</Text>
+              </View>
+              <Switch
+                value={notificationPrefs.lowBalance}
+                onValueChange={(value) => updateNotificationPref('lowBalance', value)}
+                trackColor={{ false: theme.border, true: '#a7f3d0' }}
+                thumbColor={notificationPrefs.lowBalance ? theme.success : theme.gray}
+              />
+            </View>
+
+            <View style={[styles.notificationOptionRow, { borderColor: theme.border }]}>
+              <View style={styles.notificationOptionText}>
+                <Text style={[styles.notificationOptionTitle, { color: theme.text }]}>Supply Alerts</Text>
+                <Text style={[styles.notificationOptionDesc, { color: theme.mutedText }]}>Show alerts for disconnected supply or relay off</Text>
+              </View>
+              <Switch
+                value={notificationPrefs.supply}
+                onValueChange={(value) => updateNotificationPref('supply', value)}
+                trackColor={{ false: theme.border, true: '#a7f3d0' }}
+                thumbColor={notificationPrefs.supply ? theme.success : theme.gray}
+              />
+            </View>
+
+            <View style={[styles.notificationOptionRow, { borderColor: theme.border }]}>
+              <View style={styles.notificationOptionText}>
+                <Text style={[styles.notificationOptionTitle, { color: theme.text }]}>Overload Alerts</Text>
+                <Text style={[styles.notificationOptionDesc, { color: theme.mutedText }]}>Show DG overload and overload limit alerts</Text>
+              </View>
+              <Switch
+                value={notificationPrefs.overload}
+                onValueChange={(value) => updateNotificationPref('overload', value)}
+                trackColor={{ false: theme.border, true: '#a7f3d0' }}
+                thumbColor={notificationPrefs.overload ? theme.success : theme.gray}
+              />
+            </View>
+
+            <View style={styles.notificationModalActions}>
+              <TouchableOpacity
+                style={[styles.notificationModalBtn, { backgroundColor: isDarkMode ? theme.card : '#F3F4F6', borderColor: theme.border }]}
+                onPress={() => setShowNotificationModal(false)}
+              >
+                <Text style={[styles.notificationModalBtnText, { color: theme.text }]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.notificationModalBtn, { backgroundColor: theme.primary, borderColor: theme.primary }]}
+                onPress={saveNotificationPreferences}
+              >
+                <Text style={[styles.notificationModalBtnText, { color: '#fff' }]}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -888,6 +1008,16 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
+  settingAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  notificationStatusDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginRight: 10,
+  },
   settingLeft: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -912,6 +1042,64 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#6b7280',
     lineHeight: 18,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  notificationModal: {
+    borderRadius: 18,
+    padding: 20,
+    borderWidth: 1,
+  },
+  notificationModalTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    marginBottom: 8,
+  },
+  notificationModalDesc: {
+    fontSize: 13,
+    lineHeight: 19,
+    marginBottom: 18,
+  },
+  notificationOptionRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+  },
+  notificationOptionText: {
+    flex: 1,
+    paddingRight: 12,
+  },
+  notificationOptionTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    marginBottom: 3,
+  },
+  notificationOptionDesc: {
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  notificationModalActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 18,
+  },
+  notificationModalBtn: {
+    flex: 1,
+    minHeight: 46,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+  },
+  notificationModalBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
   },
   menuSection: {
     marginBottom: 24,

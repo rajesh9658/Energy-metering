@@ -238,27 +238,31 @@ export default function EnergyReport() {
       };
 
       if (Platform.OS === 'android') {
-        if (ReportDownload?.savePdfToDownloads) {
-          await ReportDownload.savePdfToDownloads(uri, fileName);
+        if (!ReportDownload?.savePdfToDownloads) {
+          const localUri = `${FileSystem.documentDirectory}${fileName}`;
+          await FileSystem.copyAsync({ from: uri, to: localUri });
 
-          const successMessage = `${fileName} has been saved in your Downloads folder.`;
-          await showDownloadNotification(successMessage);
-          Alert.alert('Download Complete', successMessage);
-          return true;
+          if (await Sharing.isAvailableAsync()) {
+            await Sharing.shareAsync(localUri, {
+              mimeType: 'application/pdf',
+              dialogTitle: isRunningInExpoGo() ? 'Download Energy Report' : 'Save Energy Report',
+              UTI: 'com.adobe.pdf'
+            });
+            return true;
+          }
+
+          const message = isRunningInExpoGo()
+            ? 'Expo Go direct Downloads save support nahin karta. Please installed Android build use karein for one-tap download.'
+            : 'Direct download is not available in this build right now.';
+
+          Alert.alert('Download Unavailable', message);
+          return false;
         }
 
-        const localUri = `${FileSystem.documentDirectory}${fileName}`;
-        await FileSystem.copyAsync({ from: uri, to: localUri });
-
-        if (await Sharing.isAvailableAsync()) {
-          await Sharing.shareAsync(localUri, {
-            mimeType: 'application/pdf',
-            dialogTitle: 'Save Energy Report',
-            UTI: 'com.adobe.pdf'
-          });
-        } else {
-          Alert.alert('Saved', `${fileName} has been generated successfully.`);
-        }
+        await ReportDownload.savePdfToDownloads(uri, fileName);
+        const successMessage = `${fileName} has been saved in your Downloads folder.`;
+        await showDownloadNotification(successMessage);
+        Alert.alert('Download Complete', successMessage);
 
         return true;
       }
