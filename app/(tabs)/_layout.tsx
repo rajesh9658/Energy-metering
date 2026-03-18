@@ -78,8 +78,8 @@ export default function TabLayout() {
       if (parsedPrefs.lowBalance && (balance < 500 || siteValues.low_balance_cut)) {
         alerts.push({
           id: "low-balance",
-          title: "Low Balance Alert",
-          detail: `Current balance approx Rs ${balance.toFixed(2)} hai. Recharge karna recommended hai.`,
+          title: "Low Balance",
+          detail: `Current balance is approximately Rs ${balance.toFixed(2)}. Recharge is recommended.`,
           tone: "warning",
         });
       }
@@ -87,8 +87,8 @@ export default function TabLayout() {
       if (parsedPrefs.supply && siteValues.relay_status === false) {
         alerts.push({
           id: "supply",
-          title: "Supply Disconnected",
-          detail: "Relay status disconnected dikh raha hai. Site supply check kijiye.",
+          title: "Supply Off",
+          detail: "Relay status shows disconnected. Please check the site supply.",
           tone: "danger",
         });
       }
@@ -96,8 +96,8 @@ export default function TabLayout() {
       if (parsedPrefs.overload && siteValues.dg_overload_trip) {
         alerts.push({
           id: "dg-overload",
-          title: "DG Overload Trip",
-          detail: "DG overload trip detect hua hai. Load ya DG side inspect karna chahiye.",
+          title: "DG Overload",
+          detail: "A DG overload trip was detected. Please inspect the load or DG side.",
           tone: "danger",
         });
       }
@@ -105,8 +105,8 @@ export default function TabLayout() {
       if (parsedPrefs.overload && siteValues.overload_limit_reached) {
         alerts.push({
           id: "overload-limit",
-          title: "Overload Limit Reached",
-          detail: "Overload limit cross hui hai. High load devices check karna better rahega.",
+          title: "Overload Limit",
+          detail: "The overload limit has been reached. Please check high-load devices.",
           tone: "warning",
         });
       }
@@ -150,6 +150,16 @@ export default function TabLayout() {
 
   const displayName = user.site_name?.split("@")[0]?.toUpperCase() || "USER";
   const siteLocation = user.site?.location || "No Site";
+  const headerButtonStyle = {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    justifyContent: "center" as const,
+    alignItems: "center" as const,
+    borderWidth: 1,
+    borderColor: isDarkMode ? "rgba(255,255,255,0.14)" : "rgba(255,255,255,0.24)",
+    backgroundColor: isDarkMode ? "rgba(255,255,255,0.04)" : "rgba(255,255,255,0.1)",
+  };
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.background }}>
@@ -190,11 +200,11 @@ export default function TabLayout() {
         <View
           style={{
             paddingTop: insets.top + 10,
-            paddingBottom: 16,
-            paddingHorizontal: 20,
+            paddingBottom: 14,
+            paddingHorizontal: 14,
             backgroundColor: theme.header,
-            borderBottomLeftRadius: 28,
-            borderBottomRightRadius: 28,
+            borderBottomLeftRadius: 24,
+            borderBottomRightRadius: 24,
             flexDirection: "row",
             justifyContent: "space-between",
             alignItems: "center",
@@ -205,32 +215,34 @@ export default function TabLayout() {
               flexDirection: "row",
               alignItems: "center",
               flex: 1,
-              marginRight: 12,
+              marginRight: 8,
             }}
           >
             <View
               style={{
-                width: 46,
-                height: 46,
-                borderRadius: 23,
+                width: 38,
+                height: 38,
+                borderRadius: 19,
                 backgroundColor: isDarkMode ? "rgba(255,255,255,0.1)" : "rgba(255,255,255,0.18)",
                 justifyContent: "center",
                 alignItems: "center",
-                marginRight: 12,
+                marginRight: 10,
+                flexShrink: 0,
               }}
             >
-              <Ionicons name="person" size={22} color={theme.headerText} />
+              <Ionicons name="person" size={18} color={theme.headerText} />
             </View>
 
-            <View style={{ flex: 1 }}>
+            <View style={{ flex: 1, minWidth: 0 }}>
               <Text
                 numberOfLines={1}
                 adjustsFontSizeToFit
-                minimumFontScale={0.8}
+                minimumFontScale={0.7}
                 style={{
                   color: theme.headerText,
-                  fontSize: 16,
+                  fontSize: 15,
                   fontWeight: "800",
+                  paddingRight: 2,
                 }}
               >
                 {displayName}
@@ -251,7 +263,7 @@ export default function TabLayout() {
                   numberOfLines={1}
                   style={{
                     color: isDarkMode ? "#93C5FD" : "rgba(255,255,255,0.82)",
-                    fontSize: 12,
+                    fontSize: 11,
                     marginLeft: 4,
                     flexShrink: 1,
                   }}
@@ -262,32 +274,25 @@ export default function TabLayout() {
             </View>
           </View>
 
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 0 }}>
             <TouchableOpacity
               onPress={() => setShowNotificationsModal(true)}
               activeOpacity={0.7}
               style={{
-                width: 46,
-                height: 46,
-                borderRadius: 10,
-                justifyContent: "center",
-                alignItems: "center",
-                borderWidth: 1,
-                borderColor: isDarkMode ? "rgba(255,255,255,0.15)" : "rgba(255,255,255,0.28)",
-                backgroundColor: isDarkMode ? "rgba(255,255,255,0.04)" : "rgba(255,255,255,0.1)",
+                ...headerButtonStyle,
                 position: "relative",
               }}
             >
-              <Ionicons name="notifications-outline" size={18} color={theme.headerText} />
+              <Ionicons name="notifications-outline" size={16} color={theme.headerText} />
               {notificationPrefs.enabled && notificationItems.length > 0 && (
                 <View
                   style={{
                     position: "absolute",
-                    top: 7,
-                    right: 7,
-                    minWidth: 16,
-                    height: 16,
-                    borderRadius: 8,
+                    top: 5,
+                    right: 4,
+                    minWidth: 15,
+                    height: 15,
+                    borderRadius: 7.5,
                     backgroundColor: "#EF4444",
                     justifyContent: "center",
                     alignItems: "center",
@@ -299,7 +304,7 @@ export default function TabLayout() {
                   </Text>
                 </View>
               )}
-              <Text style={{ color: theme.headerText, fontSize: 7, fontWeight: "700", marginTop: 3 }}>
+              <Text style={{ color: theme.headerText, fontSize: 6, fontWeight: "700", marginTop: 2 }}>
                 ALERTS
               </Text>
             </TouchableOpacity>
@@ -307,23 +312,14 @@ export default function TabLayout() {
             <TouchableOpacity
               onPress={toggleTheme}
               activeOpacity={0.7}
-              style={{
-                width: 46,
-                height: 46,
-                borderRadius: 10,
-                justifyContent: "center",
-                alignItems: "center",
-                borderWidth: 1,
-                borderColor: isDarkMode ? "rgba(255,255,255,0.15)" : "rgba(255,255,255,0.28)",
-                backgroundColor: isDarkMode ? "rgba(255,255,255,0.04)" : "rgba(255,255,255,0.1)",
-              }}
+              style={headerButtonStyle}
             >
               <Ionicons
                 name={isDarkMode ? "sunny" : "moon"}
-                size={18}
+                size={16}
                 color={theme.headerText}
               />
-              <Text style={{ color: theme.headerText, fontSize: 7, fontWeight: "700", marginTop: 3 }}>
+              <Text style={{ color: theme.headerText, fontSize: 6, fontWeight: "700", marginTop: 2 }}>
                 {isDarkMode ? "LIGHT" : "DARK"}
               </Text>
             </TouchableOpacity>
@@ -332,18 +328,12 @@ export default function TabLayout() {
               onPress={handleLogout}
               activeOpacity={0.7}
               style={{
-                width: 46,
-                height: 46,
-                borderRadius: 10,
-                justifyContent: "center",
-                alignItems: "center",
-                borderWidth: 1,
-                borderColor: isDarkMode ? "rgba(255,255,255,0.15)" : "rgba(255,255,255,0.28)",
+                ...headerButtonStyle,
                 backgroundColor: isDarkMode ? "transparent" : "rgba(255,255,255,0.08)",
               }}
             >
-              <Ionicons name="power" size={19} color={theme.headerText} />
-              <Text style={{ color: theme.headerText, fontSize: 7, fontWeight: "700", marginTop: 2 }}>
+              <Ionicons name="power" size={16} color={theme.headerText} />
+              <Text style={{ color: theme.headerText, fontSize: 6, fontWeight: "700", marginTop: 2 }}>
                 LOGOUT
               </Text>
             </TouchableOpacity>
@@ -404,16 +394,49 @@ export default function TabLayout() {
                 >
                   <View
                     style={{
-                      width: 10,
-                      height: 10,
-                      borderRadius: 5,
-                      backgroundColor: item.tone === "danger" ? "#EF4444" : "#F59E0B",
-                      marginTop: 6,
-                      marginRight: 10,
+                      width: 36,
+                      height: 36,
+                      borderRadius: 12,
+                      backgroundColor: item.tone === "danger"
+                        ? (isDarkMode ? "rgba(239,68,68,0.16)" : "#FEE2E2")
+                        : (isDarkMode ? "rgba(245,158,11,0.16)" : "#FEF3C7"),
+                      justifyContent: "center",
+                      alignItems: "center",
+                      marginRight: 12,
+                      marginTop: 2,
                     }}
-                  />
+                  >
+                    <Ionicons
+                      name={item.tone === "danger" ? "alert-circle-outline" : "warning-outline"}
+                      size={18}
+                      color={item.tone === "danger" ? "#EF4444" : "#D97706"}
+                    />
+                  </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={{ color: theme.text, fontSize: 14, fontWeight: "700", marginBottom: 3 }}>{item.title}</Text>
+                    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+                      <Text style={{ color: theme.text, fontSize: 14, fontWeight: "700", flex: 1, marginRight: 8 }}>{item.title}</Text>
+                      <View
+                        style={{
+                          paddingHorizontal: 8,
+                          paddingVertical: 4,
+                          borderRadius: 999,
+                          backgroundColor: item.tone === "danger"
+                            ? (isDarkMode ? "rgba(239,68,68,0.18)" : "#FEF2F2")
+                            : (isDarkMode ? "rgba(245,158,11,0.18)" : "#FFFBEB"),
+                        }}
+                      >
+                        <Text
+                          style={{
+                            color: item.tone === "danger" ? "#EF4444" : "#D97706",
+                            fontSize: 10,
+                            fontWeight: "800",
+                            letterSpacing: 0.4,
+                          }}
+                        >
+                          {item.tone === "danger" ? "HIGH" : "MEDIUM"}
+                        </Text>
+                      </View>
+                    </View>
                     <Text style={{ color: theme.mutedText || theme.gray, fontSize: 12, lineHeight: 18 }}>{item.detail}</Text>
                   </View>
                 </View>
