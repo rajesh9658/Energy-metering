@@ -82,15 +82,35 @@ export default function EnergyReport() {
   };
 
  
- const fetchDailyData = async (siteId) => {
-  const monthIndex = months.indexOf(selectedMonth) + 1;
-  const monthParam = `${selectedYear}-${monthIndex.toString().padStart(2, '0')}`;
+  const fetchDailyData = async (siteId) => {
+    const monthIndex = months.indexOf(selectedMonth) + 1;
+    const monthParam = `${selectedYear}-${monthIndex.toString().padStart(2, '0')}`;
+
+    try {
+      const reportResponse = await axios.get(
+        getMeterMonthlyReportUrl(siteId, monthParam),
+        {
+          headers: { 'Content-Type': 'application/json' }
+        }
+      );
+
+      const reportRows = reportResponse.data?.reports;
+      if (Array.isArray(reportRows) && reportRows.length > 0) {
+        const normalizedReportData = normalizeDailyReportRows(reportRows);
+        setDailyData(normalizedReportData);
+        calculateStats(normalizedReportData, 'daily');
+        setHoveredIndex(null);
+        return;
+      }
+    } catch (error) {
+      console.error('Error fetching daily report data:', error);
+    }
 
     const response = await axios.get(
       getMeterDailyConsumptionUrl(siteId, monthParam)
     );
 
-    const data = response.data?.data || [];
+    const data = normalizeDailyConsumptionRows(response.data?.data || []);
     setDailyData(data);
     calculateStats(data, 'daily');
     setHoveredIndex(null);
@@ -140,6 +160,64 @@ export default function EnergyReport() {
     return (kwh * ratePerKwh).toFixed(2);
   };
 
+  const getDailyUnits = (item) => {
+    const value = item?.daily_units ?? item?.energy_used ?? item?.kwh_delta ?? item?.total_kwh ?? 0;
+    return Number(value) || 0;
+  };
+
+  const getDailyAmount = (item) => {
+    if (item?.daily_amount != null) {
+      return parseFloat(item.daily_amount) || 0;
+    }
+    if (item?.energy_amount != null) {
+      return parseFloat(item.energy_amount) || 0;
+    }
+    return parseFloat(calculateAmount(getDailyUnits(item)));
+  };
+
+  const normalizeDayLabel = (value, fallbackIndex) => {
+    if (value == null || value === '') {
+      return `${fallbackIndex + 1}`;
+    }
+
+    if (typeof value === 'number') {
+      return value.toString();
+    }
+
+    const trimmedValue = String(value).trim();
+    const dateMatch = trimmedValue.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (dateMatch) {
+      return String(Number(dateMatch[3]));
+    }
+
+    const dayMatch = trimmedValue.match(/^(\d{1,2})/);
+    if (dayMatch) {
+      return String(Number(dayMatch[1]));
+    }
+
+    return `${fallbackIndex + 1}`;
+  };
+
+  const normalizeDailyReportRows = (rows) => {
+    return [...rows]
+      .sort((a, b) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime())
+      .map((item, index) => ({
+        ...item,
+        day: normalizeDayLabel(item.date, index),
+        daily_units: Number(item.energy_used) || 0,
+        daily_amount: Number(item.energy_amount) || 0,
+      }));
+  };
+
+  const normalizeDailyConsumptionRows = (rows) => {
+    return rows.map((item, index) => ({
+      ...item,
+      day: normalizeDayLabel(item.day || item.date, index),
+      daily_units: getDailyUnits(item),
+      daily_amount: getDailyAmount(item),
+    }));
+  };
+
   const calculateStats = (data, type) => {
     if (!data || data.length === 0) {
       resetStats();
@@ -150,8 +228,8 @@ export default function EnergyReport() {
     let amounts = [];
     
     if (type === 'daily') {
-      units = data.map(item => Number(item.kwh_delta) || 0);
-      amounts = units.map(u => parseFloat(calculateAmount(u)));
+      units = data.map(item => getDailyUnits(item));
+      amounts = data.map(item => getDailyAmount(item));
     } else {
       units = data.map(item => Number(item.total_kwh) || 0);
       amounts = data.map(item => parseFloat(item.total_amount || calculateAmount(Number(item.total_kwh) || 0)));
@@ -186,8 +264,8 @@ export default function EnergyReport() {
   const getCurrentData = () => {
     if (timeView === 'daily') {
       return {
-        unitValues: dailyData.map(item => Number(item.kwh_delta) || 0),
-        amtValues: dailyData.map(item => parseFloat(calculateAmount(item.kwh_delta || 0))),
+        unitValues: dailyData.map(item => getDailyUnits(item)),
+        amtValues: dailyData.map(item => getDailyAmount(item)),
         labels: dailyData.map(item => item.day || ''),
         data: dailyData
       };
@@ -341,8 +419,8 @@ export default function EnergyReport() {
               ${currentData.data.map((item, index) => `
                 <tr>
                   <td>${timeView === 'daily' ? (item.day || `Day ${index + 1}`) : item.month}</td>
-                  <td>${timeView === 'daily' ? (Number(item.kwh_delta) || 0).toFixed(2) : (Number(item.total_kwh) || 0).toFixed(2)}</td>
-                  <td>₹${timeView === 'daily' ? calculateAmount(item.kwh_delta || 0) : (item.total_amount || '0.00')}</td>
+                  <td>${timeView === 'daily' ? getDailyUnits(item).toFixed(2) : (Number(item.total_kwh) || 0).toFixed(2)}</td>
+                  <td>₹${timeView === 'daily' ? getDailyAmount(item).toFixed(2) : (item.total_amount || '0.00')}</td>
                 </tr>
               `).join('')}
               <tr class="total-row">
@@ -808,11 +886,19 @@ export default function EnergyReport() {
                     const value = Number(v) || 0;
                     const bottomPos = value > 0 ? (value / (maxValue * 1.2)) * 80 : 0;
                     const isSelected = hoveredIndex === i;
+                    const prevBottomPos = i > 0 ? ((Number(values[i - 1]) || 0) / (maxValue * 1.2)) * 80 : -100;
+                    const nextBottomPos = i < values.length - 1 ? ((Number(values[i + 1]) || 0) / (maxValue * 1.2)) * 80 : -100;
+                    const isTightCluster = Math.abs(bottomPos - prevBottomPos) < 9 || Math.abs(bottomPos - nextBottomPos) < 9;
+                    const labelOffset = isTightCluster ? (i % 2 === 0 ? 18 : 10) : 8;
+                    const dailyLabelBottom = Math.min(bottomPos + labelOffset, 92);
+                    const formattedDailyValue = value.toFixed(0);
+                    const dailyLabelWidth = Math.max(28, formattedDailyValue.length * 7 + 8);
+                    const pointWidth = Math.max(barWidth + 8, Math.min(34, dailyLabelWidth + 2));
                     
                     return (
                       <TouchableOpacity 
                         key={i}
-                        style={[styles.dotContainer, { width: barWidth + 8 }]}
+                        style={[styles.dotContainer, { width: pointWidth }]}
                         onPress={() => handleBarPress(i)}
                         activeOpacity={0.7}
                       >
@@ -834,31 +920,32 @@ export default function EnergyReport() {
                         {(showAllValues || isSelected) && value > 0 && (
                           <View
                             style={[
-                              styles.valueLabel,
-                              {
-                                position: 'absolute',
-                                bottom: i % 2 === 0 ? 118 : 98,
-                                left: '50%',
-                                transform: [{ translateX: -12 }],
-                                backgroundColor: isDarkMode ? '#0f172a' : 'rgba(0,0,0,0.65)',
-                                borderColor: isDarkMode ? theme.border : 'transparent',
-                                paddingHorizontal: 4,
-                                paddingVertical: 2,
-                                minWidth: 26,
-                                borderRadius: 4,
-                              },
-                            ]}
+                             styles.valueLabel,
+                             {
+                               position: 'absolute',
+                               bottom: `${dailyLabelBottom}%`,
+                               left: '50%',
+                               width: dailyLabelWidth,
+                               transform: [{ translateX: -dailyLabelWidth / 2 }],
+                               backgroundColor: isDarkMode ? '#0f172a' : 'rgba(0,0,0,0.65)',
+                               borderColor: isDarkMode ? theme.border : 'transparent',
+                               paddingHorizontal: 4,
+                               paddingVertical: 2,
+                               minWidth: dailyLabelWidth,
+                               borderRadius: 6,
+                             },
+                           ]}
                           >
                             <Text
                               style={{
                                 fontSize: 8,
-                                fontWeight: '600',
+                                fontWeight: '700',
                                 color: '#FFFFFF',
                                 textAlign: 'center',
-                                letterSpacing: 0.2,
                               }}
+                              numberOfLines={1}
                             >
-                              {value.toFixed(0)}
+                              {formattedDailyValue}
                             </Text>
                           </View>
                         )}
@@ -870,7 +957,7 @@ export default function EnergyReport() {
                             ? (isDarkMode ? "#BFDBFE" : colors.primary)
                             : (isDarkMode ? "#94A3B8" : colors.gray400)
                         }]}>
-                          {i + 1}
+                          {currentData.labels[i] || i + 1}
                         </Text>
                       </TouchableOpacity>
                     );
@@ -888,6 +975,8 @@ export default function EnergyReport() {
                     const value = Number(v) || 0;
                     const barHeight = value > 0 ? (value / (maxValue * 1.2)) * 80 : 0;
                     const isSelected = hoveredIndex === i;
+                    const formattedValue = value.toFixed(isAmount ? 0 : 1);
+                    const labelWidth = Math.max(38, formattedValue.length * 6 + 8);
                     
                     return (
                       <TouchableOpacity 
@@ -908,23 +997,29 @@ export default function EnergyReport() {
                         
                         {(showAllValues || isSelected) && value > 0 && (
                           <View style={[styles.barValueLabel, { 
-                            bottom: `${Math.min(barHeight + 8, 85)}%`,
+                            bottom: `${Math.min(barHeight + 2, 84)}%`,
                             left: '50%',
-                            transform: [{ translateX: -20 }],
+                            width: labelWidth,
+                            transform: [{ translateX: -labelWidth / 2 }],
                             backgroundColor: isSelected ? 
                               (isAmount ? '#1E88E5' : '#02569B') : 
                               (isDarkMode ? theme.card : 'rgba(255, 255, 255, 0.95)'),
                             borderColor: isDarkMode ? theme.border : colors.gray200,
+                            paddingHorizontal: 4,
+                            paddingVertical: 2,
+                            minWidth: labelWidth,
                           }]}>
                             <Text style={[
                               styles.barValueText,
                               {
+                                fontSize: 8,
                                 color: isSelected
                                   ? '#FFFFFF'
                                   : (isDarkMode ? '#E2E8F0' : colors.primary)
                               }
-                            ]}>
-                              {value.toFixed(isAmount ? 0 : 1)}
+                            ]}
+                            numberOfLines={1}>
+                              {formattedValue}
                             </Text>
                           </View>
                         )}
