@@ -221,12 +221,12 @@ const customerDetails = {
   // const handlePayment = async () => {
   //   let amountToPay = selectedAmount;
     
-  //   if (customAmount && parseFloat(customAmount) >= 100) {
+  //   if (customAmount && parseFloat(customAmount) >= 1) {
   //     amountToPay = parseFloat(customAmount);
   //   }
     
-  //   if (!amountToPay || amountToPay < 100) {
-  //     Alert.alert('Invalid Amount', 'Please select or enter an amount (minimum ₹100)');
+  //   if (!amountToPay || amountToPay < 1) {
+  //     Alert.alert('Invalid Amount', 'Please select or enter an amount (minimum ₹1)');
   //     return;
   //   }
 
@@ -238,7 +238,7 @@ const customerDetails = {
   //     description: `Meter Recharge - ${customerDetails.accountId}`,
   //     image: 'https://i.imgur.com/39go799.png',
   //     currency: 'INR',
-  //     key: 'rzp_test_SSfXhot4B0w4lN',
+  //     key: 'rzp_live_SSxSG6mTWhD3nv',
   //     amount: totalAmount,
   //     name: 'Sochiot Innovation Pvt. Ltd.',
   //     prefill: {
@@ -304,12 +304,12 @@ const customerDetails = {
   const handlePayment = async () => {
   let amountToPay = selectedAmount;
 
-  if (customAmount && parseFloat(customAmount) >= 100) {
+  if (customAmount && parseFloat(customAmount) >= 1) {
     amountToPay = parseFloat(customAmount);
   }
 
-  if (!amountToPay || amountToPay < 100) {
-    Alert.alert('Invalid Amount', 'Please select or enter minimum ₹100');
+  if (!amountToPay || amountToPay < 1) {
+    Alert.alert('Invalid Amount', 'Please select or enter minimum ₹1');
     return;
   }
 
@@ -322,7 +322,7 @@ const customerDetails = {
     const options = {
       description: `Meter Recharge - ${customerDetails.accountId}`,
       currency: 'INR',
-      key: 'rzp_test_SSfXhot4B0w4lN',
+      key: 'rzp_live_SSxSG6mTWhD3nv',
       amount: totalAmount,
       name: 'Sochiot Innovation Pvt. Ltd.',
       image: 'https://i.imgur.com/39go799.png',
@@ -392,12 +392,12 @@ const customerDetails = {
       setNumpadValue('');
     } else if (value === 'done') {
       const amt = parseFloat(numpadValue);
-      if (amt >= 100 && amt <= 50000) {
+      if (amt >= 1 && amt <= 50000) {
         setCustomAmount(numpadValue);
         setSelectedAmount(null);
         setShowNumpad(false);
       } else {
-        Alert.alert('Invalid Amount', 'Please enter an amount between ₹100 to ₹50,000');
+        Alert.alert('Invalid Amount', 'Please enter an amount between ₹1 to ₹50,000');
       }
     } else if (value === '.') {
       if (!numpadValue.includes('.')) {
@@ -584,7 +584,7 @@ const customerDetails = {
                 <Icon name="create" size={20} color="#4f46e5" />
                 <Text style={[styles.sectionTitle, { color: theme.text }]}>Custom Amount</Text>
               </View>
-              <Text style={[styles.sectionSubtitle, { color: theme.mutedText }]}>Enter any amount between ₹100 - ₹50,000</Text>
+              <Text style={[styles.sectionSubtitle, { color: theme.mutedText }]}>Enter any amount between ₹1 - ₹50,000</Text>
             </View>
             <View style={[styles.customAmountContainer, { backgroundColor: theme.surface, shadowColor: theme.shadow }]}>
               <View style={[styles.amountInputWrapper, { borderColor: theme.border, backgroundColor: theme.card }]}>
