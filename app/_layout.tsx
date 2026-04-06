@@ -7,18 +7,20 @@ import { ActivityIndicator, View, StyleSheet, StatusBar } from "react-native";
 import { useEffect } from "react";
 import * as SplashScreen from 'expo-splash-screen';
 import { ThemeProvider, useTheme } from "./context/ThemeContext";
+import { EnergyUnitProvider, useEnergyUnit } from "./context/EnergyUnitContext";
 
 SplashScreen.preventAutoHideAsync();
 
 function LayoutContent() {
   const { user, loading } = useAuth();
   const { theme, isDarkMode, themeLoading } = useTheme();
+  const { energyUnitLoading } = useEnergyUnit();
 
   useEffect(() => {
-    if (!loading && !themeLoading) {
+    if (!loading && !themeLoading && !energyUnitLoading) {
       SplashScreen.hideAsync();
     }
-  }, [loading, themeLoading]);
+  }, [loading, themeLoading, energyUnitLoading]);
 
   useEffect(() => {
     if (isRunningInExpoGo()) return;
@@ -52,7 +54,7 @@ function LayoutContent() {
     };
   }, []);
 
-  if (loading || themeLoading) {
+  if (loading || themeLoading || energyUnitLoading) {
     return (
       <View style={[styles.container, { backgroundColor: theme.background }]}>
         <StatusBar
@@ -89,9 +91,11 @@ function LayoutContent() {
 export default function RootLayout() {
   return (
     <ThemeProvider>
-      <AuthProvider>
-        <LayoutContent />
-      </AuthProvider>
+      <EnergyUnitProvider>
+        <AuthProvider>
+          <LayoutContent />
+        </AuthProvider>
+      </EnergyUnitProvider>
     </ThemeProvider>
   );
 }

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Dimensions, ScrollView, StyleSheet, Text, TouchableOpacity, View, Modal,
   ActivityIndicator, Alert, Platform, NativeModules
@@ -11,6 +11,7 @@ import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
+import { useEnergyUnit } from '../context/EnergyUnitContext';
 import axios from 'axios';
 import { getMeterDailyConsumptionUrl, getMeterMonthlyConsumptionUrl, getYearlyConsumptionUrl, getMeterMonthlyReportUrl } from '../config';
 
@@ -21,6 +22,7 @@ const { ReportDownload } = NativeModules;
 export default function EnergyReport() {
   const { getSiteId } = useAuth();
   const { theme, isDarkMode } = useTheme();
+  const { energyUnitMode, showsKwh, showsKvah } = useEnergyUnit();
   
   const [timeView, setTimeView] = useState('daily');
   const [showFilter, setShowFilter] = useState(false);
@@ -32,15 +34,19 @@ export default function EnergyReport() {
   const [hoveredIndex, setHoveredIndex] = useState(null);
   const [showAllValues, setShowAllValues] = useState(true);
   const [isGeneratingReport, setIsGeneratingReport] = useState(false);
+  const graphScrollRef = useRef(null);
   
   const [dailyData, setDailyData] = useState([]);
   const [monthlyData, setMonthlyData] = useState([]);
   const [stats, setStats] = useState({
     avgU: '0.00',
     maxU: '0.00',
+    avgKvah: '0.00',
+    maxKvah: '0.00',
     avgA: '0.00',
     maxA: '0.00',
     totalUnits: '0.00',
+    totalKvah: '0.00',
     totalAmount: '0.00'
   });
 
@@ -65,6 +71,22 @@ export default function EnergyReport() {
     }
   }, [selectedMonth, selectedYear, timeView]);
 
+  useEffect(() => {
+    if (energyUnitMode !== 'both') return;
+
+    const currentLength = timeView === 'daily' ? dailyData.length : monthlyData.length;
+    if (!currentLength) return;
+
+    const defaultIndex = currentLength - 1;
+    setHoveredIndex(defaultIndex);
+
+    const timer = setTimeout(() => {
+      graphScrollRef.current?.scrollToEnd?.({ animated: true });
+    }, 120);
+
+    return () => clearTimeout(timer);
+  }, [energyUnitMode, timeView, dailyData.length, monthlyData.length]);
+
   const fetchData = async () => {
     const siteId = getSiteId();
     if (!siteId) return;
@@ -87,33 +109,50 @@ export default function EnergyReport() {
     const monthParam = `${selectedYear}-${monthIndex.toString().padStart(2, '0')}`;
 
     try {
-      const reportResponse = await axios.get(
-        getMeterMonthlyReportUrl(siteId, monthParam),
-        {
+      const [consumptionResponse, reportResponse] = await Promise.allSettled([
+        axios.get(getMeterDailyConsumptionUrl(siteId, monthParam)),
+        axios.get(getMeterMonthlyReportUrl(siteId, monthParam), {
           headers: { 'Content-Type': 'application/json' }
-        }
+        }),
+      ]);
+
+      const normalizedConsumptionData =
+        consumptionResponse.status === 'fulfilled'
+          ? normalizeDailyConsumptionRows(consumptionResponse.value.data?.data || [])
+          : [];
+
+      const normalizedReportData =
+        reportResponse.status === 'fulfilled'
+          ? normalizeDailyReportRows(reportResponse.value.data?.reports || [])
+          : [];
+
+      const reportDataByDay = new Map(
+        normalizedReportData.map((item) => [String(item.day), item])
       );
 
-      const reportRows = reportResponse.data?.reports;
-      if (Array.isArray(reportRows) && reportRows.length > 0) {
-        const normalizedReportData = normalizeDailyReportRows(reportRows);
-        setDailyData(normalizedReportData);
-        calculateStats(normalizedReportData, 'daily');
-        setHoveredIndex(null);
-        return;
-      }
+      const mergedDailyData =
+        normalizedConsumptionData.length > 0
+          ? normalizedConsumptionData.map((item) => ({
+              ...item,
+              ...(reportDataByDay.get(String(item.day)) || {}),
+              day: item.day,
+              daily_units: getDailyUnits(item),
+              daily_kvah: getDailyKvah(item),
+              daily_kvah_delta: getDailyKvahDelta(item),
+              daily_amount:
+                reportDataByDay.get(String(item.day))?.daily_amount ?? item.daily_amount,
+            }))
+          : normalizedReportData;
+
+      setDailyData(mergedDailyData);
+      calculateStats(mergedDailyData, 'daily');
+      setHoveredIndex(null);
     } catch (error) {
-      console.error('Error fetching daily report data:', error);
+      console.error('Error fetching daily data:', error);
+      setDailyData([]);
+      calculateStats([], 'daily');
+      setHoveredIndex(null);
     }
-
-    const response = await axios.get(
-      getMeterDailyConsumptionUrl(siteId, monthParam)
-    );
-
-    const data = normalizeDailyConsumptionRows(response.data?.data || []);
-    setDailyData(data);
-    calculateStats(data, 'daily');
-    setHoveredIndex(null);
   };
 
   const fetchYearlyMonthlyData = async (siteId, year) => {
@@ -142,10 +181,12 @@ export default function EnergyReport() {
       if (apiData && Array.isArray(apiData.monthly_consumption)) {
         return apiData.monthly_consumption.map((item) => {
           const kwh = Number(item.total_kwh) || 0;
+          const kvah = getMonthlyKvah(item);
           return {
             month: item.month,
             monthNumber: Number(item.month_key?.split('-')[1]) || 0,
             total_kwh: kwh,
+            total_kvah: kvah,
             total_amount: calculateAmount(kwh),
           };
         });
@@ -160,10 +201,129 @@ export default function EnergyReport() {
     return (kwh * ratePerKwh).toFixed(2);
   };
 
+  const getNumericValue = (value, fallback = 0) => {
+    const numericValue = Number(value);
+    return Number.isNaN(numericValue) ? fallback : numericValue;
+  };
+
+  const findMetricValue = (source, keys) => {
+    if (!source) return null;
+
+    const normalizeKey = (key) => String(key).toLowerCase().replace(/[^a-z0-9]/g, '');
+    const normalizedKeys = keys.map((key) => normalizeKey(key));
+    const visited = new Set();
+
+    const searchNested = (value) => {
+      if (value == null || typeof value !== 'object') return null;
+      if (visited.has(value)) return null;
+      visited.add(value);
+
+      if (Array.isArray(value)) {
+        for (const item of value) {
+          const nestedMatch = searchNested(item);
+          if (nestedMatch != null) {
+            return nestedMatch;
+          }
+        }
+        return null;
+      }
+
+      for (const [entryKey, entryValue] of Object.entries(value)) {
+        const normalizedEntryKey = normalizeKey(entryKey);
+        const matchesRequestedKey = normalizedKeys.some(
+          (key) =>
+            normalizedEntryKey === key ||
+            normalizedEntryKey.includes(key) ||
+            key.includes(normalizedEntryKey)
+        );
+
+        if (matchesRequestedKey && entryValue != null && entryValue !== '') {
+          const numericValue = Number(entryValue);
+          if (!Number.isNaN(numericValue)) {
+            return numericValue;
+          }
+        }
+      }
+
+      for (const entryValue of Object.values(value)) {
+        const nestedMatch = searchNested(entryValue);
+        if (nestedMatch != null) {
+          return nestedMatch;
+        }
+      }
+
+      return null;
+    };
+
+    return searchNested(source);
+  };
+
   const getDailyUnits = (item) => {
     const value = item?.daily_units ?? item?.energy_used ?? item?.kwh_delta ?? item?.total_kwh ?? 0;
     return Number(value) || 0;
   };
+
+  const getDailyKvah = (item) => {
+    return findMetricValue(item, [
+      'kvah_delta',
+      'apparent_energy_delta',
+      'daily_kvah',
+      'energy_kvah',
+      'total_kvah',
+      'today_kvah',
+      'closing_kVAh',
+      'opening_kVAh',
+    ]);
+  };
+
+  const getDailyKvahDelta = (item) => {
+    const directValue =
+      item?.daily_kvah_delta ??
+      item?.kvah_delta ??
+      item?.apparent_energy_delta ??
+      item?.daily_kvah ??
+      item?.energy_kvah;
+
+    if (directValue != null && directValue !== '') {
+      return getNumericValue(directValue, 0);
+    }
+
+    return findMetricValue(item, [
+      'daily_kvah_delta',
+      'kvah_delta',
+      'apparent_energy_delta',
+      'daily_kvah',
+      'energy_kvah',
+    ]);
+  };
+
+  const getMonthlyKvah = (item) => {
+    return findMetricValue(item, [
+      'total_kvah',
+      'monthly_kvah',
+      'kvah',
+      'apparent_energy',
+      'apparent_energy_total',
+      'current_kvah',
+    ]);
+  };
+
+  const getDisplayEnergyValue = (kwhValue, kvahValue) => {
+    if (energyUnitMode === 'kvah') {
+      return kvahValue != null ? kvahValue : 0;
+    }
+
+    return kwhValue;
+  };
+
+  const energyGraphTitle =
+    energyUnitMode === 'kvah'
+      ? 'Units (kVAh)'
+      : energyUnitMode === 'both'
+        ? 'Units (kWh / kVAh)'
+        : 'Units (kWh)';
+
+  const energyGraphUnit = energyUnitMode === 'kvah' ? 'kVAh' : 'kWh';
 
   const getDailyAmount = (item) => {
     if (item?.daily_amount != null) {
@@ -205,6 +365,8 @@ export default function EnergyReport() {
         ...item,
         day: normalizeDayLabel(item.date, index),
         daily_units: Number(item.energy_used) || 0,
+        daily_kvah: getDailyKvah(item),
+        daily_kvah_delta: getDailyKvahDelta(item),
         daily_amount: Number(item.energy_amount) || 0,
       }));
   };
@@ -214,6 +376,8 @@ export default function EnergyReport() {
       ...item,
       day: normalizeDayLabel(item.day || item.date, index),
       daily_units: getDailyUnits(item),
+      daily_kvah: getDailyKvah(item),
+      daily_kvah_delta: getDailyKvahDelta(item),
       daily_amount: getDailyAmount(item),
     }));
   };
@@ -225,27 +389,38 @@ export default function EnergyReport() {
     }
 
     let units = [];
+    let kvahUnits = [];
     let amounts = [];
     
     if (type === 'daily') {
       units = data.map(item => getDailyUnits(item));
+      kvahUnits = data
+        .map(item => item?.daily_kvah_delta ?? getDailyKvahDelta(item))
+        .filter(item => item != null)
+        .map(item => getNumericValue(item, 0));
       amounts = data.map(item => getDailyAmount(item));
     } else {
       units = data.map(item => Number(item.total_kwh) || 0);
+      kvahUnits = data.map(item => getMonthlyKvah(item)).filter(item => item != null);
       amounts = data.map(item => parseFloat(item.total_amount || calculateAmount(Number(item.total_kwh) || 0)));
     }
     
     const totalUnits = units.reduce((sum, val) => sum + val, 0);
+    const totalKvah = kvahUnits.reduce((sum, val) => sum + val, 0);
     const totalAmount = amounts.reduce((sum, val) => sum + val, 0);
     const maxUnit = units.length > 0 ? Math.max(...units) : 1;
+    const maxKvah = kvahUnits.length > 0 ? Math.max(...kvahUnits) : 0;
     const maxAmount = amounts.length > 0 ? Math.max(...amounts) : 1;
     
     setStats({
       avgU: units.length > 0 ? (totalUnits / units.length).toFixed(2) : '0.00',
       maxU: maxUnit.toFixed(2),
+      avgKvah: kvahUnits.length > 0 ? (totalKvah / kvahUnits.length).toFixed(2) : '0.00',
+      maxKvah: maxKvah.toFixed(2),
       avgA: amounts.length > 0 ? (totalAmount / amounts.length).toFixed(2) : '0.00',
       maxA: maxAmount.toFixed(2),
       totalUnits: totalUnits.toFixed(2),
+      totalKvah: totalKvah.toFixed(2),
       totalAmount: totalAmount.toFixed(2)
     });
   };
@@ -254,9 +429,12 @@ export default function EnergyReport() {
     setStats({
       avgU: '0.00',
       maxU: '0.00',
+      avgKvah: '0.00',
+      maxKvah: '0.00',
       avgA: '0.00',
       maxA: '0.00',
       totalUnits: '0.00',
+      totalKvah: '0.00',
       totalAmount: '0.00'
     });
   };
@@ -264,14 +442,18 @@ export default function EnergyReport() {
   const getCurrentData = () => {
     if (timeView === 'daily') {
       return {
-        unitValues: dailyData.map(item => getDailyUnits(item)),
+        unitValues: dailyData.map(item =>
+          energyUnitMode === 'kvah'
+            ? getNumericValue(item?.daily_kvah_delta ?? getDailyKvahDelta(item), 0)
+            : getDisplayEnergyValue(getDailyUnits(item), getDailyKvah(item))
+        ),
         amtValues: dailyData.map(item => getDailyAmount(item)),
         labels: dailyData.map(item => item.day || ''),
         data: dailyData
       };
     } else {
       return {
-        unitValues: monthlyData.map(item => Number(item.total_kwh) || 0),
+        unitValues: monthlyData.map(item => getDisplayEnergyValue(Number(item.total_kwh) || 0, getMonthlyKvah(item))),
         amtValues: monthlyData.map(item => parseFloat(item.total_amount || calculateAmount(item.total_kwh || 0))),
         labels: monthlyData.map(item => item.month || ''),
         data: monthlyData
@@ -401,9 +583,14 @@ export default function EnergyReport() {
                 <span class="summary-value">${timeView === 'daily' ? 'Daily' : 'Monthly'} View</span>
               </div>
               <div class="summary-row">
-                <span class="summary-label">Total Units:</span>
-                <span class="summary-value">${stats.totalUnits} kWh</span>
+                <span class="summary-label">${energyUnitMode === 'kvah' ? 'Total kVAh:' : 'Total Units:'}</span>
+                <span class="summary-value">${energyUnitMode === 'kvah' ? `${stats.totalKvah} kVAh` : `${stats.totalUnits} kWh`}</span>
               </div>
+              ${showsKwh && showsKvah ? `
+              <div class="summary-row">
+                <span class="summary-label">Total kVAh:</span>
+                <span class="summary-value">${stats.totalKvah} kVAh</span>
+              </div>` : ''}
               <div class="summary-row">
                 <span class="summary-label">Total Amount:</span>
                 <span class="summary-value">₹${stats.totalAmount}</span>
@@ -413,19 +600,26 @@ export default function EnergyReport() {
             <table>
               <tr>
                 <th>${timeView === 'daily' ? 'Date' : 'Month'}</th>
-                <th>Units (kWh)</th>
+                <th>${energyUnitMode === 'kvah' ? 'Units (kVAh)' : 'Units (kWh)'}</th>
+                ${showsKwh && showsKvah ? '<th>Units (kVAh)</th>' : ''}
                 <th>Amount (₹)</th>
               </tr>
               ${currentData.data.map((item, index) => `
                 <tr>
                   <td>${timeView === 'daily' ? (item.day || `Day ${index + 1}`) : item.month}</td>
-                  <td>${timeView === 'daily' ? getDailyUnits(item).toFixed(2) : (Number(item.total_kwh) || 0).toFixed(2)}</td>
+                  <td>${timeView === 'daily'
+                    ? (energyUnitMode === 'kvah'
+                      ? getNumericValue(item?.daily_kvah_delta ?? getDailyKvahDelta(item), 0).toFixed(2)
+                      : getDisplayEnergyValue(getDailyUnits(item), getDailyKvah(item)).toFixed(2))
+                    : getDisplayEnergyValue(Number(item.total_kwh) || 0, getMonthlyKvah(item)).toFixed(2)}</td>
+                  ${showsKwh && showsKvah ? `<td>${timeView === 'daily' ? (getDailyKvah(item) != null ? getDailyKvah(item).toFixed(2) : '0.00') : (getMonthlyKvah(item) != null ? getMonthlyKvah(item).toFixed(2) : '0.00')}</td>` : ''}
                   <td>₹${timeView === 'daily' ? getDailyAmount(item).toFixed(2) : (item.total_amount || '0.00')}</td>
                 </tr>
               `).join('')}
               <tr class="total-row">
                 <td><strong>Total</strong></td>
-                <td><strong>${stats.totalUnits} kWh</strong></td>
+                <td><strong>${energyUnitMode === 'kvah' ? `${stats.totalKvah} kVAh` : `${stats.totalUnits} kWh`}</strong></td>
+                ${showsKwh && showsKvah ? `<td><strong>${stats.totalKvah} kVAh</strong></td>` : ''}
                 <td><strong>₹${stats.totalAmount}</strong></td>
               </tr>
             </table>
@@ -798,8 +992,39 @@ export default function EnergyReport() {
   const GraphCard = ({ title, unit, isAmount }) => {
     const currentData = getCurrentData();
     const values = isAmount ? currentData.amtValues : currentData.unitValues;
-    const maxValue = Math.max(...values.filter(v => !isNaN(v)), 1);
+    const isDualEnergyMode = !isAmount && energyUnitMode === 'both';
+    const secondaryValues = !isAmount && energyUnitMode === 'both'
+      ? (
+          timeView === 'daily'
+            ? dailyData.map((item) => getNumericValue(item?.daily_kvah_delta ?? getDailyKvahDelta(item), 0))
+            : monthlyData.map((item) => getNumericValue(getMonthlyKvah(item), 0))
+        )
+      : [];
+    const showKvahStats = !isAmount && Number(stats.totalKvah) > 0;
+    const primaryAverage = isAmount
+      ? stats.avgA
+      : energyUnitMode === 'kvah'
+        ? stats.avgKvah
+        : stats.avgU;
+    const primaryMaximum = isAmount
+      ? stats.maxA
+      : energyUnitMode === 'kvah'
+        ? stats.maxKvah
+        : stats.maxU;
+    const primaryTotal = isAmount
+      ? stats.totalAmount
+      : energyUnitMode === 'kvah'
+        ? stats.totalKvah
+        : stats.totalUnits;
+    const maxValue = Math.max(
+      ...[...values, ...secondaryValues].filter(v => !isNaN(v)),
+      1
+    );
     const dataLength = timeView === 'daily' ? dailyData.length : 12;
+    const selectedDetailIndex =
+      isDualEnergyMode && values.length > 0
+        ? (hoveredIndex ?? values.length - 1)
+        : null;
     
     const barWidth = timeView === 'daily' 
       ? Math.max(8, Math.min(16, (width - 100) / Math.min(dataLength, 31)))
@@ -847,26 +1072,44 @@ export default function EnergyReport() {
           </TouchableOpacity>
         </View>
 
-        <TouchableOpacity 
-          style={[
-            styles.toggleValuesButton,
-            {
-              backgroundColor: isDarkMode ? theme.card : "#F8FBFF",
-              borderColor: isDarkMode ? theme.primary : "#0F6CBD",
-            },
-          ]}
-          onPress={handleToggleValues}
-          activeOpacity={0.7}
-        >
-          <Ionicons 
-            name={showAllValues ? "eye-off-outline" : "eye-outline"} 
-            size={16} 
-            color={isDarkMode ? "#93C5FD" : theme.primary} 
-          />
-          <Text style={[styles.toggleValuesText, { color: isDarkMode ? "#BFDBFE" : theme.primary }]}>
-            {showAllValues ? 'Hide Values' : 'Show Values'}
-          </Text>
-        </TouchableOpacity>
+        {!isDualEnergyMode && (
+          <TouchableOpacity 
+            style={[
+              styles.toggleValuesButton,
+              {
+                backgroundColor: isDarkMode ? theme.card : "#F8FBFF",
+                borderColor: isDarkMode ? theme.primary : "#0F6CBD",
+              },
+            ]}
+            onPress={handleToggleValues}
+            activeOpacity={0.7}
+          >
+            <Ionicons 
+              name={showAllValues ? "eye-off-outline" : "eye-outline"} 
+              size={16} 
+              color={isDarkMode ? "#93C5FD" : theme.primary} 
+            />
+            <Text style={[styles.toggleValuesText, { color: isDarkMode ? "#BFDBFE" : theme.primary }]}>
+              {showAllValues ? 'Hide Values' : 'Show Values'}
+            </Text>
+          </TouchableOpacity>
+        )}
+
+        {isDualEnergyMode && (
+          <View style={styles.seriesLegendWrap}>
+            <View style={styles.seriesLegend}>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendDot, { backgroundColor: '#02569B' }]} />
+                <Text style={[styles.legendText, { color: theme.mutedText }]}>kWh</Text>
+              </View>
+              <Text style={[styles.legendSeparator, { color: theme.mutedText }]}>|</Text>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendDot, styles.legendDiamond, { backgroundColor: '#16A34A' }]} />
+                <Text style={[styles.legendText, { color: theme.mutedText }]}>kVAh</Text>
+              </View>
+            </View>
+          </View>
+        )}
 
         <View style={styles.graphBody}>
           <View style={styles.yAxis}>
@@ -877,6 +1120,7 @@ export default function EnergyReport() {
           <View style={styles.chartSpace}>
             {timeView === 'daily' ? (
               <ScrollView 
+                ref={graphScrollRef}
                 horizontal
                 showsHorizontalScrollIndicator={true}
                 contentContainerStyle={styles.scrollableGraph}
@@ -884,7 +1128,9 @@ export default function EnergyReport() {
                 <View style={styles.pointsRow}>
                   {values.map((v, i) => {
                     const value = Number(v) || 0;
+                    const secondaryValue = Number(secondaryValues[i]) || 0;
                     const bottomPos = value > 0 ? (value / (maxValue * 1.2)) * 80 : 0;
+                    const secondaryBottomPos = secondaryValue > 0 ? (secondaryValue / (maxValue * 1.2)) * 80 : 0;
                     const isSelected = hoveredIndex === i;
                     const prevBottomPos = i > 0 ? ((Number(values[i - 1]) || 0) / (maxValue * 1.2)) * 80 : -100;
                     const nextBottomPos = i < values.length - 1 ? ((Number(values[i + 1]) || 0) / (maxValue * 1.2)) * 80 : -100;
@@ -893,7 +1139,9 @@ export default function EnergyReport() {
                     const dailyLabelBottom = Math.min(bottomPos + labelOffset, 92);
                     const formattedDailyValue = value.toFixed(0);
                     const dailyLabelWidth = Math.max(28, formattedDailyValue.length * 7 + 8);
-                    const pointWidth = Math.max(barWidth + 8, Math.min(34, dailyLabelWidth + 2));
+                    const pointWidth = isDualEnergyMode
+                      ? Math.max(barWidth + 12, 42)
+                      : Math.max(barWidth + 8, Math.min(34, dailyLabelWidth + 2));
                     
                     return (
                       <TouchableOpacity 
@@ -908,6 +1156,19 @@ export default function EnergyReport() {
                             (isAmount ? '#1E88E5' : '#02569B') : 
                             'rgba(2, 86, 155, 0.3)'
                         }]} />
+
+                        {isDualEnergyMode && secondaryValue > 0 && (
+                          <View
+                            style={[
+                              styles.connectingLine,
+                              styles.secondaryConnectingLine,
+                              {
+                                height: `${secondaryBottomPos}%`,
+                                backgroundColor: isSelected ? '#16A34A' : 'rgba(22, 163, 74, 0.35)',
+                              },
+                            ]}
+                          />
+                        )}
                         
                         <View style={[
                           styles.dot, { 
@@ -916,8 +1177,38 @@ export default function EnergyReport() {
                             transform: [{ scale: isSelected ? 1.5 : 1 }]
                           }
                         ]} />
+
+                        {isDualEnergyMode && secondaryValue > 0 && (
+                          <View
+                            style={[
+                              styles.dot,
+                              styles.secondaryDot,
+                              {
+                                bottom: `${secondaryBottomPos}%`,
+                                backgroundColor: '#16A34A',
+                                transform: [{ rotate: '45deg' }, { scale: isSelected ? 1.3 : 1 }],
+                              },
+                            ]}
+                          />
+                        )}
+
+                        {isDualEnergyMode && (showAllValues || selectedDetailIndex === i) && (
+                          <View
+                            style={[
+                              styles.selectedSeriesLabel,
+                              {
+                                bottom: `${Math.min(Math.max(bottomPos, secondaryBottomPos) + (showAllValues ? (i % 2 === 0 ? 8 : 14) : 10), 88)}%`,
+                                left: '50%',
+                                transform: [{ translateX: -18 }],
+                              },
+                            ]}
+                          >
+                            <Text style={styles.selectedSeriesTextPrimary}>{value.toFixed(0)}</Text>
+                            <Text style={styles.selectedSeriesTextSecondary}>{secondaryValue.toFixed(0)}</Text>
+                          </View>
+                        )}
                         
-                        {(showAllValues || isSelected) && value > 0 && (
+                        {!isDualEnergyMode && (showAllValues || isSelected) && value > 0 && (
                           <View
                             style={[
                              styles.valueLabel,
@@ -949,7 +1240,7 @@ export default function EnergyReport() {
                             </Text>
                           </View>
                         )}
-                        
+
                         <Text style={[styles.dayLabel, { 
                           bottom: -20,
                           fontSize: dataLength > 20 ? 9 : 10,
@@ -966,6 +1257,7 @@ export default function EnergyReport() {
               </ScrollView>
             ) : (
               <ScrollView 
+                ref={graphScrollRef}
                 horizontal
                 showsHorizontalScrollIndicator={true}
                 contentContainerStyle={styles.scrollableGraph}
@@ -973,7 +1265,9 @@ export default function EnergyReport() {
                 <View style={styles.barGraphContainer}>
                   {values.map((v, i) => {
                     const value = Number(v) || 0;
+                    const secondaryValue = Number(secondaryValues[i]) || 0;
                     const barHeight = value > 0 ? (value / (maxValue * 1.2)) * 80 : 0;
+                    const secondaryBarHeight = secondaryValue > 0 ? (secondaryValue / (maxValue * 1.2)) * 80 : 0;
                     const isSelected = hoveredIndex === i;
                     const formattedValue = value.toFixed(isAmount ? 0 : 1);
                     const labelWidth = Math.max(38, formattedValue.length * 6 + 8);
@@ -985,17 +1279,31 @@ export default function EnergyReport() {
                         onPress={() => handleBarPress(i)}
                         activeOpacity={0.7}
                       >
-                        <View style={[
-                          styles.bar, 
-                          { 
-                            height: `${barHeight}%`,
-                            width: barWidth,
-                            backgroundColor: isAmount ? '#1E88E5' : '#02569B',
-                            opacity: isSelected ? 1 : 0.8
-                          }
-                        ]} />
+                        <View style={styles.dualBarWrapper}>
+                          <View style={[
+                            styles.bar, 
+                            { 
+                              height: `${barHeight}%`,
+                              width: energyUnitMode === 'both' ? Math.max(8, barWidth - 6) : barWidth,
+                              backgroundColor: isAmount ? '#1E88E5' : '#02569B',
+                              opacity: isSelected ? 1 : 0.8
+                            }
+                          ]} />
+                          {isDualEnergyMode && secondaryValue > 0 && (
+                            <View style={[
+                              styles.bar,
+                              styles.secondaryBar,
+                              {
+                                height: `${secondaryBarHeight}%`,
+                                width: Math.max(8, barWidth - 6),
+                                backgroundColor: '#16A34A',
+                                opacity: isSelected ? 1 : 0.88,
+                              }
+                            ]} />
+                          )}
+                        </View>
                         
-                        {(showAllValues || isSelected) && value > 0 && (
+                        {!isDualEnergyMode && (showAllValues || isSelected) && value > 0 && (
                           <View style={[styles.barValueLabel, { 
                             bottom: `${Math.min(barHeight + 2, 84)}%`,
                             left: '50%',
@@ -1023,7 +1331,23 @@ export default function EnergyReport() {
                             </Text>
                           </View>
                         )}
-                        
+
+                        {isDualEnergyMode && (showAllValues || selectedDetailIndex === i) && (
+                          <View
+                            style={[
+                              styles.selectedSeriesLabel,
+                              {
+                                bottom: `${Math.min(Math.max(barHeight, secondaryBarHeight) + (showAllValues ? (i % 2 === 0 ? 4 : 10) : 6), 86)}%`,
+                                left: '50%',
+                                transform: [{ translateX: -18 }],
+                              },
+                            ]}
+                          >
+                            <Text style={styles.selectedSeriesTextPrimary}>{value.toFixed(0)}</Text>
+                            <Text style={styles.selectedSeriesTextSecondary}>{secondaryValue.toFixed(0)}</Text>
+                          </View>
+                        )}
+
                         <Text style={[styles.monthLabel, { 
                           marginTop: 4,
                           fontSize: 10,
@@ -1044,13 +1368,65 @@ export default function EnergyReport() {
           </View>
         </View>
 
+        {isDualEnergyMode ? (
+          <View style={[styles.dualStatsContainer, { backgroundColor: isDarkMode ? theme.card : colors.gray100, borderColor: theme.border }]}>
+            <View style={styles.dualStatsHeader}>
+              <View style={styles.dualStatsHeaderItem}>
+                <View style={[styles.dualDetailDot, { backgroundColor: '#02569B' }]} />
+                <Text style={[styles.dualStatsHeaderText, { color: theme.mutedText }]}>kWh</Text>
+              </View>
+              <View style={styles.dualStatsHeaderItem}>
+                <View style={[styles.dualDetailDot, styles.dualDetailDiamond, { backgroundColor: '#16A34A' }]} />
+                <Text style={[styles.dualStatsHeaderText, { color: theme.mutedText }]}>kVAh</Text>
+              </View>
+            </View>
+            <View style={styles.dualStatsRow}>
+              <View style={styles.dualStatsMetric}>
+                <Text style={[styles.statTitle, { color: isDarkMode ? "#CBD5E1" : theme.mutedText }]}>Average</Text>
+                <Text style={[styles.statValBlue, { color: isDarkMode ? "#60A5FA" : colors.primary }]}>{stats.avgU}</Text>
+              </View>
+              <View style={[styles.vDivider, { backgroundColor: theme.border }]} />
+              <View style={styles.dualStatsMetric}>
+                <Text style={[styles.statTitle, { color: isDarkMode ? "#CBD5E1" : theme.mutedText }]}>Maximum</Text>
+                <Text style={[styles.statValRed, { color: isDarkMode ? "#F87171" : colors.danger }]}>{stats.maxU}</Text>
+              </View>
+              <View style={[styles.vDivider, { backgroundColor: theme.border }]} />
+              <View style={styles.dualStatsMetric}>
+                <Text style={[styles.statTitle, { color: isDarkMode ? "#CBD5E1" : theme.mutedText }]}>Total</Text>
+                <Text style={[styles.statValGreen, { color: isDarkMode ? "#4ADE80" : colors.secondary }]}>{stats.totalUnits}</Text>
+              </View>
+            </View>
+            <View style={[styles.hDivider, { backgroundColor: theme.border }]} />
+            <View style={styles.dualStatsRow}>
+              <View style={styles.dualStatsMetric}>
+                <Text style={[styles.statTitle, { color: isDarkMode ? "#CBD5E1" : theme.mutedText }]}>Average</Text>
+                <Text style={[styles.statValBlue, { color: '#16A34A' }]}>{stats.avgKvah}</Text>
+              </View>
+              <View style={[styles.vDivider, { backgroundColor: theme.border }]} />
+              <View style={styles.dualStatsMetric}>
+                <Text style={[styles.statTitle, { color: isDarkMode ? "#CBD5E1" : theme.mutedText }]}>Maximum</Text>
+                <Text style={[styles.statValRed, { color: '#15803D' }]}>{stats.maxKvah}</Text>
+              </View>
+              <View style={[styles.vDivider, { backgroundColor: theme.border }]} />
+              <View style={styles.dualStatsMetric}>
+                <Text style={[styles.statTitle, { color: isDarkMode ? "#CBD5E1" : theme.mutedText }]}>Total</Text>
+                <Text style={[styles.statValGreen, { color: '#16A34A' }]}>{stats.totalKvah}</Text>
+              </View>
+            </View>
+          </View>
+        ) : (
         <View style={[styles.statsContainer, { backgroundColor: isDarkMode ? theme.card : colors.gray100, borderColor: theme.border }]}>
           <View style={styles.statBox}>
             <Text style={[styles.statTitle, { color: isDarkMode ? "#CBD5E1" : theme.mutedText }]}>Average</Text>
             <Text style={[styles.statValBlue, { color: isDarkMode ? "#60A5FA" : colors.primary }]}>
-              {isAmount ? stats.avgA : stats.avgU}
+              {primaryAverage}
             </Text>
             <Text style={[styles.statUnit, { color: isDarkMode ? "#94A3B8" : theme.mutedText }]}>{unit}</Text>
+            {showKvahStats && energyUnitMode === 'both' && (
+              <Text style={[styles.secondaryMetric, { color: isDarkMode ? "#94A3B8" : theme.mutedText }]}>
+                {stats.avgKvah} kVAh
+              </Text>
+            )}
           </View>
           
           <View style={[styles.vDivider, { backgroundColor: theme.border }]} />
@@ -1058,9 +1434,14 @@ export default function EnergyReport() {
           <View style={styles.statBox}>
             <Text style={[styles.statTitle, { color: isDarkMode ? "#CBD5E1" : theme.mutedText }]}>Maximum</Text>
             <Text style={[styles.statValRed, { color: isDarkMode ? "#F87171" : colors.danger }]}>
-              {isAmount ? stats.maxA : stats.maxU}
+              {primaryMaximum}
             </Text>
             <Text style={[styles.statUnit, { color: isDarkMode ? "#94A3B8" : theme.mutedText }]}>{unit}</Text>
+            {showKvahStats && energyUnitMode === 'both' && (
+              <Text style={[styles.secondaryMetric, { color: isDarkMode ? "#94A3B8" : theme.mutedText }]}>
+                {stats.maxKvah} kVAh
+              </Text>
+            )}
           </View>
           
           <View style={[styles.vDivider, { backgroundColor: theme.border }]} />
@@ -1068,11 +1449,17 @@ export default function EnergyReport() {
           <View style={styles.statBox}>
             <Text style={[styles.statTitle, { color: isDarkMode ? "#CBD5E1" : theme.mutedText }]}>Total</Text>
             <Text style={[styles.statValGreen, { color: isDarkMode ? "#4ADE80" : colors.secondary }]}>
-              {isAmount ? stats.totalAmount : stats.totalUnits}
+              {primaryTotal}
             </Text>
             <Text style={[styles.statUnit, { color: isDarkMode ? "#94A3B8" : theme.mutedText }]}>{unit}</Text>
+            {showKvahStats && energyUnitMode === 'both' && (
+              <Text style={[styles.secondaryMetric, { color: isDarkMode ? "#94A3B8" : theme.mutedText }]}>
+                {stats.totalKvah} kVAh
+              </Text>
+            )}
           </View>
         </View>
+        )}
       </View>
     );
   };
@@ -1199,7 +1586,7 @@ export default function EnergyReport() {
       </View>
 
       <ScrollView contentContainerStyle={[styles.scroll, { backgroundColor: theme.background }]} showsVerticalScrollIndicator={false}>
-        <GraphCard title="Units (kWh)" unit="kWh" />
+        <GraphCard title={energyGraphTitle} unit={energyGraphUnit} />
         <View style={styles.spacer} />
       </ScrollView>
 
@@ -1556,6 +1943,46 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginLeft: spacing.xs,
   },
+  seriesLegendWrap: {
+    alignItems: 'center',
+    marginBottom: spacing.sm,
+  },
+  seriesLegend: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'center',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    borderRadius: borderRadius.round,
+    backgroundColor: colors.gray100,
+    borderWidth: 1,
+    borderColor: colors.gray200,
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 4,
+  },
+  legendDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 4,
+  },
+  legendDiamond: {
+    borderRadius: 2,
+    transform: [{ rotate: '45deg' }],
+  },
+  legendText: {
+    ...typography.tiny,
+    fontWeight: '700',
+    color: colors.gray500,
+  },
+  legendSeparator: {
+    ...typography.tiny,
+    fontWeight: '600',
+  },
 
   // Graph Components
   graphBody: {
@@ -1623,6 +2050,11 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: 0,
   },
+  secondaryConnectingLine: {
+    width: 2,
+    marginLeft: 10,
+    borderStyle: 'dashed',
+  },
   dot: {
     width: 10,
     height: 10,
@@ -1631,6 +2063,12 @@ const styles = StyleSheet.create({
     zIndex: 10,
     borderWidth: 2,
     borderColor: colors.white,
+  },
+  secondaryDot: {
+    marginLeft: 10,
+    width: 9,
+    height: 9,
+    borderRadius: 2,
   },
 
   // Value Labels
@@ -1650,6 +2088,92 @@ const styles = StyleSheet.create({
   valueLabelText: {
     fontSize: 10,
     fontWeight: '700',
+  },
+  secondaryValueLabel: {
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    minWidth: 34,
+  },
+  secondaryValueLabelText: {
+    fontSize: 8,
+    fontWeight: '700',
+    color: colors.white,
+    textAlign: 'center',
+  },
+  selectedSeriesLabel: {
+    position: 'absolute',
+    alignItems: 'center',
+    zIndex: 24,
+  },
+  selectedSeriesTextPrimary: {
+    fontSize: 7,
+    lineHeight: 8,
+    fontWeight: '800',
+    color: '#02569B',
+    textAlign: 'center',
+    backgroundColor: 'rgba(255,255,255,0.92)',
+    paddingHorizontal: 3,
+    paddingVertical: 1,
+    borderRadius: 6,
+    overflow: 'hidden',
+  },
+  selectedSeriesTextSecondary: {
+    fontSize: 7,
+    lineHeight: 8,
+    fontWeight: '800',
+    color: '#16A34A',
+    textAlign: 'center',
+    backgroundColor: 'rgba(255,255,255,0.92)',
+    paddingHorizontal: 3,
+    paddingVertical: 1,
+    borderRadius: 6,
+    marginTop: 2,
+    overflow: 'hidden',
+  },
+  dualDetailDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 6,
+  },
+  dualDetailDiamond: {
+    borderRadius: 2,
+    transform: [{ rotate: '45deg' }],
+  },
+  dualStatsContainer: {
+    borderRadius: borderRadius.lg,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+    borderWidth: 1,
+    marginBottom: spacing.lg,
+  },
+  dualStatsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: spacing.sm,
+    paddingHorizontal: spacing.sm,
+  },
+  dualStatsHeaderItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  dualStatsHeaderText: {
+    ...typography.tiny,
+    fontWeight: '700',
+  },
+  dualStatsRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+  },
+  dualStatsMetric: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 4,
+  },
+  hDivider: {
+    height: 1,
+    marginVertical: spacing.sm,
   },
   
   // Bar Graph Value Labels
@@ -1687,11 +2211,22 @@ const styles = StyleSheet.create({
     position: 'relative',
     marginHorizontal: 2,
   },
+  dualBarWrapper: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+    gap: 4,
+    minHeight: '100%',
+  },
   bar: {
     borderTopLeftRadius: borderRadius.sm,
     borderTopRightRadius: borderRadius.sm,
     marginBottom: spacing.xs,
     minHeight: 2,
+  },
+  secondaryBar: {
+    borderTopLeftRadius: borderRadius.sm,
+    borderTopRightRadius: borderRadius.sm,
   },
 
   // Statistics
@@ -1745,6 +2280,12 @@ const styles = StyleSheet.create({
   statUnit: {
     ...typography.tiny,
     color: colors.gray400,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  secondaryMetric: {
+    ...typography.tiny,
+    marginTop: 4,
     fontWeight: '600',
     textAlign: 'center',
   },

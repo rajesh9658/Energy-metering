@@ -112,6 +112,7 @@ useEffect(() => {
     fetchSiteData();
   }
 }, [siteInfo]);
+
 const fetchSiteData = async () => {
   try {
     setSiteLoading(true);

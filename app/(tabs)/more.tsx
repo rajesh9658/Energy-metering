@@ -17,6 +17,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getSiteDataUrl } from '../config';
 import { useAuth } from '../context/AuthContext'; // Adjust path as per your project
 import { useTheme } from '../context/ThemeContext';
+import { EnergyUnitMode, useEnergyUnit } from '../context/EnergyUnitContext';
 
 const { width } = Dimensions.get('window');
 const NOTIFICATION_PREFS_KEY = 'notificationPreferences';
@@ -31,6 +32,7 @@ export default function MoreScreen() {
   // AuthContext से data लें
   const { user, getSiteId, getSlug, getSiteName } = useAuth();
   const { theme, isDarkMode } = useTheme();
+  const { energyUnitMode, setEnergyUnitMode } = useEnergyUnit();
   const elevatedCardStyle = {
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 5 },
@@ -51,12 +53,39 @@ export default function MoreScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [showNotificationModal, setShowNotificationModal] = useState(false);
+  const [showEnergyUnitModal, setShowEnergyUnitModal] = useState(false);
   const [notificationPrefs, setNotificationPrefs] = useState(defaultNotificationPrefs);
   const [siteInfo, setSiteInfo] = useState({
     siteName: null,
     siteId: null,
     slug: null
   });
+
+  const energyUnitOptions: {
+    mode: EnergyUnitMode;
+    title: string;
+    shortLabel: string;
+    description: string;
+  }[] = [
+    {
+      mode: 'kwh',
+      title: 'kWh Only',
+      shortLabel: 'kWh',
+      description: 'Show only active energy values.',
+    },
+    {
+      mode: 'kvah',
+      title: 'kVAh Only',
+      shortLabel: 'kVAh',
+      description: 'Show only apparent energy values.',
+    },
+    {
+      mode: 'both',
+      title: 'Show Both',
+      shortLabel: 'Both',
+      description: 'Show kWh and kVAh together with clear separation.',
+    },
+  ];
 
   const menuItems = [
     { 
@@ -525,6 +554,29 @@ export default function MoreScreen() {
               </View>
             </TouchableOpacity>
 
+            <View style={[styles.settingDivider, { backgroundColor: theme.border }]} />
+
+            <TouchableOpacity style={styles.settingItem} activeOpacity={0.8} onPress={() => setShowEnergyUnitModal(true)}>
+              <View style={styles.settingLeft}>
+                <View style={[styles.settingIconContainer, { backgroundColor: theme.card }]}>
+                  <MaterialIcons name="tune" size={22} color={theme.primary} />
+                </View>
+                <View>
+                  <Text style={[styles.settingTitle, { color: theme.text }]}>Energy Display</Text>
+                  <Text style={[styles.settingDesc, { color: theme.mutedText }]}>
+                    {energyUnitOptions.find((option) => option.mode === energyUnitMode)?.title}
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.settingAction}>
+                <View style={[styles.energyModeChipInline, { backgroundColor: isDarkMode ? theme.card : "#E8F1FF" }]}>
+                  <Text style={[styles.energyModeChipInlineText, { color: theme.primary }]}>
+                    {energyUnitOptions.find((option) => option.mode === energyUnitMode)?.shortLabel}
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color={theme.mutedText} />
+              </View>
+            </TouchableOpacity>
           </View>
         </View>
         
@@ -679,6 +731,75 @@ export default function MoreScreen() {
                 <Text style={[styles.notificationModalBtnText, { color: '#fff' }]}>Save</Text>
               </TouchableOpacity>
             </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={showEnergyUnitModal} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.notificationModal, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+            <Text style={[styles.notificationModalTitle, { color: theme.text }]}>Energy Display</Text>
+            <Text style={[styles.notificationModalDesc, { color: theme.mutedText }]}>
+              Select how values should appear on overview and reports.
+            </Text>
+
+            {energyUnitOptions.map((option) => {
+              const isSelected = energyUnitMode === option.mode;
+
+              return (
+                <TouchableOpacity
+                  key={option.mode}
+                  activeOpacity={0.85}
+                  onPress={async () => {
+                    await setEnergyUnitMode(option.mode);
+                    setShowEnergyUnitModal(false);
+                  }}
+                  style={[
+                    styles.energyModalOption,
+                    {
+                      borderColor: isSelected ? theme.primary : theme.border,
+                      backgroundColor: isSelected
+                        ? (isDarkMode ? theme.card : "#F3F8FF")
+                        : (isDarkMode ? theme.surface : "#FFFFFF"),
+                    },
+                  ]}
+                >
+                  <View style={styles.energyModalOptionCopy}>
+                    <Text style={[styles.energyModalOptionTitle, { color: theme.text }]}>
+                      {option.title}
+                    </Text>
+                    <Text style={[styles.energyModalOptionDesc, { color: theme.mutedText }]}>
+                      {option.description}
+                    </Text>
+                  </View>
+                  <View
+                    style={[
+                      styles.energyModalCheck,
+                      {
+                        borderColor: isSelected ? theme.primary : theme.border,
+                        backgroundColor: isSelected ? theme.primary : "transparent",
+                      },
+                    ]}
+                  >
+                    {isSelected && <Ionicons name="checkmark" size={14} color="#FFFFFF" />}
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+
+            <TouchableOpacity
+              style={[
+                styles.energyModalCloseButton,
+                {
+                  backgroundColor: isDarkMode ? theme.card : '#F8FAFC',
+                  borderColor: theme.border,
+                },
+              ]}
+              onPress={() => setShowEnergyUnitModal(false)}
+            >
+              <Ionicons name="close-outline" size={18} color={isDarkMode ? "#E2E8F0" : theme.text} />
+              <Text style={[styles.energyModalCloseText, { color: isDarkMode ? "#E2E8F0" : theme.text }]}>Close Panel</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -1017,6 +1138,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
+  settingDivider: {
+    height: 1,
+    marginVertical: 18,
+  },
   settingAction: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1051,6 +1176,62 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#6b7280',
     lineHeight: 18,
+  },
+  energyModeChipInline: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    marginRight: 10,
+  },
+  energyModeChipInlineText: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+  },
+  energyModalOption: {
+    borderWidth: 1,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    marginBottom: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  energyModalOptionCopy: {
+    flex: 1,
+    paddingRight: 14,
+  },
+  energyModalOptionTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    marginBottom: 4,
+  },
+  energyModalOptionDesc: {
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  energyModalCheck: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  energyModalCloseButton: {
+    marginTop: 14,
+    minHeight: 48,
+    borderRadius: 14,
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  energyModalCloseText: {
+    fontSize: 15,
+    fontWeight: '700',
   },
   modalOverlay: {
     flex: 1,
