@@ -22,6 +22,7 @@ import {
 } from "../config";
 import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
+import { useEnergyUnit } from "../context/EnergyUnitContext";
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -64,6 +65,7 @@ export default function OverviewScreen({ route }) {
   // AuthContext से data लें
   const { user, getSiteId, getSlug, getSiteName } = useAuth();
   const { theme, isDarkMode } = useTheme();
+  const { energyUnitMode } = useEnergyUnit();
   
   // State for site info
   const [siteInfo, setSiteInfo] = useState({
@@ -131,12 +133,147 @@ export default function OverviewScreen({ route }) {
   const [error, setError] = useState(null);
   const [currentunit, setCurrentunit] = useState(null);
   const [currentconsumption, setCurrentconsumption] = useState(null);
+  
+  const getNumericValue = (source, keys, fallback = 0) => {
+    if (!source) return fallback;
+
+    const normalizeKey = (key) => String(key).toLowerCase().replace(/[^a-z0-9]/g, "");
+    const normalizedKeys = keys.map((key) => normalizeKey(key));
+    const visited = new Set();
+
+    const findNestedValue = (value) => {
+      if (value == null || typeof value !== "object") return undefined;
+      if (visited.has(value)) return undefined;
+      visited.add(value);
+
+      if (Array.isArray(value)) {
+        for (const item of value) {
+          const nestedMatch = findNestedValue(item);
+          if (nestedMatch !== undefined) {
+            return nestedMatch;
+          }
+        }
+        return undefined;
+      }
+
+      for (const [entryKey, entryValue] of Object.entries(value)) {
+        const normalizedEntryKey = normalizeKey(entryKey);
+        const matchesRequestedKey = normalizedKeys.some(
+          (key) =>
+            normalizedEntryKey === key ||
+            normalizedEntryKey.includes(key) ||
+            key.includes(normalizedEntryKey)
+        );
+
+        if (matchesRequestedKey && entryValue != null && entryValue !== "") {
+          return entryValue;
+        }
+      }
+
+      for (const entryValue of Object.values(value)) {
+        const nestedMatch = findNestedValue(entryValue);
+        if (nestedMatch !== undefined) {
+          return nestedMatch;
+        }
+      }
+
+      return undefined;
+    };
+
+    for (const key of keys) {
+      const value = source?.[key];
+      if (value != null && value !== "") {
+        const numericValue = Number(value);
+        if (!Number.isNaN(numericValue)) {
+          return numericValue;
+        }
+      }
+    }
+
+    const nestedValue = findNestedValue(source);
+    if (nestedValue != null && nestedValue !== "") {
+      const numericValue = Number(nestedValue);
+      if (!Number.isNaN(numericValue)) {
+        return numericValue;
+      }
+    }
+
+    return fallback;
+  };
+
+  const getEnergyDisplay = (kwhValue, kvahValue) => {
+    const safeKwh = Number(kwhValue || 0);
+    const hasKvah = kvahValue != null && !Number.isNaN(Number(kvahValue));
+    const safeKvah = hasKvah ? Number(kvahValue) : null;
+
+    if (energyUnitMode === "kvah") {
+      return {
+        value: safeKvah != null ? safeKvah.toFixed(2) : "--",
+        unit: "kVAh",
+      };
+    }
+
+    if (energyUnitMode === "both" && safeKvah != null) {
+      return {
+        value: `${safeKwh.toFixed(2)} | ${safeKvah.toFixed(2)}`,
+        unit: "kWh | kVAh",
+      };
+    }
+
+    return {
+      value: safeKwh.toFixed(2),
+      unit: "kWh",
+    };
+  };
+
+  const formatEnergyValue = (kwhValue, kvahValue) => {
+    const display = getEnergyDisplay(kwhValue, kvahValue);
+    if (energyUnitMode === "both" && kvahValue != null && !Number.isNaN(Number(kvahValue))) {
+      return `kWh  ${Number(kwhValue || 0).toFixed(2)}\nkVAh ${Number(kvahValue).toFixed(2)}`;
+    }
+
+    return `${display.value} ${display.unit}`;
+  };
+
+  const getEnergySplitDisplay = (kwhValue, kvahValue) => {
+    const safeKwh = Number(kwhValue || 0).toFixed(2);
+    const hasKvah = kvahValue != null && !Number.isNaN(Number(kvahValue));
+    const safeKvah = hasKvah ? Number(kvahValue).toFixed(2) : "--";
+
+    if (energyUnitMode === "both" && hasKvah) {
+      return {
+        primaryLabel: "kWh",
+        primaryValue: safeKwh,
+        secondaryLabel: "kVAh",
+        secondaryValue: safeKvah,
+        isDual: true,
+      };
+    }
+
+    if (energyUnitMode === "kvah") {
+      return {
+        primaryLabel: "kVAh",
+        primaryValue: safeKvah,
+        secondaryLabel: null,
+        secondaryValue: null,
+        isDual: false,
+      };
+    }
+
+    return {
+      primaryLabel: "kWh",
+      primaryValue: safeKwh,
+      secondaryLabel: null,
+      secondaryValue: null,
+      isDual: false,
+    };
+  };
 
 useEffect(() => {
   if (meterCurrentData && siteData) {
     updateCurrentSlide(meterCurrentData);
   }
-}, [meterCurrentData, siteData]);
+}, [meterCurrentData, siteData, todayKvah]);
 
 
 
@@ -155,6 +292,7 @@ useEffect(() => {
       ],
       consumptionData: {
         grid: 0.0,
+        kvah: null,
         dg: 0.0,
         total: 0.0,
         gridPercent: "0.00%",
@@ -174,6 +312,7 @@ useEffect(() => {
       ],
       consumptionData: {
         grid: 0.0,
+        kvah: null,
         dg: 0.0,
         total: 0.0,
         gridPercent: "0.00%",
@@ -193,6 +332,7 @@ useEffect(() => {
       ],
       consumptionData: {
         grid: 0.0,
+        kvah: null,
         dg: 0.0,
         total: 0.0,
         gridPercent: "0.00%",
@@ -210,6 +350,37 @@ useEffect(() => {
   const isUserSwipingRef = useRef(false);
   
   const active = slides[activeIndex];
+  const todayDailyEntry = meterDailyData?.data?.find((item) => {
+    const today = new Date();
+    const todayStr = `${today.getDate().toString().padStart(2, '0')} ${today.toLocaleString('default', { month: 'short' })}`;
+    return item.day === todayStr;
+  }) || meterDailyData?.data?.[meterDailyData.data.length - 1];
+  const todayKvah = getNumericValue(
+    todayDailyEntry,
+    ["kvah_delta", "daily_kvah", "total_kvah", "apparent_energy_delta", "today_kvah"],
+    null
+  );
+  const currentClosingKvah = getNumericValue(
+    siteData?.asset_information?.electric_parameters,
+    ["kvah", "total_kvah", "apparent_energy", "apparent_energy_total", "today_kvah", "current_kvah"],
+    null
+  );
+  const currentOpeningKvahRaw = getNumericValue(
+    meterCurrentData,
+    ["closing_kvah", "opening_kvah", "kvah", "total_kvah", "opening_kVAh", "closing_kVAh"],
+    null
+  );
+  const currentOpeningKvah =
+    currentOpeningKvahRaw != null
+      ? currentOpeningKvahRaw
+      : (currentClosingKvah != null && todayKvah != null ? Math.max(currentClosingKvah - todayKvah, 0) : null);
+  const peakKvah = meterDailyData?.data?.length
+    ? Math.max(...meterDailyData.data.map((item) => getNumericValue(item, ["kvah_delta", "daily_kvah", "total_kvah", "apparent_energy_delta", "today_kvah"], 0)))
+    : null;
+  const monthlyAvgKvah =
+    meterMonthlyData && getNumericValue(meterMonthlyData, ["total_kvah"], null) != null
+      ? getNumericValue(meterMonthlyData, ["total_kvah"], 0) / new Date().getDate()
+      : null;
   
   // AUTO-SLIDE CONFIGURATION
   const AUTO_SLIDE_INTERVAL = 11000;
@@ -461,10 +632,28 @@ const updateCurrentSlide = (data) => {
 
   const closing = siteData.asset_information.electric_parameters.unit;
   const opening = data.closing_kwh;
+  const closingKvah = getNumericValue(
+    siteData.asset_information?.electric_parameters,
+    ["kvah", "total_kvah", "apparent_energy", "apparent_energy_total", "today_kvah", "current_kvah"],
+    null
+  );
+  const rawOpeningKvah = getNumericValue(
+    data,
+    ["closing_kvah", "opening_kvah", "kvah", "total_kvah", "opening_kVAh", "closing_kVAh"],
+    null
+  );
+  const openingKvah =
+    rawOpeningKvah != null
+      ? rawOpeningKvah
+      : (closingKvah != null && todayKvah != null ? Math.max(closingKvah - todayKvah, 0) : null);
 
   if (closing == null || opening == null) return;
 
   const consumption = Math.max(closing - opening, 0);
+  const consumptionKvah =
+    closingKvah != null && openingKvah != null
+      ? Math.max(closingKvah - openingKvah, 0)
+      : todayKvah;
 
   setCurrentconsumption(consumption);
 
@@ -472,11 +661,11 @@ const updateCurrentSlide = (data) => {
 
   // ✅ rows (as it is)
   newSlides[0].rows = [
-    { label: "Opening Reading", value: `${opening.toFixed(2)} kWh` },
-    { label: "Closing Reading", value: `${closing.toFixed(2)} kWh` },
+    { label: "Opening Reading", value: formatEnergyValue(opening, openingKvah) },
+    { label: "Closing Reading", value: formatEnergyValue(closing, closingKvah) },
     {
       label: "Today's Consumption",
-      value: `${consumption.toFixed(2)} kWh`,
+      value: formatEnergyValue(consumption, consumptionKvah),
       color: "#2e7d32",
     },
     { label: "Grid Balance", value: `Rs. ${data.balance || 0}` },
@@ -491,7 +680,8 @@ const updateCurrentSlide = (data) => {
 
   // ✅ 🔥 YEHI MAIN FIX HAI
   newSlides[0].consumptionData = {
-    grid: consumption,        // 👈 ab 0 nahi aayega
+    grid: consumption,
+    kvah: consumptionKvah,
     dg: 0,
     total: consumption,
     gridPercent: "100.00%",
@@ -511,13 +701,21 @@ const updateCurrentSlide = (data) => {
     const today = new Date();
     const todayStr = `${today.getDate().toString().padStart(2, '0')} ${today.toLocaleString('default', { month: 'short' })}`;
     
-    const todayData = data.data.find(item => item.day === todayStr);
+    const todayData = data.data.find(item => item.day === todayStr) || data.data[data.data.length - 1];
     const totalDays = data.data.length;
     
     const totalConsumption = data.data.reduce((sum, item) => sum + (item.kwh_delta || 0), 0);
+    const totalConsumptionKvah = data.data.reduce(
+      (sum, item) => sum + getNumericValue(item, ["kvah_delta", "daily_kvah", "total_kvah", "apparent_energy_delta", "today_kvah"], 0),
+      0
+    );
     const averageDaily = totalDays > 0 ? totalConsumption / totalDays : 0;
+    const averageDailyKvah = totalDays > 0 ? totalConsumptionKvah / totalDays : null;
     
     const peakConsumption = Math.max(...data.data.map(item => item.kwh_delta || 0));
+    const peakConsumptionKvah = Math.max(
+      ...data.data.map(item => getNumericValue(item, ["kvah_delta", "daily_kvah", "total_kvah", "apparent_energy_delta", "today_kvah"], 0))
+    );
     
     const lastDay = data.data[data.data.length - 1];
     const trend = lastDay ? (lastDay.kwh_delta > averageDaily ? "↗ Increasing" : "↘ Decreasing") : "N/A";
@@ -529,7 +727,10 @@ const updateCurrentSlide = (data) => {
       },
       { 
         label: "Today's Reading", 
-        value: `${Number(currentconsumption || 0).toFixed(2)} kWh`
+        value: formatEnergyValue(
+          Number(currentconsumption || 0),
+          getNumericValue(todayData, ["kvah_delta", "daily_kvah", "total_kvah", "apparent_energy_delta", "today_kvah"], null)
+        )
       },
 
       { 
@@ -539,18 +740,22 @@ const updateCurrentSlide = (data) => {
       },
       { 
         label: "Average Daily", 
-        value: `${averageDaily.toFixed(2)} kWh`
+        value: formatEnergyValue(averageDaily, averageDailyKvah)
       },
       { 
         label: "Peak Consumption", 
-        value: `${peakConsumption.toFixed(2)} kWh`
+        value: formatEnergyValue(
+          peakConsumption,
+          peakConsumptionKvah > 0 ? peakConsumptionKvah : null
+        )
       },
     ];
 
    const todayValue = Number(currentconsumption || 0);
 
 newSlides[1].consumptionData = {
-  grid: todayValue,          // ✅ live value
+  grid: todayValue,
+  kvah: getNumericValue(todayData, ["kvah_delta", "daily_kvah", "total_kvah", "apparent_energy_delta", "today_kvah"], null),
   dg: 0,
   total: todayValue,
   gridPercent: "100.00%",
@@ -571,6 +776,9 @@ newSlides[1].consumptionData = {
   // Update Monthly Slide
   const updateMonthlySlide = (data) => {
     if (!data) return;
+    const openingKvah = getNumericValue(data, ["opening_kvah"], null);
+    const closingKvah = getNumericValue(data, ["closing_kvah"], null);
+    const totalKvah = getNumericValue(data, ["total_kvah"], null);
     
     const newSlides = [...slides];
     
@@ -582,15 +790,15 @@ newSlides[1].consumptionData = {
       },
       { 
         label: "Opening Reading", 
-        value: `${(data.opening_kwh || 0).toFixed(2)} kWh`
+        value: formatEnergyValue(data.opening_kwh || 0, openingKvah)
       },
       { 
         label: "Closing Reading", 
-        value: `${(data.closing_kwh || 0).toFixed(2)} kWh`
+        value: formatEnergyValue(data.closing_kwh || 0, closingKvah)
       },
       { 
         label: "Total Consumption", 
-        value: `${(data.total_kwh || 0).toFixed(2)} kWh`, 
+        value: formatEnergyValue(data.total_kwh || 0, totalKvah), 
         color: "#2e7d32"
       },
       { 
@@ -602,6 +810,7 @@ newSlides[1].consumptionData = {
 
     newSlides[2].consumptionData = {
       grid: data.total_kwh || 0,
+      kvah: totalKvah,
       dg: 0,
       total: data.total_kwh || 0,
       gridPercent: "100.00%",
@@ -1004,12 +1213,27 @@ newSlides[1].consumptionData = {
               ]}
             >
               <Text style={[styles.consumptionLabel, { color: theme.mutedText }]}>Consumption</Text>
-              <Text style={[styles.consumptionValue, { color: theme.text }]}>
-                {Number(active.consumptionData.grid || 0).toFixed(2)}
-              </Text>
-              <Text style={[styles.consumptionUnit, { color: theme.mutedText }]}>
-                {active.key === "monthly" ? "kWh" : "kWh"}
-              </Text>
+              {getEnergySplitDisplay(active.consumptionData.grid, active.consumptionData.kvah).isDual ? (
+                <View style={styles.dualMetricStack}>
+                  <Text style={[styles.dualMetricLine, { color: theme.text }]}>
+                    <Text style={[styles.dualMetricLabel, { color: theme.mutedText }]}>kWh </Text>
+                    {getEnergySplitDisplay(active.consumptionData.grid, active.consumptionData.kvah).primaryValue}
+                  </Text>
+                  <Text style={[styles.dualMetricLine, { color: theme.text }]}>
+                    <Text style={[styles.dualMetricLabel, { color: theme.mutedText }]}>kVAh </Text>
+                    {getEnergySplitDisplay(active.consumptionData.grid, active.consumptionData.kvah).secondaryValue}
+                  </Text>
+                </View>
+              ) : (
+                <>
+                  <Text style={[styles.consumptionValue, { color: theme.text }]}>
+                    {getEnergySplitDisplay(active.consumptionData.grid, active.consumptionData.kvah).primaryValue}
+                  </Text>
+                  <Text style={[styles.consumptionUnit, { color: theme.mutedText }]}>
+                    {getEnergySplitDisplay(active.consumptionData.grid, active.consumptionData.kvah).primaryLabel}
+                  </Text>
+                </>
+              )}
               <View
                 style={[
                   styles.percentagePill,
@@ -1104,45 +1328,160 @@ newSlides[1].consumptionData = {
           <View style={[styles.totalRow, { backgroundColor: isDarkMode ? theme.card : "#f8fafc", borderColor: theme.border }]}>
             <View style={styles.totalItem}>
               <Text style={[styles.totalLabel, { color: theme.mutedText }]}>Today</Text>
-              <Text style={[styles.totalValue, { color: theme.text }]}>
-                {Number(currentconsumption || 0).toFixed(2)}
-              </Text>
-              <Text style={[styles.totalUnit, { color: theme.mutedText }]}>kWh</Text>
+              {getEnergySplitDisplay(currentconsumption || 0, todayKvah).isDual ? (
+                <View style={styles.totalDualStack}>
+                  <Text style={[styles.totalDualLine, { color: theme.text }]}>
+                    <Text style={[styles.totalDualLabel, { color: theme.mutedText }]}>kWh </Text>
+                    {getEnergySplitDisplay(currentconsumption || 0, todayKvah).primaryValue}
+                  </Text>
+                  <Text style={[styles.totalDualLine, { color: theme.text }]}>
+                    <Text style={[styles.totalDualLabel, { color: theme.mutedText }]}>kVAh </Text>
+                    {getEnergySplitDisplay(currentconsumption || 0, todayKvah).secondaryValue}
+                  </Text>
+                </View>
+              ) : (
+                <>
+                  <Text style={[styles.totalValue, { color: theme.text }]}>
+                    {getEnergySplitDisplay(currentconsumption || 0, todayKvah).primaryValue}
+                  </Text>
+                  <Text style={[styles.totalUnit, { color: theme.mutedText }]}>
+                    {getEnergySplitDisplay(currentconsumption || 0, todayKvah).primaryLabel}
+                  </Text>
+                </>
+              )}
             </View>
             {meterCurrentData && active.key === "current" && (
               <View style={styles.totalItem}>
                 <Text style={[styles.totalLabel, { color: theme.mutedText }]}>Opening</Text>
-                <Text style={[styles.totalValue, { color: theme.text }]}>
-                  {meterCurrentData.closing_kwh?.toFixed(2) || "0.00"}
-                </Text>
-                <Text style={[styles.totalUnit, { color: theme.mutedText }]}>kWh</Text>
+                {getEnergySplitDisplay(meterCurrentData.closing_kwh || 0, currentOpeningKvah).isDual ? (
+                  <View style={styles.totalDualStack}>
+                    <Text style={[styles.totalDualLine, { color: theme.text }]}>
+                      <Text style={[styles.totalDualLabel, { color: theme.mutedText }]}>kWh </Text>
+                      {getEnergySplitDisplay(meterCurrentData.closing_kwh || 0, currentOpeningKvah).primaryValue}
+                    </Text>
+                    <Text style={[styles.totalDualLine, { color: theme.text }]}>
+                      <Text style={[styles.totalDualLabel, { color: theme.mutedText }]}>kVAh </Text>
+                      {getEnergySplitDisplay(meterCurrentData.closing_kwh || 0, currentOpeningKvah).secondaryValue}
+                    </Text>
+                  </View>
+                ) : (
+                  <>
+                    <Text style={[styles.totalValue, { color: theme.text }]}>
+                      {getEnergySplitDisplay(meterCurrentData.closing_kwh || 0, currentOpeningKvah).primaryValue}
+                    </Text>
+                    <Text style={[styles.totalUnit, { color: theme.mutedText }]}>
+                      {getEnergySplitDisplay(meterCurrentData.closing_kwh || 0, currentOpeningKvah).primaryLabel}
+                    </Text>
+                  </>
+                )}
               </View>
             )}
             {meterCurrentData && active.key === "current" && (
               <View style={styles.totalItem}>
                 <Text style={[styles.totalLabel, { color: theme.mutedText }]}>Closing</Text>
-                <Text style={[styles.totalValue, { color: theme.text }]}>
-                  {currentunit?.toFixed(2) || "0.00"}
-                </Text>
-                <Text style={[styles.totalUnit, { color: theme.mutedText }]}>kWh</Text>
+                {getEnergySplitDisplay(currentunit || 0, currentClosingKvah).isDual ? (
+                  <View style={styles.totalDualStack}>
+                    <Text style={[styles.totalDualLine, { color: theme.text }]}>
+                      <Text style={[styles.totalDualLabel, { color: theme.mutedText }]}>kWh </Text>
+                      {getEnergySplitDisplay(currentunit || 0, currentClosingKvah).primaryValue}
+                    </Text>
+                    <Text style={[styles.totalDualLine, { color: theme.text }]}>
+                      <Text style={[styles.totalDualLabel, { color: theme.mutedText }]}>kVAh </Text>
+                      {getEnergySplitDisplay(currentunit || 0, currentClosingKvah).secondaryValue}
+                    </Text>
+                  </View>
+                ) : (
+                  <>
+                    <Text style={[styles.totalValue, { color: theme.text }]}>
+                      {getEnergySplitDisplay(currentunit || 0, currentClosingKvah).primaryValue}
+                    </Text>
+                    <Text style={[styles.totalUnit, { color: theme.mutedText }]}>
+                      {getEnergySplitDisplay(currentunit || 0, currentClosingKvah).primaryLabel}
+                    </Text>
+                  </>
+                )}
               </View>
             )}
             {active.key === "today" && meterDailyData && meterDailyData.data && (
               <View style={styles.totalItem}>
                 <Text style={[styles.totalLabel, { color: theme.mutedText }]}>Peak</Text>
-                <Text style={[styles.totalValue, { color: theme.text }]}>
-                  {Math.max(...meterDailyData.data.map(item => item.kwh_delta || 0)).toFixed(2)}
-                </Text>
-                <Text style={[styles.totalUnit, { color: theme.mutedText }]}>kWh</Text>
+                {getEnergySplitDisplay(
+                  Math.max(...meterDailyData.data.map(item => item.kwh_delta || 0)),
+                  peakKvah
+                ).isDual ? (
+                  <View style={styles.totalDualStack}>
+                    <Text style={[styles.totalDualLine, { color: theme.text }]}>
+                      <Text style={[styles.totalDualLabel, { color: theme.mutedText }]}>kWh </Text>
+                      {getEnergySplitDisplay(
+                        Math.max(...meterDailyData.data.map(item => item.kwh_delta || 0)),
+                        peakKvah
+                      ).primaryValue}
+                    </Text>
+                    <Text style={[styles.totalDualLine, { color: theme.text }]}>
+                      <Text style={[styles.totalDualLabel, { color: theme.mutedText }]}>kVAh </Text>
+                      {getEnergySplitDisplay(
+                        Math.max(...meterDailyData.data.map(item => item.kwh_delta || 0)),
+                        peakKvah
+                      ).secondaryValue}
+                    </Text>
+                  </View>
+                ) : (
+                  <>
+                    <Text style={[styles.totalValue, { color: theme.text }]}>
+                      {getEnergySplitDisplay(
+                        Math.max(...meterDailyData.data.map(item => item.kwh_delta || 0)),
+                        peakKvah
+                      ).primaryValue}
+                    </Text>
+                    <Text style={[styles.totalUnit, { color: theme.mutedText }]}>
+                      {getEnergySplitDisplay(
+                        Math.max(...meterDailyData.data.map(item => item.kwh_delta || 0)),
+                        peakKvah
+                      ).primaryLabel}
+                    </Text>
+                  </>
+                )}
               </View>
             )}
             {active.key === "monthly" && meterMonthlyData && (
               <View style={styles.totalItem}>
                 <Text style={[styles.totalLabel, { color: theme.mutedText }]}>Avg/Day</Text>
-                <Text style={[styles.totalValue, { color: theme.text }]}>
-                  {((meterMonthlyData.total_kwh || 0) / new Date().getDate()).toFixed(2)}
-                </Text>
-                <Text style={[styles.totalUnit, { color: theme.mutedText }]}>kWh</Text>
+                {getEnergySplitDisplay(
+                  (meterMonthlyData.total_kwh || 0) / new Date().getDate(),
+                  monthlyAvgKvah
+                ).isDual ? (
+                  <View style={styles.totalDualStack}>
+                    <Text style={[styles.totalDualLine, { color: theme.text }]}>
+                      <Text style={[styles.totalDualLabel, { color: theme.mutedText }]}>kWh </Text>
+                      {getEnergySplitDisplay(
+                        (meterMonthlyData.total_kwh || 0) / new Date().getDate(),
+                        monthlyAvgKvah
+                      ).primaryValue}
+                    </Text>
+                    <Text style={[styles.totalDualLine, { color: theme.text }]}>
+                      <Text style={[styles.totalDualLabel, { color: theme.mutedText }]}>kVAh </Text>
+                      {getEnergySplitDisplay(
+                        (meterMonthlyData.total_kwh || 0) / new Date().getDate(),
+                        monthlyAvgKvah
+                      ).secondaryValue}
+                    </Text>
+                  </View>
+                ) : (
+                  <>
+                    <Text style={[styles.totalValue, { color: theme.text }]}>
+                      {getEnergySplitDisplay(
+                        (meterMonthlyData.total_kwh || 0) / new Date().getDate(),
+                        monthlyAvgKvah
+                      ).primaryValue}
+                    </Text>
+                    <Text style={[styles.totalUnit, { color: theme.mutedText }]}>
+                      {getEnergySplitDisplay(
+                        (meterMonthlyData.total_kwh || 0) / new Date().getDate(),
+                        monthlyAvgKvah
+                      ).primaryLabel}
+                    </Text>
+                  </>
+                )}
               </View>
             )}
           </View>
@@ -1524,8 +1863,8 @@ const styles = StyleSheet.create({
   },
   rowValue: {
     fontSize: 13,
-    lineHeight: 18,
-    fontWeight: "600",
+    lineHeight: 22,
+    fontWeight: "700",
     color: "#1e293b",
     textAlign: "right",
     flexShrink: 1,
@@ -1643,6 +1982,20 @@ const styles = StyleSheet.create({
     marginBottom: 6,
     textAlign: "center",
   },
+  dualMetricStack: {
+    alignItems: "center",
+    gap: 4,
+    marginBottom: 6,
+  },
+  dualMetricLine: {
+    fontSize: 13,
+    fontWeight: "800",
+    textAlign: "center",
+  },
+  dualMetricLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+  },
   percentagePill: {
     paddingHorizontal: 9,
     paddingVertical: 3,
@@ -1704,6 +2057,20 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     marginTop: 2,
     textAlign: "center",
+  },
+  totalDualStack: {
+    alignItems: "center",
+    gap: 3,
+  },
+  totalDualLine: {
+    fontSize: 11,
+    fontWeight: "800",
+    textAlign: "center",
+    lineHeight: 15,
+  },
+  totalDualLabel: {
+    fontSize: 10,
+    fontWeight: "700",
   },
   
   noteText: {
@@ -1817,3 +2184,7 @@ const styles = StyleSheet.create({
     height: 40,
   },
 });
+
+
+
+

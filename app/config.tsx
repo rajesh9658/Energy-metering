@@ -2,16 +2,16 @@
 
 const API_CONFIG = {
 
-  // BASE_URL: "http://192.168.68.129:8004",
+  // BASE_URL: "http://192.168.68.110:8000",
   BASE_URL: "https://em.sochiot.com",
 
   ENDPOINTS: {
     LOGIN: "/api/mobile-login",
     SITE_DATA: "/api/mobile/site/", // New endpoint for site data
-    METER_CURRENT: "/api/meter/{siteId}/current",
-    METER_DAILY_CONSUMPTION: "/api/meter/{siteId}/daily-consumption",
-    METER_MONTHLY_CONSUMPTION: "/api/meter/{siteId}/monthly-consumption",
-    METER_YEARLY_CONSUMPTION: "/api/meter/{siteId}/consumption/yearly",
+    METER_CURRENT: "/api/meter/{siteId}/current2",
+    METER_DAILY_CONSUMPTION: "/api/meter/{siteId}/daily-consumptionV2",
+    METER_MONTHLY_CONSUMPTION: "/api/meter/{siteId}/monthly-consumptionV2",
+    METER_YEARLY_CONSUMPTION: "/api/meter/{siteId}/consumption/yearlyv2",
     CHANGE_PASSWORD: "/api/changeFirstTimePassword", // Add this
     METER_MONTHLY_REPORT: "/api/meter/{siteId}/consumption/monthly_report",
   },
@@ -76,3 +76,4 @@ export const getMeterMonthlyReportUrl = (siteId: string | number, month?: string
 export default function ConfigInfo() {
   return null;
 }
+
