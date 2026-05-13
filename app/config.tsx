@@ -2,7 +2,7 @@
 
 const API_CONFIG = {
 
-  // BASE_URL: "http://192.168.68.110:8000",
+  // BASE_URL: "http://192.168.68.127:8000",
   BASE_URL: "https://em.sochiot.com",
 
   ENDPOINTS: {
@@ -14,6 +14,8 @@ const API_CONFIG = {
     METER_YEARLY_CONSUMPTION: "/api/meter/{siteId}/consumption/yearlyv2",
     CHANGE_PASSWORD: "/api/changeFirstTimePassword", // Add this
     METER_MONTHLY_REPORT: "/api/meter/{siteId}/consumption/monthly_report",
+    RAZORPAY_ORDER: "/api/razorpay/order",
+    RAZORPAY_VERIFY: "/api/razorpay/verify",
   },
 };
 
@@ -71,6 +73,14 @@ export const getMeterMonthlyReportUrl = (siteId: string | number, month?: string
     return `${baseUrl}?month=${month}`;
   }
   return baseUrl;
+};
+
+export const getRazorpayOrderUrl = () => {
+  return API_CONFIG.BASE_URL + API_CONFIG.ENDPOINTS.RAZORPAY_ORDER;
+};
+
+export const getRazorpayVerifyUrl = () => {
+  return API_CONFIG.BASE_URL + API_CONFIG.ENDPOINTS.RAZORPAY_VERIFY;
 };
 
 export default function ConfigInfo() {
