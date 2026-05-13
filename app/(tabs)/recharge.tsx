@@ -18,7 +18,11 @@ import {
 import RazorpayCheckout from 'react-native-razorpay';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import * as Animatable from 'react-native-animatable';
-import { getSiteDataUrl } from '../config'; // Assuming config is in same directory
+import {
+  getRazorpayOrderUrl,
+  getRazorpayVerifyUrl,
+  getSiteDataUrl,
+} from '../config'; // Assuming config is in same directory
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
@@ -36,6 +40,13 @@ export default function RechargeScreen() {
   const [siteData, setSiteData] = useState(null);
   const [siteLoading, setSiteLoading] = useState(true);
   const [siteError, setSiteError] = useState(null);
+  const [paymentStatus, setPaymentStatus] = useState({
+    visible: false,
+    type: 'success',
+    title: '',
+    message: '',
+    details: '',
+  });
     const { user, getSlug, getSiteName, getSiteId } = useAuth();
 const [siteInfo, setSiteInfo] = useState({
     siteName: null,
@@ -213,94 +224,178 @@ const customerDetails = {
     { amount: 2000, color: '#fef2f2' },
     { amount: 5000, color: '#f0fdf4' },
   ];
+  const SERVICE_FEE = 10;
+  const GST_FEE = 1.8;
+  const baseRechargeAmount = selectedAmount || parseFloat(customAmount) || 0;
+  const payableAmount = Math.round(baseRechargeAmount + SERVICE_FEE + GST_FEE);
+
+  const showPaymentStatus = (type, title, message, details = '') => {
+    setPaymentStatus({
+      visible: true,
+      type,
+      title,
+      message,
+      details,
+    });
+  };
+
+  const hidePaymentStatus = () => {
+    setPaymentStatus((prev) => ({ ...prev, visible: false }));
+  };
+
+  const buildIdempotencyKey = () => {
+    const sitePart = siteInfo.siteId || siteInfo.slug || 'site';
+    return `TXN-${sitePart}-${Date.now()}`;
+  };
+
+  const getAuthHeaders = async (idempotencyKey?: string) => {
+    const authToken = await AsyncStorage.getItem("authToken");
+    const userData = await AsyncStorage.getItem("userData");
+    let parsedUserData = null;
+
+    try {
+      parsedUserData = userData ? JSON.parse(userData) : null;
+    } catch {
+      parsedUserData = null;
+    }
+
+    const resolvedToken =
+      authToken ||
+      parsedUserData?.auth_token ||
+      parsedUserData?.token ||
+      parsedUserData?.access_token ||
+      parsedUserData?.bearer_token ||
+      parsedUserData?.api_token ||
+      parsedUserData?.site?.token ||
+      parsedUserData?.site?.access_token ||
+      parsedUserData?.site?.bearer_token ||
+      parsedUserData?.site?.api_token ||
+      "";
+
+    const authorizationValue = resolvedToken
+      ? resolvedToken.startsWith("Bearer ")
+        ? resolvedToken
+        : `Bearer ${resolvedToken}`
+      : undefined;
+
+    return {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
+      ...(authorizationValue ? { Authorization: authorizationValue } : {}),
+    };
+  };
+
+  const getReadablePaymentError = (error) => {
+    if (error?.code === 2) {
+      return {
+        title: 'Payment Cancelled',
+        message: 'You closed the payment window before completing the recharge.',
+        details: 'No amount was charged. You can try again anytime.',
+      };
+    }
+
+    const rawDescription = error?.description;
+    let parsedError = null;
+
+    if (typeof rawDescription === 'string') {
+      try {
+        const cleaned = rawDescription.replace(/^[^{]*/, '');
+        parsedError = JSON.parse(cleaned);
+      } catch {
+        parsedError = null;
+      }
+    } else if (typeof rawDescription === 'object' && rawDescription) {
+      parsedError = rawDescription;
+    }
+
+    const reason =
+      parsedError?.error?.reason ||
+      parsedError?.reason ||
+      error?.reason ||
+      '';
+
+    const step =
+      parsedError?.error?.step ||
+      parsedError?.step ||
+      '';
+
+    if (reason === 'payment_error' || step === 'payment_authentication') {
+      return {
+        title: 'Payment Could Not Be Completed',
+        message: 'The bank or payment app did not complete authentication for this transaction.',
+        details: 'Please try another UPI app, card, or retry after a moment.',
+      };
+    }
+
+    if (error?.code === 'BAD_REQUEST_ERROR') {
+      return {
+        title: 'Payment Request Failed',
+        message: 'The payment request could not be processed right now.',
+        details: 'Please verify the amount and try again in a few moments.',
+      };
+    }
+
+    return {
+      title: 'Payment Failed',
+      message: 'We could not complete your recharge this time.',
+      details: 'Please try again, or use a different payment method.',
+    };
+  };
+
+  const parseApiError = async (response) => {
+    try {
+      const data = await response.json();
+      return data?.message || data?.error || `Request failed with status ${response.status}`;
+    } catch {
+      return `Request failed with status ${response.status}`;
+    }
+  };
+
+  const syncPaymentStatus = async ({
+    idempotencyKey,
+    orderData,
+    amount,
+    razorpayResult,
+    status,
+    razorpayDisplayStatus,
+    errorMessage,
+  }) => {
+    if (!orderData?.order_id) {
+      return;
+    }
+
+    await fetch(getRazorpayVerifyUrl(), {
+      method: "POST",
+      headers: await getAuthHeaders(idempotencyKey),
+      body: JSON.stringify({
+        idempotency_key: idempotencyKey,
+        transaction_id: orderData.transaction_id,
+        order_id: orderData.order_id,
+        razorpay_order_id: razorpayResult?.razorpay_order_id || orderData.order_id,
+        razorpay_payment_id: razorpayResult?.razorpay_payment_id || null,
+        payment_id: razorpayResult?.razorpay_payment_id || null,
+        razorpay_signature: razorpayResult?.razorpay_signature || null,
+        amount,
+        status,
+        payment_status: status,
+        razorpay_status: razorpayDisplayStatus || status,
+        display_status: razorpayDisplayStatus || status,
+        failure_reason: errorMessage || null,
+        reason: errorMessage || null,
+        error_message: errorMessage || null,
+        site_id: siteInfo.siteId,
+        slug: siteInfo.slug,
+      }),
+    });
+  };
 
 
  
 
   /* -------------------- PAYMENT -------------------- */
 
-  // const handlePayment = async () => {
-  //   let amountToPay = selectedAmount;
-    
-  //   if (customAmount && parseFloat(customAmount) >= 1) {
-  //     amountToPay = parseFloat(customAmount);
-  //   }
-    
-  //   if (!amountToPay || amountToPay < 1) {
-  //     Alert.alert('Invalid Amount', 'Please select or enter an amount (minimum ₹1)');
-  //     return;
-  //   }
-
-  //   setLoading(true);
-    
-  //   const totalAmount = Math.round((amountToPay + 10 + 1.8) * 100);
-
-  //   const options = {
-  //     description: `Meter Recharge - ${customerDetails.accountId}`,
-  //     image: 'https://i.imgur.com/39go799.png',
-  //     currency: 'INR',
-  //     key: 'rzp_live_SSxSG6mTWhD3nv',
-  //     amount: totalAmount,
-  //     name: 'Sochiot Innovation Pvt. Ltd.',
-  //     prefill: {
-  //       email: siteInfo.user?.email || 'customer@gmail.com',
-  //       contact: siteInfo.user?.phone || '9999999999',
-  //       name: customerDetails.name
-  //     },
-  //     theme: { 
-  //       color: '#4f46e5',
-  //       hide_topbar: false
-  //     },
-  //     retry: {
-  //       enabled: true,
-  //       max_count: 5
-  //     },
-  //     // Explicitly enable all methods and prioritize UPI/Cards
-  //     config: {
-  //       display: {
-  //         blocks: {
-  //           upi: {
-  //             name: 'Pay via UPI / QR',
-  //             instruments: [
-  //               { method: 'upi' }
-  //             ]
-  //           }
-  //         },
-  //         sequence: ['block.upi', 'block.other'],
-  //         preferences: {
-  //           show_default_blocks: true
-  //         }
-  //       }
-  //     }
-  //   };
-
-  //   RazorpayCheckout.open(options).then((data) => {
-  //     // handle success
-  //     setLoading(false);
-  //     Alert.alert(
-  //       'Payment Successful! 🎉',
-  //       `Your recharge of ₹${amountToPay} has been processed successfully.\n\nPayment ID: ${data.razorpay_payment_id}`,
-  //       [{ 
-  //         text: 'Done', 
-  //         onPress: () => {
-  //           setSelectedAmount(null);
-  //           setCustomAmount('');
-  //           setPaymentAmount('');
-  //         },
-  //         style: 'default'
-  //       }]
-  //     );
-  //   }).catch((error) => {
-  //     // handle failure
-  //     setLoading(false);
-  //     if (error.code === 2) {
-  //       // User cancelled
-  //       Alert.alert('Payment Cancelled', 'Your payment was not completed. You can try again.');
-  //     } else {
-  //       Alert.alert('Payment Failed', error.description || 'Something went wrong. Please try again.');
-  //     }
-  //   });
-  // };
+  
 
   const handlePayment = async () => {
   let amountToPay = selectedAmount;
@@ -316,17 +411,58 @@ const customerDetails = {
 
   setLoading(true);
 
-  try {
+  let orderData = null;
+  let idempotencyKey = '';
+  let totalAmount = 0;
+  let razorpayResult = null;
 
-    const totalAmount = Math.round((amountToPay + 10 + 1.8) * 100);
+  try {
+    totalAmount = Math.round(amountToPay + SERVICE_FEE + GST_FEE);
+    idempotencyKey = buildIdempotencyKey();
+    const orderResponse = await fetch(getRazorpayOrderUrl(), {
+      method: "POST",
+      headers: await getAuthHeaders(idempotencyKey),
+      body: JSON.stringify({
+        amount: totalAmount,
+        site_id: siteInfo.siteId,
+        slug: siteInfo.slug,
+      }),
+    });
+
+    if (!orderResponse.ok) {
+      const message = await parseApiError(orderResponse);
+      throw new Error(message);
+    }
+
+    orderData = await orderResponse.json();
+
+    if (!orderData?.order_id) {
+      throw new Error("Order ID was not returned by the backend.");
+    }
+
+    if (!orderData?.razorpay_key) {
+      throw new Error("Razorpay key was not returned by the backend.");
+    }
+
+    const merchantName =
+      orderData.merchant_name ||
+      orderData.merchant ||
+      siteData?.meter_name ||
+      "Energy Meter Recharge";
+
+    const merchantLogo =
+      orderData.logo_url ||
+      orderData.image ||
+      undefined;
 
     const options = {
       description: `Meter Recharge - ${customerDetails.accountId}`,
       currency: 'INR',
-      key: 'rzp_live_SSxSG6mTWhD3nv',
-      amount: totalAmount,
-      name: 'Sochiot Innovation Pvt. Ltd.',
-      image: 'https://i.imgur.com/39go799.png',
+      key: orderData.razorpay_key,
+      amount: orderData.amount || Math.round(totalAmount * 100),
+      order_id: orderData.order_id,
+      name: merchantName,
+      image: merchantLogo,
 
       prefill: {
         email: siteInfo.user?.email || 'customer@gmail.com',
@@ -346,16 +482,47 @@ const customerDetails = {
       send_sms_hash: true
     };
 
-    const data = await RazorpayCheckout.open(options);
+    razorpayResult = await RazorpayCheckout.open(options);
+
+    const verifyResponse = await fetch(getRazorpayVerifyUrl(), {
+      method: "POST",
+      headers: await getAuthHeaders(idempotencyKey),
+      body: JSON.stringify({
+        idempotency_key: idempotencyKey,
+        transaction_id: orderData.transaction_id,
+        order_id: orderData.order_id,
+        razorpay_order_id: razorpayResult.razorpay_order_id || orderData.order_id,
+        razorpay_payment_id: razorpayResult.razorpay_payment_id,
+        payment_id: razorpayResult.razorpay_payment_id,
+        razorpay_signature: razorpayResult.razorpay_signature,
+        amount: totalAmount,
+        status: 'success',
+        payment_status: 'success',
+        razorpay_status: 'Captured',
+        display_status: 'Captured',
+        site_id: siteInfo.siteId,
+        slug: siteInfo.slug,
+      }),
+    });
+
+    if (!verifyResponse.ok) {
+      const message = await parseApiError(verifyResponse);
+      throw new Error(message);
+    }
+
+    const verifyData = await verifyResponse.json();
 
     setLoading(false);
 
-    Alert.alert(
-      "Payment Successful",
-      `Payment ID: ${data.razorpay_payment_id}`
+    showPaymentStatus(
+      'success',
+      'Recharge Successful',
+      verifyData?.message || 'Your payment was completed and saved successfully.',
+      `Payment ID: ${razorpayResult.razorpay_payment_id}`
     );
 
-    console.log("Payment Success:", data);
+    console.log("Payment Success:", razorpayResult);
+    console.log("Payment Verify:", verifyData);
 
     setSelectedAmount(null);
     setCustomAmount('');
@@ -367,14 +534,35 @@ const customerDetails = {
 
     console.log("Payment Error:", error);
 
-    if (error.code === 2) {
-      Alert.alert("Payment Cancelled", "User cancelled the payment");
-    } else {
-      Alert.alert(
-        "Payment Failed",
-        error.description || "Payment could not be completed"
-      );
+    if (orderData?.order_id) {
+      try {
+        await syncPaymentStatus({
+          idempotencyKey,
+          orderData,
+          amount: totalAmount,
+          razorpayResult,
+          status: error?.code === 2 ? 'cancelled' : 'failed',
+          razorpayDisplayStatus: error?.code === 2 ? 'Cancelled' : 'Failed',
+          errorMessage: error?.description || error?.message || 'Payment failed',
+        });
+      } catch (syncError) {
+        console.log("Payment Failure Sync Error:", syncError);
+      }
     }
+
+    const paymentError = error?.code
+      ? getReadablePaymentError(error)
+      : {
+          title: 'Payment Failed',
+          message: error?.message || 'Unable to create or verify the payment right now.',
+          details: 'Please check server response and try again.',
+        };
+    showPaymentStatus(
+      'error',
+      paymentError.title,
+      paymentError.message,
+      paymentError.details
+    );
   }
 };
 
@@ -650,17 +838,17 @@ const customerDetails = {
                   <Text style={[styles.summaryLabel, { color: theme.mutedText }]}>Service Fee</Text>
                   <Icon name="info-outline" size={16} color="#94a3b8" />
                 </View>
-                <Text style={[styles.summaryValue, { color: theme.text }]}>₹ 10.00</Text>
+                <Text style={[styles.summaryValue, { color: theme.text }]}>₹ {SERVICE_FEE.toFixed(2)}</Text>
               </View>
               <View style={styles.summaryRow}>
                 <Text style={[styles.summaryLabel, { color: theme.mutedText }]}>GST (18%)</Text>
-                <Text style={[styles.summaryValue, { color: theme.text }]}>₹ 1.80</Text>
+                <Text style={[styles.summaryValue, { color: theme.text }]}>₹ {GST_FEE.toFixed(2)}</Text>
               </View>
               <View style={[styles.divider, { backgroundColor: theme.border }]} />
               <View style={[styles.summaryRow, styles.totalSummaryRow]}>
                 <Text style={[styles.totalLabel, { color: theme.text }]}>Total Payable</Text>
                 <Text style={styles.totalValue}>
-                  ₹ {((selectedAmount || parseFloat(customAmount) || 0) + 10 + 1.8).toFixed(2)}
+                  ₹ {payableAmount.toFixed(2)}
                 </Text>
               </View>
             </Animatable.View>
@@ -777,6 +965,61 @@ const customerDetails = {
               </TouchableOpacity>
             </View>
           </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={paymentStatus.visible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={hidePaymentStatus}
+      >
+        <View style={styles.paymentStatusOverlay}>
+          <Animatable.View
+            animation="zoomIn"
+            duration={280}
+            style={[styles.paymentStatusCard, { backgroundColor: theme.surface, shadowColor: theme.shadow }]}
+          >
+            <View
+              style={[
+                styles.paymentStatusIconWrap,
+                paymentStatus.type === 'success' ? styles.paymentSuccessIconWrap : styles.paymentErrorIconWrap,
+              ]}
+            >
+              <Icon
+                name={paymentStatus.type === 'success' ? 'check-circle' : 'error-outline'}
+                size={34}
+                color={paymentStatus.type === 'success' ? '#059669' : '#dc2626'}
+              />
+            </View>
+
+            <Text style={[styles.paymentStatusTitle, { color: theme.text }]}>
+              {paymentStatus.title}
+            </Text>
+            <Text style={[styles.paymentStatusMessage, { color: theme.mutedText }]}>
+              {paymentStatus.message}
+            </Text>
+            {!!paymentStatus.details && (
+              <View style={[styles.paymentStatusDetailsBox, { backgroundColor: isDarkMode ? theme.card : '#f8fafc', borderColor: theme.border }]}>
+                <Text style={[styles.paymentStatusDetails, { color: theme.text }]}>
+                  {paymentStatus.details}
+                </Text>
+              </View>
+            )}
+
+            <TouchableOpacity
+              style={[
+                styles.paymentStatusButton,
+                paymentStatus.type === 'success' ? styles.paymentSuccessButton : styles.paymentErrorButton,
+              ]}
+              onPress={hidePaymentStatus}
+              activeOpacity={0.9}
+            >
+              <Text style={styles.paymentStatusButtonText}>
+                {paymentStatus.type === 'success' ? 'Done' : 'Try Again'}
+              </Text>
+            </TouchableOpacity>
+          </Animatable.View>
         </View>
       </Modal>
 
@@ -1397,6 +1640,86 @@ const styles = StyleSheet.create({
   },
   webview: {
     flex: 1,
+  },
+  paymentStatusOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  paymentStatusCard: {
+    width: '100%',
+    borderRadius: 28,
+    paddingHorizontal: 24,
+    paddingTop: 28,
+    paddingBottom: 22,
+    alignItems: 'center',
+    shadowOffset: { width: 0, height: 16 },
+    shadowOpacity: 0.18,
+    shadowRadius: 24,
+    elevation: 18,
+  },
+  paymentStatusIconWrap: {
+    width: 74,
+    height: 74,
+    borderRadius: 37,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 18,
+    borderWidth: 1,
+  },
+  paymentSuccessIconWrap: {
+    backgroundColor: '#ecfdf5',
+    borderColor: '#a7f3d0',
+  },
+  paymentErrorIconWrap: {
+    backgroundColor: '#fef2f2',
+    borderColor: '#fecaca',
+  },
+  paymentStatusTitle: {
+    fontSize: 24,
+    fontWeight: '800',
+    textAlign: 'center',
+    marginBottom: 10,
+  },
+  paymentStatusMessage: {
+    fontSize: 15,
+    lineHeight: 22,
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  paymentStatusDetailsBox: {
+    width: '100%',
+    borderRadius: 18,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderWidth: 1,
+    marginBottom: 18,
+  },
+  paymentStatusDetails: {
+    fontSize: 14,
+    lineHeight: 21,
+    textAlign: 'center',
+    fontWeight: '600',
+  },
+  paymentStatusButton: {
+    minWidth: 160,
+    borderRadius: 16,
+    paddingHorizontal: 24,
+    paddingVertical: 15,
+    alignItems: 'center',
+  },
+  paymentSuccessButton: {
+    backgroundColor: '#059669',
+  },
+  paymentErrorButton: {
+    backgroundColor: '#4f46e5',
+  },
+  paymentStatusButtonText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '800',
   },
 
   siteInfoSection: {

@@ -25,6 +25,25 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  const resolveAuthToken = (data) => {
+    return (
+      data?.token ||
+      data?.access_token ||
+      data?.auth_token ||
+      data?.bearer_token ||
+      data?.plainTextToken ||
+      data?.plain_text_token ||
+      data?.api_token ||
+      data?.site?.token ||
+      data?.site?.access_token ||
+      data?.site?.auth_token ||
+      data?.site?.bearer_token ||
+      data?.site?.api_token ||
+      data?.device_id ||
+      ""
+    );
+  };
+
   useEffect(() => {
     checkLoginStatus();
   }, []);
@@ -140,6 +159,7 @@ const login = async (userid, password) => {
     }
     
     if (data.status === true) {
+      const resolvedAuthToken = resolveAuthToken(data);
       const userToStore = {
         name: userid.trim(),  // Make sure it's trimmed
         site_id: data.site?.site_id,
@@ -147,11 +167,12 @@ const login = async (userid, password) => {
         slug: data.site?.slug,
         device_id: data.site?.device_id,
         clusterID: data.site?.clusterID,
+        auth_token: resolvedAuthToken,
         ...data
       };
 
       await AsyncStorage.setItem("userData", JSON.stringify(userToStore));
-      await AsyncStorage.setItem("authToken", data.device_id || "");
+      await AsyncStorage.setItem("authToken", resolvedAuthToken);
 
       setUser(userToStore);
       return { success: true, message: data.message };
