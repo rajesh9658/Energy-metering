@@ -343,10 +343,43 @@ const customerDetails = {
     };
   };
 
+  const isServerSyntaxError = (value) => {
+    if (typeof value !== 'string') {
+      return false;
+    }
+
+    const normalizedValue = value.toLowerCase();
+    return (
+      normalizedValue.includes('syntax error') ||
+      normalizedValue.includes('unexpected token') ||
+      normalizedValue.includes('<!doctype html') ||
+      normalizedValue.includes('<html')
+    );
+  };
+
   const parseApiError = async (response) => {
     try {
-      const data = await response.json();
-      return data?.message || data?.error || `Request failed with status ${response.status}`;
+      const responseText = await response.text();
+      let parsedData = null;
+
+      try {
+        parsedData = responseText ? JSON.parse(responseText) : null;
+      } catch {
+        parsedData = null;
+      }
+
+      const message =
+        parsedData?.message ||
+        parsedData?.error ||
+        parsedData?.details ||
+        responseText;
+
+      if (isServerSyntaxError(message)) {
+        console.log('Payment API returned a server syntax error:', message);
+        return 'The payment server has a configuration issue right now. Please try again later.';
+      }
+
+      return message || `Request failed with status ${response.status}`;
     } catch {
       return `Request failed with status ${response.status}`;
     }

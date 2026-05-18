@@ -2,7 +2,7 @@
 
 const API_CONFIG = {
 
-  // BASE_URL: "http://192.168.68.127:8000",
+  // BASE_URL: "http://192.168.68.115:8000",
   BASE_URL: "https://em.sochiot.com",
 
   ENDPOINTS: {
