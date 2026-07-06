@@ -285,9 +285,9 @@ useEffect(() => {
       icon: "🔋",
       rows: [
         { label: "Opening Reading", value: "Loading... kWh" },
-        { label: "Closing Reading", value: "Loading... kWh" },
+        { label: "Current Reading", value: "Loading... kWh" },
         { label: "Today's Consumption", value: "Loading... kWh", color: "#2e7d32" },
-        { label: "Grid Balance", value: "Loading..." },
+        { label: "Available Balance", value: "Loading..." },
         { label: "Last Reading Time", value: "Loading...", color: "#0b63a8" },
       ],
       consumptionData: {
@@ -326,7 +326,7 @@ useEffect(() => {
       rows: [
         { label: "Month Status", value: "Loading..." },
         { label: "Opening Reading", value: "Loading... kWh" },
-        { label: "Closing Reading", value: "Loading... kWh" },
+        { label: "Current Reading", value: "Loading... kWh" },
         { label: "Total Consumption", value: "Loading... kWh", color: "#2e7d32" },
         { label: "Updated Till", value: "Loading...", color: "#0b63a8" },
       ],
@@ -654,6 +654,9 @@ const updateCurrentSlide = (data) => {
     closingKvah != null && openingKvah != null
       ? Math.max(closingKvah - openingKvah, 0)
       : todayKvah;
+  const availableBalance = Number(
+    siteData?.asset_information?.electric_parameters?.balance
+  );
 
   setCurrentconsumption(consumption);
 
@@ -662,13 +665,16 @@ const updateCurrentSlide = (data) => {
   // ✅ rows (as it is)
   newSlides[0].rows = [
     { label: "Opening Reading", value: formatEnergyValue(opening, openingKvah) },
-    { label: "Closing Reading", value: formatEnergyValue(closing, closingKvah) },
+    { label: "Current Reading", value: formatEnergyValue(closing, closingKvah) },
     {
       label: "Today's Consumption",
       value: formatEnergyValue(consumption, consumptionKvah),
       color: "#2e7d32",
     },
-    { label: "Grid Balance", value: `Rs. ${data.balance || 0}` },
+    {
+      label: "Available Balance",
+      value: `₹ ${Number.isNaN(availableBalance) ? "0.00" : availableBalance.toFixed(2)}`,
+    },
     {
       label: "Last Reading Time",
       value: formatDateTimeformysql(
@@ -793,7 +799,7 @@ newSlides[1].consumptionData = {
         value: formatEnergyValue(data.opening_kwh || 0, openingKvah)
       },
       { 
-        label: "Closing Reading", 
+        label: "Current Reading", 
         value: formatEnergyValue(data.closing_kwh || 0, closingKvah)
       },
       { 
@@ -1378,7 +1384,7 @@ newSlides[1].consumptionData = {
             )}
             {meterCurrentData && active.key === "current" && (
               <View style={styles.totalItem}>
-                <Text style={[styles.totalLabel, { color: theme.mutedText }]}>Closing</Text>
+                <Text style={[styles.totalLabel, { color: theme.mutedText }]}>Current Reading</Text>
                 {getEnergySplitDisplay(currentunit || 0, currentClosingKvah).isDual ? (
                   <View style={styles.totalDualStack}>
                     <Text style={[styles.totalDualLine, { color: theme.text }]}>
