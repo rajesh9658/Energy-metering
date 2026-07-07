@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   Alert,
   Modal,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -15,6 +14,8 @@ import { useRouter } from "expo-router";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import { useTheme } from "../context/ThemeContext";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import Header from "./Header";
 
 export type HistoryRecord = {
   id: string;
@@ -78,6 +79,7 @@ export default function HistoryListScreen({
 }: HistoryListScreenProps) {
   const router = useRouter();
   const { theme, isDarkMode } = useTheme();
+  const insets = useSafeAreaInsets();
 
   const resolvedInitialMode =
     modes.find((mode) => mode.key === initialModeKey)?.key || modes[0]?.key;
@@ -199,10 +201,11 @@ export default function HistoryListScreen({
   };
 
   return (
-    <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.background }]}>
+    <View style={[styles.safeArea, { backgroundColor: theme.background, flex: 1 }]}>
+      <Header showBackButton={true} />
       <ScrollView
         style={[styles.container, { backgroundColor: theme.background }]}
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]}
         showsVerticalScrollIndicator={false}
       >
         <View
@@ -215,21 +218,7 @@ export default function HistoryListScreen({
             },
           ]}
         >
-          <View style={styles.heroTopRow}>
-            <TouchableOpacity
-              activeOpacity={0.85}
-              onPress={() => router.back()}
-              style={[
-                styles.backButton,
-                {
-                  backgroundColor: isDarkMode ? theme.card : "#EFF5FB",
-                  borderColor: theme.border,
-                },
-              ]}
-            >
-              <Ionicons name="arrow-back" size={20} color={theme.text} />
-            </TouchableOpacity>
-
+          <View style={[styles.heroTopRow, { justifyContent: "flex-end", marginBottom: 6 }]}>
             <View style={[styles.heroBadge, { backgroundColor: activeMode.accentColor }]}>
               <Text style={styles.heroBadgeText}>{activeMode.badgeLabel}</Text>
             </View>
@@ -601,7 +590,7 @@ export default function HistoryListScreen({
           </View>
         </View>
       </Modal>
-    </SafeAreaView>
+    </View>
   );
 }
 
