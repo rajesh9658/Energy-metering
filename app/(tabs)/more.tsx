@@ -12,6 +12,7 @@ import {
   Modal
 } from 'react-native';
 import { Ionicons, MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getSiteDataUrl } from '../config';
@@ -33,6 +34,7 @@ export default function MoreScreen() {
   const { user, getSiteId, getSlug, getSiteName } = useAuth();
   const { theme, isDarkMode } = useTheme();
   const { energyUnitMode, setEnergyUnitMode } = useEnergyUnit();
+  const router = useRouter();
   const elevatedCardStyle = {
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 5 },
@@ -235,6 +237,44 @@ export default function MoreScreen() {
       (relayStatus ? 'CONNECTED' : 'DISCONNECTED') : 'UNKNOWN';
   };
 
+  const renderHistorySection = () => (
+    <View style={styles.historySection}>
+      <View style={styles.historySectionHeader}>
+        <Text style={[styles.sectionTitle, { color: theme.text }]}>History</Text>
+        <Text style={[styles.historySectionSubtitle, { color: theme.mutedText }]}>
+          Quick access
+        </Text>
+      </View>
+
+      <TouchableOpacity
+        activeOpacity={0.9}
+        onPress={() => router.push('/history')}
+        style={[
+          styles.historySingleCard,
+          {
+            backgroundColor: theme.surface,
+            borderColor: theme.border,
+          },
+          elevatedCardStyle,
+        ]}
+      >
+        <View style={[styles.historyGlow, { backgroundColor: isDarkMode ? 'rgba(37,99,235,0.16)' : '#DBEAFE' }]} />
+        <View style={[styles.historyCardTopBar, { backgroundColor: '#2563EB' }]} />
+        <View style={styles.historyCardContent}>
+          <View style={[styles.historyIconWrap, { backgroundColor: isDarkMode ? theme.card : '#EFF6FF' }]}>
+            <Ionicons name="swap-horizontal-outline" size={20} color="#2563EB" />
+          </View>
+          <View style={styles.historyCopy}>
+            <Text numberOfLines={2} style={[styles.historyTitleLine, { color: theme.text }]}>
+              Transaction & Deduction
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color="#2563EB" />
+        </View>
+      </TouchableOpacity>
+    </View>
+  );
+
   const renderAPIDataTile = () => {
     if (!siteData || !siteData.asset_information) {
       return (
@@ -297,7 +337,7 @@ export default function MoreScreen() {
           </View>
         </View>
 
-       
+        {renderHistorySection()}
 
         {/* Charges Information */}
         <View style={styles.chargesContainer}>
@@ -449,52 +489,6 @@ export default function MoreScreen() {
           </View>
         </View>
 
-        {/* Meter Information */}
-        <View style={styles.meterContainer}>
-          <Text style={[styles.sectionHeaderText, { color: theme.text }]}>Meter Details</Text>
-          
-          <View style={[styles.meterCard, { backgroundColor: theme.surface, borderColor: theme.border }, elevatedCardStyle]}>
-            <View style={styles.meterRow}>
-              <View style={[styles.meterIcon, { backgroundColor: theme.card }]}>
-                <Ionicons name="hardware-chip-outline" size={18} color={theme.mutedText} />
-              </View>
-              <View style={styles.meterContent}>
-                <Text style={[styles.meterLabel, { color: theme.mutedText }]}>Meter Name</Text>
-                <Text style={[styles.meterValue, { color: theme.text }]}>
-                  {asset_information.meter_name || 'Not specified'}
-                </Text>
-              </View>
-            </View>
-            
-            <View style={[styles.divider, { backgroundColor: theme.border }]} />
-            
-            <View style={styles.meterRow}>
-              <View style={[styles.meterIcon, { backgroundColor: theme.card }]}>
-                <MaterialIcons name="developer-board" size={18} color={theme.mutedText} />
-              </View>
-              <View style={styles.meterContent}>
-                <Text style={[styles.meterLabel, { color: theme.mutedText }]}>Controller</Text>
-                <Text style={[styles.meterValue, { color: theme.text }]}>
-                  {asset_information.controller || 'Not specified'}
-                </Text>
-              </View>
-            </View>
-            
-            <View style={[styles.divider, { backgroundColor: theme.border }]} />
-            
-            <View style={styles.meterRow}>
-              <View style={[styles.meterIcon, { backgroundColor: theme.card }]}>
-                <Ionicons name="person-circle-outline" size={18} color={theme.mutedText} />
-              </View>
-              <View style={styles.meterContent}>
-                <Text style={[styles.meterLabel, { color: theme.mutedText }]}>Custom Name</Text>
-                <Text style={[styles.meterValue, { color: theme.text }]}>
-                  {asset_information.custom_name || 'Not specified'}
-                </Text>
-              </View>
-            </View>
-          </View>
-        </View>
       </View>
     );
   };
@@ -1290,6 +1284,89 @@ const styles = StyleSheet.create({
   notificationModalBtnText: {
     fontSize: 14,
     fontWeight: '700',
+  },
+  historySection: {
+    marginBottom: 18,
+  },
+  historySectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+    marginHorizontal: 16,
+  },
+  historySectionSubtitle: {
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  historyRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+  },
+  historySingleCard: {
+    marginHorizontal: 16,
+    borderRadius: 18,
+    borderWidth: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    overflow: 'hidden',
+  },
+  historyHeroCard: {
+    width: '48.5%',
+    borderRadius: 18,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    overflow: 'hidden',
+  },
+  historyHeroCardCompact: {
+    marginLeft: 0,
+  },
+  historyGlow: {
+    position: 'absolute',
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    top: -26,
+    right: -22,
+    opacity: 0.55,
+  },
+  historyCardTopBar: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 3,
+  },
+  historyCardContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: 58,
+  },
+  historyIconWrap: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  historyCopy: {
+    flex: 1,
+    paddingRight: 6,
+    justifyContent: 'center',
+  },
+  historyTitleLine: {
+    fontSize: 15,
+    fontWeight: '800',
+    lineHeight: 18,
+    letterSpacing: 0.1,
+    marginBottom: 0,
+  },
+  historyDesc: {
+    fontSize: 10,
+    lineHeight: 14,
   },
   menuSection: {
     marginBottom: 24,

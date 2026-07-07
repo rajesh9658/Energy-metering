@@ -281,7 +281,7 @@ useEffect(() => {
   const [slides, setSlides] = useState([
     {
       key: "current",
-      title: "Current Reading",
+      title: "Overview",
       icon: "🔋",
       rows: [
         { label: "Opening Reading", value: "Loading... kWh" },
@@ -1113,7 +1113,9 @@ newSlides[1].consumptionData = {
                     <View style={styles.cardIcon}>
                       <Text style={styles.cardIconText}>{item.icon}</Text>
                     </View>
-                    <Text style={[styles.cardTitle, { color: theme.text }]}>{item.title}</Text>
+                    <View style={styles.titleBlock}>
+                      <Text numberOfLines={1} style={[styles.cardTitle, { color: theme.text }]}>{item.title}</Text>
+                    </View>
                   </View>
 
                   {/* CARD BODY */}
@@ -1198,10 +1200,12 @@ newSlides[1].consumptionData = {
             <View style={styles.tileIcon}>
               <Text style={{ color: "#fff", fontSize: 20 }}>📊</Text>
             </View>
-            <Text style={[styles.tileTitle, { color: theme.text }]}>
-              {active.key === "current" ? "Current Consumption" : 
-               active.key === "today" ? "Today's Consumption" : "Monthly Consumption"}
-            </Text>
+            <View style={styles.titleBlock}>
+              <Text numberOfLines={1} style={[styles.tileTitle, { color: theme.text }]}>
+                {active.key === "current" ? "Current Consumption" : 
+                 active.key === "today" ? "Today's Consumption" : "Monthly Consumption"}
+              </Text>
+            </View>
           </View>
           
           <View style={styles.consumptionBreakdown}>
@@ -1814,6 +1818,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 15,
   },
+  titleBlock: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+  },
   cardIcon: {
     width: 44,
     height: 44,
@@ -1833,8 +1842,9 @@ const styles = StyleSheet.create({
   },
   cardTitle: {
     color: "#0b63a8",
-    fontSize: 17,
-    fontWeight: "700",
+    fontSize: 19,
+    fontWeight: "800",
+    letterSpacing: 0.1,
     flexShrink: 1,
   },
   cardBody: {
@@ -1932,8 +1942,9 @@ const styles = StyleSheet.create({
   },
   tileTitle: {
     color: "#0b63a8",
-    fontSize: 16,
-    fontWeight: "700",
+    fontSize: 18,
+    fontWeight: "800",
+    letterSpacing: 0.1,
     flex: 1,
   },
 
