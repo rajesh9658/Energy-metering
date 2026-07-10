@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect, useRef } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -8,14 +8,42 @@ import {
   Text,
   TouchableOpacity,
   View,
+  RefreshControl,
+  Platform,
+  PermissionsAndroid,
+  LayoutAnimation,
+  UIManager,
+  Animated,
 } from "react-native";
+
+if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
+import * as FileSystem from "expo-file-system";
+import RNFS from "react-native-fs";
+import FileViewer from "react-native-file-viewer";
+import * as Notifications from "expo-notifications";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import { useTheme } from "../context/ThemeContext";
+
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+    shouldShowBanner: true,
+    shouldShowList: true,
+  } as any),
+});
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Header from "./Header";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import axios from "axios";
+import { useAuth } from "../context/AuthContext";
+import { getWalletTransactionsUrl } from "../config";
 
 export type HistoryRecord = {
   id: string;
@@ -26,6 +54,8 @@ export type HistoryRecord = {
   status: string;
   month: string;
   meta: string;
+  balanceBefore?: string;
+  balanceAfter?: string;
 };
 
 export type HistoryMode = {
@@ -73,6 +103,92 @@ const buildMonthOptions = (records: HistoryRecord[]) => {
   return ["All", ...allMonths];
 };
 
+const formatDateTime = (dateStr: string) => {
+  if (!dateStr) return "";
+  const isoStr = dateStr.replace(" ", "T");
+  const date = new Date(isoStr);
+  if (isNaN(date.getTime())) {
+    return dateStr;
+  }
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = months[date.getMonth()];
+  const year = date.getFullYear();
+  let hours = date.getHours();
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  const ampm = hours >= 12 ? "PM" : "AM";
+  hours = hours % 12;
+  hours = hours ? hours : 12;
+  const formattedHours = String(hours).padStart(2, "0");
+  return `${day} ${month} ${year}, ${formattedHours}:${minutes} ${ampm}`;
+};
+
+const getRecordMonth = (dateStr: string) => {
+  if (!dateStr) return "";
+  const isoStr = dateStr.replace(" ", "T");
+  const date = new Date(isoStr);
+  if (isNaN(date.getTime())) {
+    return "";
+  }
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return `${months[date.getMonth()]} ${date.getFullYear()}`;
+};
+
+const mapApiRecordToHistoryRecord = (item: any, modeKey: string): HistoryRecord => {
+  const isDeduction = modeKey === "deduction";
+  const metadata = item.metadata || {};
+  
+  // Title is the capitalized transaction type from database
+  const rawType = item.type || "";
+  const title = rawType ? rawType.charAt(0).toUpperCase() + rawType.slice(1) : (isDeduction ? "Deduction" : "Recharge");
+  
+  let subtitle = "";
+  if (isDeduction) {
+    if (item.units_consumed > 0) {
+      subtitle = `Consumed ${Number(item.units_consumed).toFixed(2)} ${item.unit_type || 'kVAh'}`;
+    } else if (metadata.mains_fixed_deduction > 0) {
+      subtitle = "Mains Fixed component deduction";
+    } else if (metadata.dg_fixed_deduction > 0) {
+      subtitle = "DG Fixed component deduction";
+    } else {
+      subtitle = item.description || "Administrative deduction processed by system";
+    }
+  } else {
+    subtitle = item.description || "Amount credited to prepaid meter";
+  }
+
+  // Status pill is also the capitalized transaction type
+  const status = title;
+
+  let meta = "";
+  if (isDeduction) {
+    if (item.units_consumed > 0) {
+      meta = `Rate: ₹${item.rate_per_unit || 10}/unit`;
+    } else if (metadata.mains_fixed_deduction > 0) {
+      meta = `Mains Fixed: ₹${Number(metadata.mains_fixed_deduction).toFixed(2)}`;
+    } else if (metadata.dg_fixed_deduction > 0) {
+      meta = `DG Fixed: ₹${Number(metadata.dg_fixed_deduction).toFixed(2)}`;
+    } else {
+      meta = `Balance: ₹${Number(item.balance_after).toFixed(2)}`;
+    }
+  } else {
+    meta = `Balance After: ₹${Number(item.balance_after).toFixed(2)}`;
+  }
+
+  return {
+    id: item.id.toString(),
+    title: title,
+    subtitle: subtitle,
+    amount: item.formatted_amount || `₹${item.amount}`,
+    date: formatDateTime(item.transaction_date || item.created_at),
+    status: status,
+    month: getRecordMonth(item.transaction_date || item.created_at),
+    meta: meta,
+    balanceBefore: item.balance_before !== undefined && item.balance_before !== null ? `₹${Number(item.balance_before).toFixed(2)}` : "-",
+    balanceAfter: item.balance_after !== undefined && item.balance_after !== null ? `₹${Number(item.balance_after).toFixed(2)}` : "-",
+  };
+};
+
 export default function HistoryListScreen({
   modes,
   initialModeKey,
@@ -80,6 +196,19 @@ export default function HistoryListScreen({
   const router = useRouter();
   const { theme, isDarkMode } = useTheme();
   const insets = useSafeAreaInsets();
+  const { getSiteId, logout } = useAuth();
+  const siteId = getSiteId();
+
+  const [transactionRecords, setTransactionRecords] = useState<HistoryRecord[]>([]);
+  const [deductionRecords, setDeductionRecords] = useState<HistoryRecord[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Pagination states
+  const [txnPage, setTxnPage] = useState(1);
+  const [txnLastPage, setTxnLastPage] = useState(1);
+  const [dedPage, setDedPage] = useState(1);
+  const [dedLastPage, setDedLastPage] = useState(1);
 
   const resolvedInitialMode =
     modes.find((mode) => mode.key === initialModeKey)?.key || modes[0]?.key;
@@ -87,10 +216,153 @@ export default function HistoryListScreen({
   const [activeModeKey, setActiveModeKey] = useState(resolvedInitialMode);
   const [activeFilter, setActiveFilter] = useState("All");
   const [activeMonth, setActiveMonth] = useState("All");
-  const [showFilterModal, setShowFilterModal] = useState(false);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
+  const [isFilterVisible, setIsFilterVisible] = useState(false);
+  const animatedHeight = useRef(new Animated.Value(0)).current;
 
-  const activeMode = modes.find((mode) => mode.key === activeModeKey) || modes[0];
+  useEffect(() => {
+    Animated.timing(animatedHeight, {
+      toValue: isFilterVisible ? 58 : 0,
+      duration: 250,
+      useNativeDriver: false,
+    }).start();
+  }, [isFilterVisible]);
+  
+  // Custom Success Modal States
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [successModalMessage, setSuccessModalMessage] = useState("");
+  const [successModalFilePath, setSuccessModalFilePath] = useState("");
+
+  useEffect(() => {
+    const subscription = Notifications.addNotificationResponseReceivedListener(async (response) => {
+      const filePath = response.notification.request.content.data?.filePath;
+      if (filePath) {
+        try {
+          await FileViewer.open(filePath as string);
+        } catch (err) {
+          console.warn("Could not open file from notification", err);
+        }
+      }
+    });
+    return () => subscription.remove();
+  }, []);
+
+  const fetchModeData = async (modeKey: string, pageNumber: number, isRefresh = false) => {
+    if (!siteId) return;
+    if (pageNumber === 1 && !isRefresh) {
+      setLoading(true);
+    }
+    
+    try {
+      const authToken = await AsyncStorage.getItem("authToken");
+      const userData = await AsyncStorage.getItem("userData");
+      let parsedUserData = null;
+      try {
+        parsedUserData = userData ? JSON.parse(userData) : null;
+      } catch {}
+
+      const resolvedToken =
+        (authToken && authToken.length > 10) ? authToken : (
+        parsedUserData?.auth_token ||
+        parsedUserData?.token ||
+        parsedUserData?.access_token ||
+        parsedUserData?.bearer_token ||
+        parsedUserData?.api_token ||
+        parsedUserData?.site?.token ||
+        parsedUserData?.site?.access_token ||
+        parsedUserData?.site?.bearer_token ||
+        parsedUserData?.site?.api_token ||
+        ""
+      );
+
+      const headers = {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        ...(resolvedToken ? { Authorization: resolvedToken.startsWith("Bearer ") ? resolvedToken : `Bearer ${resolvedToken}` } : {}),
+      };
+
+      const baseUrl = getWalletTransactionsUrl(siteId, undefined, "2026-04-01");
+      const url = `${baseUrl}&per_page=10&page=${pageNumber}`;
+
+      const response = await axios.get(url, { headers });
+      if (response.data && response.data.status === "success") {
+        const txns = response.data.data.transactions || [];
+        const pagination = response.data.data.pagination || {};
+        const lastPageVal = pagination.last_page || 1;
+        
+        const mappedRecords = txns.map((item: any) => mapApiRecordToHistoryRecord(item, modeKey));
+        
+        // Filter records based on tab/mode key
+        const filteredRecords = mappedRecords.filter((record: HistoryRecord) => {
+          if (modeKey === "transaction") {
+            return record.status === "Recharge" || record.status === "Refund" || record.status === "Adjustment";
+          } else {
+            return record.status === "Deduction";
+          }
+        });
+
+        if (modeKey === "transaction") {
+          setTxnPage(pageNumber);
+          setTxnLastPage(lastPageVal);
+          setTransactionRecords(filteredRecords);
+        } else {
+          setDedPage(pageNumber);
+          setDedLastPage(lastPageVal);
+          setDeductionRecords(filteredRecords);
+        }
+      }
+    } catch (err: any) {
+      if (err.response?.status === 401) {
+        console.warn("Session expired (401) - logging out");
+        await logout();
+      } else if (err.response?.status === 404) {
+        if (modeKey === "transaction") {
+          setTxnPage(1);
+          setTxnLastPage(1);
+          if (pageNumber === 1) setTransactionRecords([]);
+        } else {
+          setDedPage(1);
+          setDedLastPage(1);
+          if (pageNumber === 1) setDeductionRecords([]);
+        }
+      } else {
+        console.error(`Error fetching ${modeKey} data:`, err);
+      }
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchModeData(activeModeKey, 1, false);
+  }, [siteId, activeModeKey]);
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    fetchModeData(activeModeKey, 1, true);
+  };
+
+  const processedModes = useMemo(() => {
+    return modes.map((mode) => {
+      if (mode.key === "transaction") {
+        return { 
+          ...mode, 
+          records: transactionRecords,
+          filterOptions: ["All", "Recharge", "Refund", "Adjustment"]
+        };
+      } else if (mode.key === "deduction") {
+        return { 
+          ...mode, 
+          records: deductionRecords,
+          filterOptions: ["All", "Deduction"]
+        };
+      }
+      return mode;
+    });
+  }, [modes, transactionRecords, deductionRecords]);
+
+  const activeMode = processedModes.find((mode) => mode.key === activeModeKey) || processedModes[0];
   const monthOptions = useMemo(() => buildMonthOptions(activeMode.records), [activeMode]);
 
   const visibleRecords = useMemo(() => {
@@ -109,6 +381,7 @@ export default function HistoryListScreen({
   }, [visibleRecords]);
 
   const handleModeChange = (modeKey: string) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setActiveModeKey(modeKey);
     setActiveFilter("All");
     setActiveMonth("All");
@@ -133,7 +406,8 @@ export default function HistoryListScreen({
               <td>${record.status}</td>
               <td>${record.month}</td>
               <td>${record.date}</td>
-              <td>${record.meta}</td>
+              <td>${record.balanceBefore || "-"}</td>
+              <td>${record.balanceAfter || "-"}</td>
               <td>${record.amount}</td>
             </tr>
           `
@@ -172,10 +446,11 @@ export default function HistoryListScreen({
                 <th>Status</th>
                 <th>Month</th>
                 <th>Date</th>
-                <th>Details</th>
+                <th>Bal. Before</th>
+                <th>Bal. After</th>
                 <th>Amount</th>
               </tr>
-              ${rowsHtml || '<tr><td colspan="6">No records available</td></tr>'}
+              ${rowsHtml || '<tr><td colspan="7">No records available</td></tr>'}
             </table>
             <div class="footer">Generated on ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}</div>
           </body>
@@ -183,6 +458,109 @@ export default function HistoryListScreen({
       `;
 
       const { uri } = await Print.printToFileAsync({ html });
+
+      if (Platform.OS === "android") {
+        try {
+          const filename = `${activeModeKey}_history_${Date.now()}.pdf`;
+          const downloadDest = `${RNFS.DownloadDirectoryPath}/${filename}`;
+          const cleanSourceUri = uri.startsWith("file://") ? uri.substring(7) : uri;
+          
+          let writeGranted = true;
+          if (Number(Platform.Version) < 33) {
+            const permissionRes = await PermissionsAndroid.request(
+              PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE
+            );
+            writeGranted = permissionRes === PermissionsAndroid.RESULTS.GRANTED;
+          }
+
+          if (writeGranted) {
+            await RNFS.copyFile(cleanSourceUri, downloadDest);
+            
+            try {
+              await (RNFS as any).scanFile(downloadDest);
+            } catch (scanErr) {
+              console.warn("Media scanner failed", scanErr);
+            }
+
+            try {
+              await Notifications.requestPermissionsAsync();
+              await Notifications.scheduleNotificationAsync({
+                content: {
+                  title: "Download complete",
+                  body: `${filename} saved to Downloads folder.`,
+                  data: { filePath: downloadDest },
+                },
+                trigger: null,
+              });
+            } catch (notifErr) {
+              console.warn("Notification scheduling failed", notifErr);
+            }
+
+            setSuccessModalMessage(filename);
+            setSuccessModalFilePath(downloadDest);
+            setShowSuccessModal(true);
+            return;
+          }
+        } catch (fsErr) {
+          console.warn("Direct RNFS save failed, falling back to SAF / Sharing", fsErr);
+        }
+
+        try {
+          let savedDirectoryUri = await AsyncStorage.getItem("downloadsDirectoryUri");
+          let permissionsGranted = false;
+
+          if (savedDirectoryUri) {
+            permissionsGranted = true;
+          }
+
+          if (!savedDirectoryUri) {
+            const permissions = await (FileSystem as any).StorageAccessFramework.requestDirectoryPermissionsAsync();
+            if (permissions.granted) {
+              savedDirectoryUri = permissions.directoryUri;
+              await AsyncStorage.setItem("downloadsDirectoryUri", permissions.directoryUri);
+              permissionsGranted = true;
+            }
+          }
+
+          if (permissionsGranted && savedDirectoryUri) {
+            const filename = `${activeModeKey}_history_${Date.now()}.pdf`;
+            const fileUri = await (FileSystem as any).StorageAccessFramework.createFileAsync(
+              savedDirectoryUri,
+              filename,
+              "application/pdf"
+            );
+
+            const base64Data = await FileSystem.readAsStringAsync(uri, {
+              encoding: "base64",
+            });
+
+            await FileSystem.writeAsStringAsync(fileUri, base64Data, {
+              encoding: "base64",
+            });
+
+            try {
+              await Notifications.requestPermissionsAsync();
+              await Notifications.scheduleNotificationAsync({
+                content: {
+                  title: "Download complete",
+                  body: "PDF saved to your selected downloads folder.",
+                  data: { filePath: fileUri },
+                },
+                trigger: null,
+              });
+            } catch (notifErr) {
+              console.warn("Notification scheduling failed", notifErr);
+            }
+
+            setSuccessModalMessage(filename);
+            setSuccessModalFilePath(fileUri);
+            setShowSuccessModal(true);
+            return;
+          }
+        } catch (androidErr) {
+          console.warn("Direct folder save failed, fallback to sharing sheet", androidErr);
+        }
+      }
 
       if (await Sharing.isAvailableAsync()) {
         await Sharing.shareAsync(uri, {
@@ -203,183 +581,217 @@ export default function HistoryListScreen({
   return (
     <View style={[styles.safeArea, { backgroundColor: theme.background, flex: 1 }]}>
       <Header showBackButton={true} />
-      <ScrollView
-        style={[styles.container, { backgroundColor: theme.background }]}
-        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]}
-        showsVerticalScrollIndicator={false}
-      >
-        <View
-          style={[
-            styles.heroCard,
-            {
-              backgroundColor: theme.surface,
-              borderColor: theme.border,
-              shadowColor: theme.shadow,
-            },
-          ]}
-        >
-          <View style={[styles.heroTopRow, { justifyContent: "flex-end", marginBottom: 6 }]}>
-            <View style={[styles.heroBadge, { backgroundColor: activeMode.accentColor }]}>
-              <Text style={styles.heroBadgeText}>{activeMode.badgeLabel}</Text>
-            </View>
-          </View>
 
-          <View style={styles.toggleRow}>
-            {modes.map((mode) => {
-              const selected = mode.key === activeModeKey;
+      {/* Flipkart-Style Sticky Filter Container */}
+      <View style={[styles.stickyFilterContainer, { backgroundColor: theme.surface, borderBottomColor: theme.border }]}>
+        {/* Mode Selector Tab Bar */}
+        <View style={[styles.modeTabContainer, { borderBottomColor: theme.border }]}>
+          {modes.map((mode) => {
+            const selected = mode.key === activeModeKey;
+            return (
+              <TouchableOpacity
+                key={mode.key}
+                activeOpacity={0.85}
+                onPress={() => handleModeChange(mode.key)}
+                style={[
+                  styles.modeTabButton,
+                  {
+                    borderBottomColor: selected ? mode.accentColor : "transparent",
+                  },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.modeTabText,
+                    {
+                      color: selected ? mode.accentColor : theme.mutedText,
+                      fontWeight: selected ? "800" : "600",
+                    },
+                  ]}
+                >
+                  {mode.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        {/* Animated Filters Container */}
+        <Animated.View style={{ height: animatedHeight, overflow: "hidden" }}>
+          {/* Status Filter Chips Row */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.chipsScrollView}
+            contentContainerStyle={styles.chipsContentContainer}
+          >
+            <Ionicons name="funnel-outline" size={11} color={theme.mutedText} style={{ alignSelf: "center", marginRight: 3 }} />
+            {activeMode.filterOptions.map((filter) => {
+              const selected = activeFilter === filter;
               return (
                 <TouchableOpacity
-                  key={mode.key}
-                  activeOpacity={0.9}
-                  onPress={() => handleModeChange(mode.key)}
+                  key={filter}
+                  activeOpacity={0.85}
+                  onPress={() => {
+                    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                    setActiveFilter(filter);
+                  }}
                   style={[
-                    styles.toggleButton,
+                    styles.filterChip,
                     {
                       backgroundColor: selected
-                        ? mode.accentColor
+                        ? activeMode.accentColor
                         : isDarkMode
                           ? theme.card
-                          : "#F7FAFE",
-                      borderColor: selected ? mode.accentColor : theme.border,
+                          : "#F1F5F9",
+                      borderColor: selected ? activeMode.accentColor : theme.border,
                     },
                   ]}
                 >
                   <Text
                     style={[
-                      styles.toggleButtonText,
+                      styles.filterChipText,
                       { color: selected ? "#FFFFFF" : theme.text },
                     ]}
                   >
-                    {mode.label}
+                    {filter}
                   </Text>
                 </TouchableOpacity>
               );
             })}
-          </View>
+          </ScrollView>
 
-          <View style={styles.heroHeadingRow}>
-            <View
-              style={[
-                styles.heroIconWrap,
-                { backgroundColor: isDarkMode ? theme.card : "#F4F9FF" },
-              ]}
-            >
-              <Ionicons name={activeMode.icon} size={24} color={activeMode.accentColor} />
+          {/* Month Filter Chips Row */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={[styles.chipsScrollView, { marginTop: 3 }]}
+            contentContainerStyle={styles.chipsContentContainer}
+          >
+            <Ionicons name="calendar-outline" size={11} color={theme.mutedText} style={{ alignSelf: "center", marginRight: 3 }} />
+            {monthOptions.map((month) => {
+              const selected = activeMonth === month;
+              return (
+                <TouchableOpacity
+                  key={month}
+                  activeOpacity={0.85}
+                  onPress={() => {
+                    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                    setActiveMonth(month);
+                  }}
+                  style={[
+                    styles.filterChip,
+                    {
+                      backgroundColor: selected
+                        ? activeMode.accentColor
+                        : isDarkMode
+                          ? theme.card
+                          : "#F1F5F9",
+                      borderColor: selected ? activeMode.accentColor : theme.border,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.filterChipText,
+                      { color: selected ? "#FFFFFF" : theme.text },
+                    ]}
+                  >
+                    {month}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </Animated.View>
+
+        {/* Compact Summary and Download PDF Bar */}
+        <View style={[styles.compactSummaryRow, { borderTopColor: theme.border }]}>
+          <View style={styles.metricsContainer}>
+            <View style={[styles.metricChip, { backgroundColor: isDarkMode ? theme.card : "#F8FAFC", borderColor: theme.border }]}>
+              <Text style={[styles.metricChipLabel, { color: theme.mutedText }]}>Records: </Text>
+              <Text style={[styles.metricChipValue, { color: theme.text }]}>{visibleRecords.length}</Text>
             </View>
-
-            <View style={styles.heroCopy}>
-              <Text style={[styles.heroTitle, { color: theme.text }]}>{activeMode.title}</Text>
-              <Text style={[styles.heroSubtitle, { color: theme.mutedText }]}>
-                {activeMode.subtitle}
-              </Text>
+            <View style={[styles.metricChip, { marginLeft: 8, backgroundColor: isDarkMode ? theme.card : "#F8FAFC", borderColor: theme.border }]}>
+              <Text style={[styles.metricChipLabel, { color: theme.mutedText }]}>Total: </Text>
+              <Text style={[styles.metricChipValue, { color: theme.text }]}>₹{totalAmount.toFixed(0)}</Text>
             </View>
-          </View>
-
-          <View style={styles.heroSummaryRow}>
-            <View
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={() => {
+                LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                setIsFilterVisible(!isFilterVisible);
+              }}
               style={[
-                styles.heroSummaryCard,
+                styles.metricChip,
                 {
-                  backgroundColor: isDarkMode ? theme.card : "#F5F9FF",
-                  borderColor: theme.border,
+                  marginLeft: 8,
+                  backgroundColor: isFilterVisible
+                    ? activeMode.accentColor
+                    : isDarkMode
+                      ? theme.card
+                      : "#F8FAFC",
+                  borderColor: isFilterVisible ? activeMode.accentColor : theme.border,
                 },
               ]}
             >
-              <Text style={[styles.heroSummaryLabel, { color: theme.mutedText }]}>Records</Text>
-              <Text style={[styles.heroSummaryValue, { color: theme.text }]}>
-                {visibleRecords.length}
+              <Ionicons
+                name={isFilterVisible ? "funnel" : "funnel-outline"}
+                size={11}
+                color={isFilterVisible ? "#FFFFFF" : theme.text}
+                style={{ marginRight: 4 }}
+              />
+              <Text
+                style={[
+                  styles.metricChipValue,
+                  {
+                    color: isFilterVisible ? "#FFFFFF" : theme.text,
+                    fontSize: 10,
+                    fontWeight: "800",
+                  },
+                ]}
+              >
+                Filters
               </Text>
-            </View>
-            <View
-              style={[
-                styles.heroSummaryCard,
-                {
-                  backgroundColor: isDarkMode ? theme.card : "#F5F9FF",
-                  borderColor: theme.border,
-                },
-              ]}
-            >
-              <Text style={[styles.heroSummaryLabel, { color: theme.mutedText }]}>Total</Text>
-              <Text style={[styles.heroSummaryValue, { color: theme.text }]}>
-                Rs {totalAmount.toFixed(0)}
-              </Text>
-            </View>
+            </TouchableOpacity>
           </View>
-
-          <View
+          
+          <TouchableOpacity
+            activeOpacity={0.85}
+            onPress={downloadHistoryPdf}
+            disabled={isDownloadingPdf}
             style={[
-              styles.embeddedFilterPanel,
+              styles.compactDownloadButton,
               {
-                backgroundColor: isDarkMode ? theme.card : "#F8FBFF",
-                borderColor: theme.border,
+                backgroundColor: activeMode.accentColor,
               },
             ]}
           >
-            <View style={styles.actionRow}>
-              <TouchableOpacity
-                activeOpacity={0.85}
-                onPress={() => setShowFilterModal(true)}
-                style={[
-                  styles.filterLauncher,
-                  styles.actionCard,
-                  {
-                    backgroundColor: isDarkMode ? theme.surface : "#FFFFFF",
-                    borderColor: theme.border,
-                  },
-                ]}
-              >
-                <View style={styles.filterLauncherCopy}>
-                  <Text style={[styles.filterTitle, { color: theme.text }]}>Filters</Text>
-                  <Text style={[styles.filterMeta, { color: theme.mutedText }]}>
-                    {filterSummary || "Tap the icon to choose filters"}
-                  </Text>
-                </View>
-                <View
-                  style={[
-                    styles.filterIconButton,
-                    { backgroundColor: activeMode.accentColor },
-                  ]}
-                >
-                  <Ionicons name="options-outline" size={18} color="#FFFFFF" />
-                </View>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                activeOpacity={0.85}
-                onPress={downloadHistoryPdf}
-                disabled={isDownloadingPdf}
-                style={[
-                  styles.downloadCard,
-                  styles.actionCard,
-                  {
-                    backgroundColor: isDarkMode ? theme.surface : "#FFFFFF",
-                    borderColor: theme.border,
-                  },
-                ]}
-              >
-                <View style={styles.downloadCopy}>
-                  <Text style={[styles.downloadTitle, { color: theme.text }]}>Download PDF</Text>
-                  <Text style={[styles.downloadSubtitle, { color: theme.mutedText }]}>
-                    Filtered history export
-                  </Text>
-                </View>
-                <View
-                  style={[
-                    styles.filterIconButton,
-                    { backgroundColor: isDownloadingPdf ? "#94A3B8" : activeMode.accentColor },
-                  ]}
-                >
-                  {isDownloadingPdf ? (
-                    <ActivityIndicator size="small" color="#FFFFFF" />
-                  ) : (
-                    <Ionicons name="download-outline" size={18} color="#FFFFFF" />
-                  )}
-                </View>
-              </TouchableOpacity>
-            </View>
-          </View>
+            {isDownloadingPdf ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <>
+                <Ionicons name="download-outline" size={12} color="#FFFFFF" style={{ marginRight: 4 }} />
+                <Text style={styles.compactDownloadButtonText}>PDF</Text>
+              </>
+            )}
+          </TouchableOpacity>
         </View>
+      </View>
 
+      <ScrollView
+        style={[styles.container, { backgroundColor: theme.background }]}
+        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={[activeMode.accentColor]}
+            tintColor={activeMode.accentColor}
+          />
+        }
+      >
         <View style={styles.sectionHeader}>
           <Text style={[styles.sectionTitle, { color: theme.text }]}>{activeMode.sectionTitle}</Text>
           <Text style={[styles.sectionCount, { color: theme.mutedText }]}>
@@ -387,209 +799,263 @@ export default function HistoryListScreen({
           </Text>
         </View>
 
-        {visibleRecords.map((record) => (
-          <View
-            key={record.id}
-            style={[
-              styles.recordCard,
-              {
-                backgroundColor: theme.surface,
-                borderColor: theme.border,
-                shadowColor: theme.shadow,
-              },
-            ]}
-          >
-            <View style={[styles.recordAccent, { backgroundColor: activeMode.accentColor }]} />
+        {loading && visibleRecords.length === 0 ? (
+          <View style={{ flex: 1, justifyContent: "center", alignItems: "center", paddingVertical: 50 }}>
+            <ActivityIndicator size="large" color={activeMode.accentColor} />
+            <Text style={{ marginTop: 10, color: theme.mutedText, fontSize: 13, fontWeight: "600" }}>Loading records...</Text>
+          </View>
+        ) : (
+          <>
+            {visibleRecords.map((record) => {
+              const getIconDetails = (status: string) => {
+                switch (status?.toLowerCase()) {
+                  case "recharge":
+                    return {
+                      name: "arrow-up-sharp" as const,
+                      color: "#10B981",
+                      bgColor: isDarkMode ? "rgba(16, 185, 129, 0.08)" : "#ECFDF5",
+                      borderColor: isDarkMode ? "rgba(16, 185, 129, 0.25)" : "rgba(16, 185, 129, 0.18)",
+                    };
+                  case "refund":
+                    return {
+                      name: "arrow-undo-sharp" as const,
+                      color: "#0D9488",
+                      bgColor: isDarkMode ? "rgba(13, 148, 136, 0.08)" : "#F0FDFA",
+                      borderColor: isDarkMode ? "rgba(13, 148, 136, 0.25)" : "rgba(13, 148, 136, 0.18)",
+                    };
+                  case "adjustment":
+                    return {
+                      name: "swap-horizontal-sharp" as const,
+                      color: "#3B82F6",
+                      bgColor: isDarkMode ? "rgba(59, 130, 246, 0.08)" : "#EFF6FF",
+                      borderColor: isDarkMode ? "rgba(59, 130, 246, 0.25)" : "rgba(59, 130, 246, 0.18)",
+                    };
+                  case "deduction":
+                  default:
+                    return {
+                      name: "arrow-down-sharp" as const,
+                      color: "#EF4444",
+                      bgColor: isDarkMode ? "rgba(239, 68, 68, 0.08)" : "#FEF2F2",
+                      borderColor: isDarkMode ? "rgba(239, 68, 68, 0.25)" : "rgba(239, 68, 68, 0.18)",
+                    };
+                }
+              };
+              
+              const iconInfo = getIconDetails(record.status);
 
-            <View style={styles.recordBody}>
-              <View style={styles.recordTopRow}>
-                <View style={styles.recordCopy}>
-                  <Text style={[styles.recordTitle, { color: theme.text }]}>{record.title}</Text>
-                  <Text style={[styles.recordSubtitle, { color: theme.mutedText }]}>
-                    {record.subtitle}
-                  </Text>
-                </View>
-
-                <Text style={[styles.recordAmount, { color: theme.text }]}>{record.amount}</Text>
-              </View>
-
-              <View style={styles.recordMetaRow}>
+              return (
                 <View
+                  key={record.id}
                   style={[
-                    styles.statusPill,
+                    styles.recordCard,
                     {
-                      backgroundColor: isDarkMode ? theme.card : "#EEF7FF",
+                      backgroundColor: theme.surface,
                       borderColor: theme.border,
+                      shadowColor: theme.shadow,
                     },
                   ]}
                 >
-                  <Text
+                  <View style={[styles.circularBadge, { backgroundColor: iconInfo.bgColor, borderColor: iconInfo.borderColor }]}>
+                    <Ionicons name={iconInfo.name} size={18} color={iconInfo.color} />
+                  </View>
+
+                  <View style={styles.recordBody}>
+                    <View style={styles.recordMainRow}>
+                      <View style={styles.recordTextContainer}>
+                        <Text style={[styles.recordTitle, { color: theme.text }]}>{record.title}</Text>
+                        <Text style={[styles.recordSubtitle, { color: theme.mutedText }]}>
+                          {record.subtitle}
+                        </Text>
+                      </View>
+
+                      <View style={styles.recordAmountContainer}>
+                        <Text
+                          style={[
+                            styles.recordAmount,
+                            {
+                              color: record.amount.startsWith("-")
+                                ? "#EF4444"
+                                : record.amount.startsWith("+")
+                                  ? "#10B981"
+                                  : theme.text,
+                            },
+                          ]}
+                        >
+                          {record.amount}
+                        </Text>
+                        {record.meta && activeModeKey !== "deduction" ? (
+                          <Text style={[styles.recordMeta, { color: theme.mutedText }]}>
+                            {record.meta}
+                          </Text>
+                        ) : null}
+                      </View>
+                    </View>
+
+                    <View style={styles.recordFooterRow}>
+                      <Ionicons name="time-outline" size={10} color={theme.mutedText} style={{ marginRight: 3 }} />
+                      <Text style={[styles.recordDate, { color: theme.mutedText }]}>{record.date}</Text>
+                    </View>
+                  </View>
+                </View>
+              );
+            })}
+
+            {visibleRecords.length === 0 && (
+              <View
+                style={[
+                  styles.emptyState,
+                  {
+                    backgroundColor: theme.surface,
+                    borderColor: theme.border,
+                  },
+                ]}
+              >
+                <Ionicons name="file-tray-outline" size={28} color={theme.mutedText} />
+                <Text style={[styles.emptyTitle, { color: theme.text }]}>No matching records</Text>
+                <Text style={[styles.emptyText, { color: theme.mutedText }]}>
+                  Try changing the status or month filter to see more history.
+                </Text>
+              </View>
+            )}
+
+            {activeModeKey === "transaction" ? (
+              txnLastPage > 1 && (
+                <View style={styles.paginationRow}>
+                  <TouchableOpacity
+                    disabled={txnPage === 1 || loading}
+                    onPress={() => fetchModeData("transaction", txnPage - 1)}
                     style={[
-                      styles.statusPillText,
-                      { color: activeMode.accentColor },
+                      styles.pageButton,
+                      {
+                        backgroundColor: theme.surface,
+                        borderColor: theme.border,
+                        opacity: txnPage === 1 ? 0.4 : 1,
+                      },
                     ]}
                   >
-                    {record.status}
+                    <Ionicons name="chevron-back" size={16} color={activeMode.accentColor} />
+                    <Text style={[styles.pageButtonText, { color: activeMode.accentColor }]}>Prev</Text>
+                  </TouchableOpacity>
+
+                  <Text style={[styles.pageIndicatorText, { color: theme.text }]}>
+                    Page {txnPage} of {txnLastPage}
                   </Text>
+
+                  <TouchableOpacity
+                    disabled={txnPage === txnLastPage || loading}
+                    onPress={() => fetchModeData("transaction", txnPage + 1)}
+                    style={[
+                      styles.pageButton,
+                      {
+                        backgroundColor: theme.surface,
+                        borderColor: theme.border,
+                        opacity: txnPage === txnLastPage ? 0.4 : 1,
+                      },
+                    ]}
+                  >
+                    <Text style={[styles.pageButtonText, { color: activeMode.accentColor }]}>Next</Text>
+                    <Ionicons name="chevron-forward" size={16} color={activeMode.accentColor} />
+                  </TouchableOpacity>
                 </View>
+              )
+            ) : (
+              dedLastPage > 1 && (
+                <View style={styles.paginationRow}>
+                  <TouchableOpacity
+                    disabled={dedPage === 1 || loading}
+                    onPress={() => fetchModeData("deduction", dedPage - 1)}
+                    style={[
+                      styles.pageButton,
+                      {
+                        backgroundColor: theme.surface,
+                        borderColor: theme.border,
+                        opacity: dedPage === 1 ? 0.4 : 1,
+                      },
+                    ]}
+                  >
+                    <Ionicons name="chevron-back" size={16} color={activeMode.accentColor} />
+                    <Text style={[styles.pageButtonText, { color: activeMode.accentColor }]}>Prev</Text>
+                  </TouchableOpacity>
 
-                <Text style={[styles.recordMeta, { color: theme.mutedText }]}>{record.meta}</Text>
-              </View>
+                  <Text style={[styles.pageIndicatorText, { color: theme.text }]}>
+                    Page {dedPage} of {dedLastPage}
+                  </Text>
 
-              <Text style={[styles.recordDate, { color: theme.mutedText }]}>{record.date}</Text>
-            </View>
-          </View>
-        ))}
-
-        {visibleRecords.length === 0 && (
-          <View
-            style={[
-              styles.emptyState,
-              {
-                backgroundColor: theme.surface,
-                borderColor: theme.border,
-              },
-            ]}
-          >
-            <Ionicons name="file-tray-outline" size={28} color={theme.mutedText} />
-            <Text style={[styles.emptyTitle, { color: theme.text }]}>No matching records</Text>
-            <Text style={[styles.emptyText, { color: theme.mutedText }]}>
-              Try changing the status or month filter to see more history.
-            </Text>
-          </View>
+                  <TouchableOpacity
+                    disabled={dedPage === dedLastPage || loading}
+                    onPress={() => fetchModeData("deduction", dedPage + 1)}
+                    style={[
+                      styles.pageButton,
+                      {
+                        backgroundColor: theme.surface,
+                        borderColor: theme.border,
+                        opacity: dedPage === dedLastPage ? 0.4 : 1,
+                      },
+                    ]}
+                  >
+                    <Text style={[styles.pageButtonText, { color: activeMode.accentColor }]}>Next</Text>
+                    <Ionicons name="chevron-forward" size={16} color={activeMode.accentColor} />
+                  </TouchableOpacity>
+                </View>
+              )
+            )}
+          </>
         )}
       </ScrollView>
 
+      {/* Custom Download Success Modal Dialog */}
       <Modal
-        visible={showFilterModal}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowFilterModal(false)}
+        visible={showSuccessModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowSuccessModal(false)}
       >
-        <View style={styles.filterModalOverlay}>
-          <View
-            style={[
-              styles.filterModalCard,
-              {
-                backgroundColor: theme.surface,
-                borderColor: theme.border,
-              },
-            ]}
-          >
-            <View style={styles.filterModalHeader}>
-              <View>
-                <Text style={[styles.filterModalTitle, { color: theme.text }]}>Filter History</Text>
-                <Text style={[styles.filterModalSubtitle, { color: theme.mutedText }]}>
-                  Choose what you want to see
-                </Text>
-              </View>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.successModalCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+            <View style={styles.successIconBadge}>
+              <Ionicons name="checkmark-circle" size={38} color="#10B981" />
+            </View>
+
+            <Text style={[styles.successModalTitle, { color: theme.text }]}>Download Completed</Text>
+            <Text style={[styles.successModalSubtitle, { color: theme.mutedText }]}>
+              Your PDF has been saved successfully.
+            </Text>
+
+            <View style={[styles.successFileContainer, { backgroundColor: isDarkMode ? "rgba(255, 255, 255, 0.04)" : "#F8FAFC", borderColor: theme.border }]}>
+              <Ionicons name="document-text" size={20} color="#EF4444" style={{ marginRight: 8 }} />
+              <Text numberOfLines={2} ellipsizeMode="middle" style={[styles.successFileNameText, { color: theme.text }]}>
+                {successModalMessage}
+              </Text>
+            </View>
+
+            <View style={styles.successActionsRow}>
               <TouchableOpacity
-                onPress={() => setShowFilterModal(false)}
-                style={[
-                  styles.filterCloseButton,
-                  { backgroundColor: isDarkMode ? theme.card : "#F4F7FB", borderColor: theme.border },
-                ]}
+                activeOpacity={0.8}
+                onPress={() => setShowSuccessModal(false)}
+                style={[styles.successDismissButton, { borderColor: theme.border }]}
               >
-                <Ionicons name="close" size={18} color={theme.text} />
+                <Text style={[styles.successDismissText, { color: theme.text }]}>OK</Text>
               </TouchableOpacity>
-            </View>
 
-            <Text style={[styles.filterLabel, { color: theme.mutedText }]}>Status</Text>
-            <View style={styles.chipRow}>
-              {activeMode.filterOptions.map((filter) => {
-                const selected = activeFilter === filter;
-                return (
-                  <TouchableOpacity
-                    key={filter}
-                    activeOpacity={0.85}
-                    onPress={() => setActiveFilter(filter)}
-                    style={[
-                      styles.filterChip,
-                      {
-                        backgroundColor: selected
-                          ? activeMode.accentColor
-                          : isDarkMode
-                            ? theme.card
-                            : "#F8FBFF",
-                        borderColor: selected ? activeMode.accentColor : theme.border,
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.filterChipText,
-                        { color: selected ? "#FFFFFF" : theme.text },
-                      ]}
-                    >
-                      {filter}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-
-            <Text style={[styles.filterLabel, { color: theme.mutedText }]}>Month</Text>
-            <View style={[styles.chipRow, styles.chipRowCompact]}>
-              {monthOptions.map((month) => {
-                const selected = activeMonth === month;
-                return (
-                  <TouchableOpacity
-                    key={month}
-                    activeOpacity={0.85}
-                    onPress={() => setActiveMonth(month)}
-                    style={[
-                      styles.filterChip,
-                      {
-                        backgroundColor: selected
-                          ? activeMode.accentColor
-                          : isDarkMode
-                            ? theme.card
-                            : "#F8FBFF",
-                        borderColor: selected ? activeMode.accentColor : theme.border,
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.filterChipText,
-                        { color: selected ? "#FFFFFF" : theme.text },
-                      ]}
-                    >
-                      {month}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-
-            <View style={styles.filterActionRow}>
               <TouchableOpacity
                 activeOpacity={0.85}
-                onPress={() => {
-                  setActiveFilter("All");
-                  setActiveMonth("All");
+                onPress={async () => {
+                  setShowSuccessModal(false);
+                  try {
+                    await FileViewer.open(successModalFilePath);
+                  } catch (err) {
+                    Alert.alert("Error", "Could not open the PDF viewer.");
+                  }
                 }}
-                style={[
-                  styles.filterActionButton,
-                  { backgroundColor: isDarkMode ? theme.card : "#F4F7FB", borderColor: theme.border },
-                ]}
+                style={[styles.successActionButton, { backgroundColor: activeMode.accentColor }]}
               >
-                <Text style={[styles.filterActionText, { color: theme.text }]}>Reset</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                activeOpacity={0.85}
-                onPress={() => setShowFilterModal(false)}
-                style={[
-                  styles.filterActionButton,
-                  { backgroundColor: activeMode.accentColor, borderColor: activeMode.accentColor },
-                ]}
-              >
-                <Text style={[styles.filterActionText, { color: "#FFFFFF" }]}>Apply</Text>
+                <Text style={styles.successActionText}>Open File</Text>
               </TouchableOpacity>
             </View>
           </View>
         </View>
       </Modal>
+
     </View>
   );
 }
@@ -780,16 +1246,16 @@ const styles = StyleSheet.create({
     marginBottom: 0,
   },
   filterChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 999,
-    marginRight: 6,
-    marginBottom: 6,
-    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    marginRight: 3,
+    borderWidth: 0.8,
   },
   filterChipText: {
-    fontSize: 11,
+    fontSize: 9,
     fontWeight: "700",
+    letterSpacing: 0.2,
   },
   filterModalOverlay: {
     flex: 1,
@@ -858,70 +1324,67 @@ const styles = StyleSheet.create({
   },
   recordCard: {
     flexDirection: "row",
+    alignItems: "center",
     borderWidth: 1,
     borderRadius: 16,
     marginBottom: 10,
-    overflow: "hidden",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.07,
-    shadowRadius: 14,
-    elevation: 4,
+    padding: 12,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 3,
   },
-  recordAccent: {
-    width: 4,
+  circularBadge: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
+    borderWidth: 1,
   },
   recordBody: {
     flex: 1,
-    padding: 12,
   },
-  recordTopRow: {
+  recordMainRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-start",
-    marginBottom: 8,
+    marginBottom: 2,
   },
-  recordCopy: {
+  recordTextContainer: {
     flex: 1,
-    paddingRight: 10,
+    paddingRight: 12,
   },
   recordTitle: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: "800",
-    marginBottom: 3,
+    marginBottom: 2,
   },
   recordSubtitle: {
     fontSize: 11,
     lineHeight: 15,
   },
+  recordAmountContainer: {
+    alignItems: "flex-end",
+  },
   recordAmount: {
     fontSize: 14,
     fontWeight: "800",
   },
-  recordMetaRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 6,
-  },
-  statusPill: {
-    borderWidth: 1,
-    borderRadius: 999,
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-  },
-  statusPillText: {
-    fontSize: 10,
-    fontWeight: "800",
-  },
   recordMeta: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: "600",
-    marginLeft: 10,
-    flex: 1,
+    marginTop: 2,
     textAlign: "right",
   },
+  recordFooterRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 4,
+  },
   recordDate: {
-    fontSize: 10,
+    fontSize: 9.5,
     fontWeight: "500",
   },
   emptyState: {
@@ -941,5 +1404,186 @@ const styles = StyleSheet.create({
     fontSize: 12,
     textAlign: "center",
     lineHeight: 18,
+  },
+  paginationRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: 14,
+    marginBottom: 26,
+    paddingHorizontal: 4,
+  },
+  pageButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    gap: 4,
+  },
+  pageButtonText: {
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  pageIndicatorText: {
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  stickyFilterContainer: {
+    paddingBottom: 6,
+    borderBottomWidth: 1,
+    elevation: 3,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    zIndex: 10,
+  },
+  modeTabContainer: {
+    flexDirection: "row",
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    marginBottom: 6,
+  },
+  modeTabButton: {
+    flex: 1,
+    paddingVertical: 8,
+    alignItems: "center",
+    borderBottomWidth: 3,
+  },
+  modeTabText: {
+    fontSize: 13,
+  },
+  chipsScrollView: {
+    paddingHorizontal: 10,
+  },
+  chipsContentContainer: {
+    paddingRight: 16,
+    gap: 3,
+  },
+  compactSummaryRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    marginTop: 8,
+    borderTopWidth: 1,
+  },
+  metricsContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  metricChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  metricChipLabel: {
+    fontSize: 10,
+    fontWeight: "600",
+  },
+  metricChipValue: {
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  compactDownloadButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  compactDownloadButtonText: {
+    color: "#FFFFFF",
+    fontSize: 10,
+    fontWeight: "800",
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(15, 23, 42, 0.55)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
+  },
+  successModalCard: {
+    width: "100%",
+    maxWidth: 320,
+    borderRadius: 24,
+    borderWidth: 1,
+    padding: 24,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.1,
+    shadowRadius: 20,
+    elevation: 8,
+  },
+  successIconBadge: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    backgroundColor: "rgba(16, 185, 129, 0.08)",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  successModalTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    textAlign: "center",
+    marginBottom: 6,
+  },
+  successModalSubtitle: {
+    fontSize: 12,
+    textAlign: "center",
+    marginBottom: 20,
+  },
+  successFileContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    width: "100%",
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 20,
+  },
+  successFileNameText: {
+    flex: 1,
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  successActionsRow: {
+    flexDirection: "row",
+    width: "100%",
+    gap: 12,
+  },
+  successDismissButton: {
+    flex: 1,
+    height: 44,
+    borderRadius: 14,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  successDismissText: {
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  successActionButton: {
+    flex: 1.2,
+    height: 44,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  successActionText: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "800",
   },
 });

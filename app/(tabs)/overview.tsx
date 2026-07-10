@@ -23,6 +23,7 @@ import {
 import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
 import { useEnergyUnit } from "../context/EnergyUnitContext";
+import { useNavigation } from 'expo-router';
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -66,6 +67,7 @@ export default function OverviewScreen({ route }) {
   const { user, getSiteId, getSlug, getSiteName } = useAuth();
   const { theme, isDarkMode } = useTheme();
   const { energyUnitMode } = useEnergyUnit();
+  const navigation = useNavigation();
   
   // State for site info
   const [siteInfo, setSiteInfo] = useState({
@@ -408,6 +410,16 @@ useEffect(() => {
       fetchAllData();
     }
   }, [siteInfo, isLoadingSiteInfo]);
+
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      if (siteInfo.siteId && siteInfo.siteName && !isLoadingSiteInfo) {
+        fetchAllData();
+      }
+    });
+
+    return unsubscribe;
+  }, [navigation, siteInfo, isLoadingSiteInfo]);
 
   const fetchAllData = async () => {
     if (!siteInfo.siteId || !siteInfo.siteName) {

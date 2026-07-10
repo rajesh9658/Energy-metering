@@ -1,20 +1,23 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Dimensions, ScrollView, StyleSheet, Text, TouchableOpacity, View, Modal,
-  ActivityIndicator, Alert, Platform, NativeModules
+  ActivityIndicator, Alert, Platform, NativeModules, PermissionsAndroid
 } from 'react-native';
 
 import { isRunningInExpoGo } from 'expo';
 import { Ionicons } from '@expo/vector-icons';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import * as FileSystem from 'expo-file-system/legacy';
+import * as FileSystem from 'expo-file-system';
+import RNFS from 'react-native-fs';
+import FileViewer from 'react-native-file-viewer';
+import * as Notifications from 'expo-notifications';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { useEnergyUnit } from '../context/EnergyUnitContext';
 import axios from 'axios';
 import { getMeterDailyConsumptionUrl, getMeterMonthlyConsumptionUrl, getYearlyConsumptionUrl, getMeterMonthlyReportUrl } from '../config';
-
 
 const { width } = Dimensions.get('window');
 const { ReportDownload } = NativeModules;
@@ -35,6 +38,25 @@ export default function EnergyReport() {
   const [showAllValues, setShowAllValues] = useState(true);
   const [isGeneratingReport, setIsGeneratingReport] = useState(false);
   const graphScrollRef = useRef(null);
+  
+  // Custom Success Modal States
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [successModalMessage, setSuccessModalMessage] = useState("");
+  const [successModalFilePath, setSuccessModalFilePath] = useState("");
+
+  useEffect(() => {
+    const subscription = Notifications.addNotificationResponseReceivedListener(async (response) => {
+      const filePath = response.notification.request.content.data?.filePath;
+      if (filePath) {
+        try {
+          await FileViewer.open(filePath as string);
+        } catch (err) {
+          console.warn("Could not open file from notification", err);
+        }
+      }
+    });
+    return () => subscription.remove();
+  }, []);
   
   const [dailyData, setDailyData] = useState([]);
   const [monthlyData, setMonthlyData] = useState([]);
@@ -469,90 +491,194 @@ export default function EnergyReport() {
 
   const savePdfToDevice = async (uri, fileName) => {
     try {
-      const showDownloadNotification = async (message) => {
+      if (Platform.OS === "android") {
         try {
-          if (isRunningInExpoGo()) return;
-
-          const Notifications = await import('expo-notifications');
-          const permissions = await Notifications.getPermissionsAsync();
-          let finalStatus = permissions.status;
-
-          if (finalStatus !== 'granted') {
-            const request = await Notifications.requestPermissionsAsync();
-            finalStatus = request.status;
+          const downloadDest = `${RNFS.DownloadDirectoryPath}/${fileName}`;
+          const cleanSourceUri = uri.startsWith("file://") ? uri.substring(7) : uri;
+          
+          let writeGranted = true;
+          if (Number(Platform.Version) < 33) {
+            const permissionRes = await PermissionsAndroid.request(
+              PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE
+            );
+            writeGranted = permissionRes === PermissionsAndroid.RESULTS.GRANTED;
           }
 
-          if (finalStatus === 'granted') {
-            await Notifications.scheduleNotificationAsync({
-              content: {
-                title: 'Download Complete',
-                body: message,
-                ...(Platform.OS === 'android' ? { channelId: 'downloads' } : {}),
-              },
-              trigger: null,
-            });
-          }
-        } catch (notificationError) {
-          console.log('Notification error:', notificationError);
-        }
-      };
+          if (writeGranted) {
+            await RNFS.copyFile(cleanSourceUri, downloadDest);
+            
+            try {
+              await (RNFS as any).scanFile(downloadDest);
+            } catch (scanErr) {
+              console.warn("Media scanner failed", scanErr);
+            }
 
-      if (Platform.OS === 'android') {
-        if (!ReportDownload?.savePdfToDownloads) {
-          const localUri = `${FileSystem.documentDirectory}${fileName}`;
-          await FileSystem.copyAsync({ from: uri, to: localUri });
+            try {
+              await Notifications.requestPermissionsAsync();
+              await Notifications.scheduleNotificationAsync({
+                content: {
+                  title: "Download complete",
+                  body: `${fileName} saved to Downloads folder.`,
+                  data: { filePath: downloadDest },
+                },
+                trigger: null,
+              });
+            } catch (notifErr) {
+              console.warn("Notification scheduling failed", notifErr);
+            }
 
-          if (await Sharing.isAvailableAsync()) {
-            await Sharing.shareAsync(localUri, {
-              mimeType: 'application/pdf',
-              dialogTitle: isRunningInExpoGo() ? 'Download Energy Report' : 'Save Energy Report',
-              UTI: 'com.adobe.pdf'
-            });
+            setSuccessModalMessage(fileName);
+            setSuccessModalFilePath(downloadDest);
+            setShowSuccessModal(true);
             return true;
           }
-
-          const message = isRunningInExpoGo()
-            ? 'Expo Go direct Downloads save support nahin karta. Please installed Android build use karein for one-tap download.'
-            : 'Direct download is not available in this build right now.';
-
-          Alert.alert('Download Unavailable', message);
-          return false;
+        } catch (fsErr) {
+          console.warn("Direct RNFS save failed, falling back to SAF / Sharing", fsErr);
         }
 
-        await ReportDownload.savePdfToDownloads(uri, fileName);
-        const successMessage = `${fileName} has been saved in your Downloads folder.`;
-        await showDownloadNotification(successMessage);
-        Alert.alert('Download Complete', successMessage);
+        try {
+          let savedDirectoryUri = await AsyncStorage.getItem("downloadsDirectoryUri");
+          let permissionsGranted = false;
 
-        return true;
+          if (savedDirectoryUri) {
+            permissionsGranted = true;
+          }
+
+          if (!savedDirectoryUri) {
+            const permissions = await (FileSystem as any).StorageAccessFramework.requestDirectoryPermissionsAsync();
+            if (permissions.granted) {
+              savedDirectoryUri = permissions.directoryUri;
+              await AsyncStorage.setItem("downloadsDirectoryUri", permissions.directoryUri);
+              permissionsGranted = true;
+            }
+          }
+
+          if (permissionsGranted && savedDirectoryUri) {
+            const fileUri = await (FileSystem as any).StorageAccessFramework.createFileAsync(
+              savedDirectoryUri,
+              fileName,
+              "application/pdf"
+            );
+
+            const base64Data = await FileSystem.readAsStringAsync(uri, {
+              encoding: "base64",
+            });
+
+            await FileSystem.writeAsStringAsync(fileUri, base64Data, {
+              encoding: "base64",
+            });
+
+            try {
+              await Notifications.requestPermissionsAsync();
+              await Notifications.scheduleNotificationAsync({
+                content: {
+                  title: "Download complete",
+                  body: "PDF saved to your selected downloads folder.",
+                  data: { filePath: fileUri },
+                },
+                trigger: null,
+              });
+            } catch (notifErr) {
+              console.warn("Notification scheduling failed", notifErr);
+            }
+
+            setSuccessModalMessage(fileName);
+            setSuccessModalFilePath(fileUri);
+            setShowSuccessModal(true);
+            return true;
+          }
+        } catch (androidErr) {
+          console.warn("Direct folder save failed, fallback to sharing sheet", androidErr);
+        }
       }
-
-      const localUri = `${FileSystem.documentDirectory}${fileName}`;
-      await FileSystem.copyAsync({ from: uri, to: localUri });
 
       if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(localUri, {
-          mimeType: 'application/pdf',
-          dialogTitle: 'Save Energy Report',
-          UTI: 'com.adobe.pdf'
+        await Sharing.shareAsync(uri, {
+          mimeType: "application/pdf",
+          dialogTitle: "Save Energy Report",
+          UTI: "com.adobe.pdf",
         });
+        return true;
       } else {
-        Alert.alert('Saved', `${fileName} has been generated successfully.`);
+        Alert.alert("PDF Ready", "PDF generated, but sharing is not available in this build.");
+        return false;
       }
-
-      return true;
     } catch (error) {
-      console.error('Save PDF error:', error);
-      Alert.alert('Error', 'Failed to save PDF to device.');
+      console.error("Save PDF error:", error);
+      Alert.alert("Error", "Failed to save PDF to device.");
       return false;
     }
   };
 
-  // Summary Report (Existing)
-  const exportSummaryPDF = async () => {
+  // Daily Consumption Report
+  const exportDailyPDF = async () => {
     try {
-      const currentData = getCurrentData();
-      
+      const siteId = getSiteId();
+      if (!siteId) {
+        Alert.alert('Error', 'Site ID not found');
+        return;
+      }
+
+      setIsGeneratingReport(true);
+
+      const monthIndex = months.indexOf(selectedMonth) + 1;
+      const monthParam = `${selectedYear}-${monthIndex.toString().padStart(2, '0')}`;
+
+      // Fetch daily consumption and monthly report data
+      const [consumptionResponse, reportResponse] = await Promise.allSettled([
+        axios.get(getMeterDailyConsumptionUrl(siteId, monthParam)),
+        axios.get(getMeterMonthlyReportUrl(siteId, monthParam), {
+          headers: { 'Content-Type': 'application/json' }
+        }),
+      ]);
+
+      const normalizedConsumptionData =
+        consumptionResponse.status === 'fulfilled'
+          ? normalizeDailyConsumptionRows(consumptionResponse.value.data?.data || [])
+          : [];
+
+      const normalizedReportData =
+        reportResponse.status === 'fulfilled'
+          ? normalizeDailyReportRows(reportResponse.value.data?.reports || [])
+          : [];
+
+      const reportDataByDay = new Map(
+        normalizedReportData.map((item) => [String(item.day), item])
+      );
+
+      const mergedDailyData =
+        normalizedConsumptionData.length > 0
+          ? normalizedConsumptionData.map((item) => ({
+              ...item,
+              ...(reportDataByDay.get(String(item.day)) || {}),
+              day: item.day,
+              daily_units: getDailyUnits(item),
+              daily_kvah: getDailyKvah(item),
+              daily_kvah_delta: getDailyKvahDelta(item),
+              daily_amount:
+                reportDataByDay.get(String(item.day))?.daily_amount ?? item.daily_amount,
+            }))
+          : normalizedReportData;
+
+      if (mergedDailyData.length === 0) {
+        Alert.alert('Error', 'No data available for the selected period');
+        return;
+      }
+
+      // Calculate totals for daily report
+      let totalUnits = 0;
+      let totalKvah = 0;
+      let totalAmount = 0;
+
+      mergedDailyData.forEach(item => {
+        totalUnits += getDailyUnits(item);
+        const kvahVal = item?.daily_kvah_delta ?? getDailyKvahDelta(item);
+        if (kvahVal != null) {
+          totalKvah += getNumericValue(kvahVal, 0);
+        }
+        totalAmount += getDailyAmount(item);
+      });
+
       const html = `
         <html>
           <head>
@@ -571,56 +697,54 @@ export default function EnergyReport() {
             </style>
           </head>
           <body>
-            <h1 class="header">Energy Consumption Report</h1>
+            <h1 class="header">Daily Energy Consumption Report</h1>
             
             <div class="summary">
               <div class="summary-row">
                 <span class="summary-label">Period:</span>
-                <span class="summary-value">${timeView === 'daily' ? `${selectedMonth} ${selectedYear}` : selectedYear}</span>
+                <span class="summary-value">${selectedMonth} ${selectedYear}</span>
               </div>
               <div class="summary-row">
                 <span class="summary-label">View Type:</span>
-                <span class="summary-value">${timeView === 'daily' ? 'Daily' : 'Monthly'} View</span>
+                <span class="summary-value">Daily View</span>
               </div>
               <div class="summary-row">
                 <span class="summary-label">${energyUnitMode === 'kvah' ? 'Total kVAh:' : 'Total Units:'}</span>
-                <span class="summary-value">${energyUnitMode === 'kvah' ? `${stats.totalKvah} kVAh` : `${stats.totalUnits} kWh`}</span>
+                <span class="summary-value">${energyUnitMode === 'kvah' ? `${totalKvah.toFixed(2)} kVAh` : `${totalUnits.toFixed(2)} kWh`}</span>
               </div>
               ${showsKwh && showsKvah ? `
               <div class="summary-row">
                 <span class="summary-label">Total kVAh:</span>
-                <span class="summary-value">${stats.totalKvah} kVAh</span>
+                <span class="summary-value">${totalKvah.toFixed(2)} kVAh</span>
               </div>` : ''}
               <div class="summary-row">
                 <span class="summary-label">Total Amount:</span>
-                <span class="summary-value">₹${stats.totalAmount}</span>
+                <span class="summary-value">₹${totalAmount.toFixed(2)}</span>
               </div>
             </div>
             
             <table>
               <tr>
-                <th>${timeView === 'daily' ? 'Date' : 'Month'}</th>
+                <th>Date</th>
                 <th>${energyUnitMode === 'kvah' ? 'Units (kVAh)' : 'Units (kWh)'}</th>
                 ${showsKwh && showsKvah ? '<th>Units (kVAh)</th>' : ''}
                 <th>Amount (₹)</th>
               </tr>
-              ${currentData.data.map((item, index) => `
+              ${mergedDailyData.map((item, index) => `
                 <tr>
-                  <td>${timeView === 'daily' ? (item.day || `Day ${index + 1}`) : item.month}</td>
-                  <td>${timeView === 'daily'
-                    ? (energyUnitMode === 'kvah'
+                  <td>${item.day || `Day ${index + 1}`}</td>
+                  <td>${(energyUnitMode === 'kvah'
                       ? getNumericValue(item?.daily_kvah_delta ?? getDailyKvahDelta(item), 0).toFixed(2)
-                      : getDisplayEnergyValue(getDailyUnits(item), getDailyKvah(item)).toFixed(2))
-                    : getDisplayEnergyValue(Number(item.total_kwh) || 0, getMonthlyKvah(item)).toFixed(2)}</td>
-                  ${showsKwh && showsKvah ? `<td>${timeView === 'daily' ? (getDailyKvah(item) != null ? getDailyKvah(item).toFixed(2) : '0.00') : (getMonthlyKvah(item) != null ? getMonthlyKvah(item).toFixed(2) : '0.00')}</td>` : ''}
-                  <td>₹${timeView === 'daily' ? getDailyAmount(item).toFixed(2) : (item.total_amount || '0.00')}</td>
+                      : getDisplayEnergyValue(getDailyUnits(item), getDailyKvah(item)).toFixed(2))}</td>
+                  ${showsKwh && showsKvah ? `<td>${getDailyKvah(item) != null ? getDailyKvah(item).toFixed(2) : '0.00'}</td>` : ''}
+                  <td>₹${getDailyAmount(item).toFixed(2)}</td>
                 </tr>
               `).join('')}
               <tr class="total-row">
                 <td><strong>Total</strong></td>
-                <td><strong>${energyUnitMode === 'kvah' ? `${stats.totalKvah} kVAh` : `${stats.totalUnits} kWh`}</strong></td>
-                ${showsKwh && showsKvah ? `<td><strong>${stats.totalKvah} kVAh</strong></td>` : ''}
-                <td><strong>₹${stats.totalAmount}</strong></td>
+                <td><strong>${energyUnitMode === 'kvah' ? `${totalKvah.toFixed(2)} kVAh` : `${totalUnits.toFixed(2)} kWh`}</strong></td>
+                ${showsKwh && showsKvah ? `<td><strong>${totalKvah.toFixed(2)} kVAh</strong></td>` : ''}
+                <td><strong>₹${totalAmount.toFixed(2)}</strong></td>
               </tr>
             </table>
             
@@ -630,13 +754,15 @@ export default function EnergyReport() {
             </div>
           </body>
         </html>`;
-      
+
       const { uri } = await Print.printToFileAsync({ html });
-      const fileName = `energy-report-${timeView}-${selectedYear}-${Date.now()}.pdf`;
+      const fileName = `daily-energy-report-${selectedYear}-${monthParam}-${Date.now()}.pdf`;
       await savePdfToDevice(uri, fileName);
     } catch (error) {
-      console.error('PDF export error:', error);
-      Alert.alert('Error', 'Failed to generate PDF report');
+      console.error('Daily PDF export error:', error);
+      Alert.alert('Error', 'Failed to generate Daily Report. Please try again.');
+    } finally {
+      setIsGeneratingReport(false);
     }
   };
 
@@ -989,7 +1115,7 @@ export default function EnergyReport() {
     }
   };
 
-  const GraphCard = ({ title, unit, isAmount }) => {
+  const GraphCard = ({ title, unit, isAmount }: { title: string; unit: string; isAmount?: boolean }) => {
     const currentData = getCurrentData();
     const values = isAmount ? currentData.amtValues : currentData.unitValues;
     const isDualEnergyMode = !isAmount && energyUnitMode === 'both';
@@ -1611,10 +1737,30 @@ export default function EnergyReport() {
                 exportDetailedPDF();
               }}
             >
+              <Ionicons name="calendar-outline" size={20} color={theme.primary} />
+              <View style={styles.reportTypeTextContainer}>
+                <Text style={[styles.reportTypeName, { color: theme.text }]}>Daily Report</Text>
+                <Text style={[styles.reportTypeDesc, { color: theme.mutedText }]}>Day-wise consumption for selected month</Text>
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={[
+                styles.reportTypeOption,
+                {
+                  borderColor: theme.border,
+                  backgroundColor: isDarkMode ? theme.card : colors.gray100,
+                },
+              ]}
+              onPress={() => {
+                setShowReportTypeModal(false);
+                exportDetailedPDF();
+              }}
+            >
               <Ionicons name="document-attach" size={20} color={theme.primary} />
               <View style={styles.reportTypeTextContainer}>
-                <Text style={[styles.reportTypeName, { color: theme.text }]}>Detailed Monthly Report</Text>
-                <Text style={[styles.reportTypeDesc, { color: theme.mutedText }]}>Official meter report with all details</Text>
+                <Text style={[styles.reportTypeName, { color: theme.text }]}>Monthly Report</Text>
+                <Text style={[styles.reportTypeDesc, { color: theme.mutedText }]}>Official detailed monthly meter report</Text>
               </View>
             </TouchableOpacity>
             
@@ -1702,6 +1848,54 @@ export default function EnergyReport() {
           </View>
         </View>
       </Modal>
+
+      {/* Custom Download Success Modal Dialog */}
+      <Modal
+        visible={showSuccessModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowSuccessModal(false)}
+      >
+        <View style={styles.successModalOverlay}>
+          <View style={[styles.successModalCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+            <View style={styles.successIconBadge}>
+              <Ionicons name="checkmark-circle" size={38} color="#10B981" />
+            </View>
+
+            <Text style={[styles.successModalTitle, { color: theme.text }]}>Download Completed</Text>
+            <Text style={[styles.successModalSubtitle, { color: theme.mutedText }]}>
+              Your PDF has been saved successfully.
+            </Text>
+
+
+            <View style={styles.successActionsRow}>
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={() => setShowSuccessModal(false)}
+                style={[styles.successDismissButton, { borderColor: theme.border }]}
+              >
+                <Text style={[styles.successDismissText, { color: theme.text }]}>OK</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                activeOpacity={0.85}
+                onPress={async () => {
+                  setShowSuccessModal(false);
+                  try {
+                    await FileViewer.open(successModalFilePath);
+                  } catch (err) {
+                    Alert.alert("Error", "Could not open the PDF viewer.");
+                  }
+                }}
+                style={[styles.successActionButton, { backgroundColor: theme.primary }]}
+              >
+                <Text style={styles.successActionText}>Open File</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
     </View>
   );
 }
@@ -1731,7 +1925,7 @@ const typography = {
   body: { fontSize: 14, fontWeight: '400' },
   small: { fontSize: 12, fontWeight: '400' },
   tiny: { fontSize: 10, fontWeight: '400' },
-};
+} as const;
 
 const spacing = {
   xs: 4,
@@ -2471,5 +2665,89 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontWeight: '700',
     ...typography.body,
+  },
+  successModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(15, 23, 42, 0.55)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
+  },
+  successModalCard: {
+    width: "100%",
+    maxWidth: 320,
+    borderRadius: 24,
+    borderWidth: 1,
+    padding: 24,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.1,
+    shadowRadius: 20,
+    elevation: 8,
+  },
+  successIconBadge: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    backgroundColor: "rgba(16, 185, 129, 0.08)",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  successModalTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    textAlign: "center",
+    marginBottom: 6,
+  },
+  successModalSubtitle: {
+    fontSize: 12,
+    textAlign: "center",
+    marginBottom: 20,
+  },
+  successFileContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    width: "100%",
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 20,
+  },
+  successFileNameText: {
+    flex: 1,
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  successActionsRow: {
+    flexDirection: "row",
+    width: "100%",
+    gap: 12,
+  },
+  successDismissButton: {
+    flex: 1,
+    height: 44,
+    borderRadius: 14,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  successDismissText: {
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  successActionButton: {
+    flex: 1.2,
+    height: 44,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  successActionText: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "800",
   }
 });

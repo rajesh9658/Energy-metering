@@ -26,10 +26,12 @@ import {
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
+import { useNavigation } from 'expo-router';
 const { width, height } = Dimensions.get('window');
 
 export default function RechargeScreen() {
   const { theme, isDarkMode } = useTheme();
+  const navigation = useNavigation();
   const [selectedAmount, setSelectedAmount] = useState(null);
   const [paymentAmount, setPaymentAmount] = useState('');
   const [showNumpad, setShowNumpad] = useState(false);
@@ -47,7 +49,7 @@ export default function RechargeScreen() {
     message: '',
     details: '',
   });
-    const { user, getSlug, getSiteName, getSiteId } = useAuth();
+    const { user, getSlug, getSiteName, getSiteId, logout } = useAuth();
 const [siteInfo, setSiteInfo] = useState({
     siteName: null,
     siteId: null,
@@ -124,6 +126,16 @@ useEffect(() => {
   }
 }, [siteInfo]);
 
+useEffect(() => {
+  const unsubscribe = navigation.addListener('focus', () => {
+    if (siteInfo.siteName || siteInfo.slug) {
+      fetchSiteData();
+    }
+  });
+
+  return unsubscribe;
+}, [navigation, siteInfo]);
+
 const fetchSiteData = async () => {
   try {
     setSiteLoading(true);
@@ -155,7 +167,7 @@ const customerDetails = {
   accountId: siteData?.slug || '—',
   name: siteData?.custom_name || 'Loading...',
   meterNo: siteData?.site_name || 'Loading...',
-  availableBalance: `₹ ${
+  availableBalance: `₹${
     isNaN(rawBalance) ? "0.00" : rawBalance.toFixed(2)
   }`,
   shopName: siteData?.meter_name || 'Loading...',
@@ -225,9 +237,9 @@ const customerDetails = {
     { amount: 5000, color: '#f0fdf4' },
   ];
   const SERVICE_FEE = 10;
-  const GST_FEE = 1.8;
+  const PLATFORM_FEE = 1.8;
   const baseRechargeAmount = selectedAmount || parseFloat(customAmount) || 0;
-  const payableAmount = Number((baseRechargeAmount + SERVICE_FEE + GST_FEE).toFixed(2));
+  const payableAmount = Number((baseRechargeAmount + SERVICE_FEE + PLATFORM_FEE).toFixed(2));
 
   const showPaymentStatus = (type, title, message, details = '') => {
     setPaymentStatus({
@@ -260,7 +272,7 @@ const customerDetails = {
     }
 
     const resolvedToken =
-      authToken ||
+      (authToken && authToken.length > 10) ? authToken : (
       parsedUserData?.auth_token ||
       parsedUserData?.token ||
       parsedUserData?.access_token ||
@@ -270,7 +282,8 @@ const customerDetails = {
       parsedUserData?.site?.access_token ||
       parsedUserData?.site?.bearer_token ||
       parsedUserData?.site?.api_token ||
-      "";
+      ""
+    );
 
     const authorizationValue = resolvedToken
       ? resolvedToken.startsWith("Bearer ")
@@ -498,7 +511,11 @@ const customerDetails = {
   }
 
   if (!amountToPay || amountToPay < 1) {
-    Alert.alert('Invalid Amount', 'Please select or enter minimum ₹1');
+    showPaymentStatus('warning', 'Invalid Amount ⚠️', 'Please select or enter minimum ₹1. 😊');
+    return;
+  }
+
+  if (amountToPay > 100000) {
     return;
   }
 
@@ -511,7 +528,7 @@ const customerDetails = {
   let razorpayResult = null;
 
   try {
-    totalAmount = Number((amountToPay + SERVICE_FEE + GST_FEE).toFixed(2));
+    totalAmount = Number((amountToPay + SERVICE_FEE + PLATFORM_FEE).toFixed(2));
     roundedTotalAmount = Math.round(totalAmount);
     idempotencyKey = buildIdempotencyKey();
     const orderRequestBodies = [
@@ -520,7 +537,7 @@ const customerDetails = {
         display_amount: totalAmount,
         recharge_amount: amountToPay,
         service_fee: SERVICE_FEE,
-        gst_amount: GST_FEE,
+        gst_amount: PLATFORM_FEE,
         site_id: siteInfo.siteId,
         slug: siteInfo.slug,
       },
@@ -534,6 +551,13 @@ const customerDetails = {
         headers: await getAuthHeaders(idempotencyKey),
         body: JSON.stringify(orderRequestBodies[attemptIndex]),
       });
+
+      if (orderResponse.status === 401) {
+        console.warn("Session expired (401) on recharge - logging out");
+        setLoading(false);
+        await logout();
+        return;
+      }
 
       if (orderResponse.ok) {
         orderData = await orderResponse.json();
@@ -626,6 +650,13 @@ const customerDetails = {
       }),
     });
 
+    if (verifyResponse.status === 401) {
+      console.warn("Session expired (401) on payment verification - logging out");
+      setLoading(false);
+      await logout();
+      return;
+    }
+
     if (!verifyResponse.ok) {
       const message = await parseApiError(verifyResponse);
       throw new Error(message);
@@ -644,6 +675,8 @@ const customerDetails = {
 
     console.log("Payment Success:", razorpayResult);
     console.log("Payment Verify:", verifyData);
+
+    fetchSiteData();
 
     setSelectedAmount(null);
     setCustomAmount('');
@@ -698,14 +731,9 @@ const customerDetails = {
     } else if (value === 'clear') {
       setNumpadValue('');
     } else if (value === 'done') {
-      const amt = parseFloat(numpadValue);
-      if (amt >= 1 && amt <= 50000) {
-        setCustomAmount(numpadValue);
-        setSelectedAmount(null);
-        setShowNumpad(false);
-      } else {
-        Alert.alert('Invalid Amount', 'Please enter an amount between ₹1 to ₹50,000');
-      }
+      setCustomAmount(numpadValue);
+      setSelectedAmount(null);
+      setShowNumpad(false);
     } else if (value === '.') {
       if (!numpadValue.includes('.')) {
         setNumpadValue((p) => p + value);
@@ -716,9 +744,16 @@ const customerDetails = {
   };
 
   const handleCustomAmountChange = (text) => {
-    const numericText = text.replace(/[^0-9]/g, '');
-    setCustomAmount(numericText);
-    if (numericText) {
+    // Allow digits and one decimal point
+    let cleaned = text.replace(/[^0-9.]/g, '');
+    // Prevent multiple decimal points
+    const parts = cleaned.split('.');
+    if (parts.length > 2) {
+      cleaned = parts[0] + '.' + parts.slice(1).join('');
+    }
+
+    setCustomAmount(cleaned);
+    if (cleaned) {
       setSelectedAmount(null);
     }
   };
@@ -905,7 +940,16 @@ const customerDetails = {
                 <Icon name="create" size={20} color="#4f46e5" />
                 <Text style={[styles.sectionTitle, { color: theme.text }]}>Custom Amount</Text>
               </View>
-              <Text style={[styles.sectionSubtitle, { color: theme.mutedText }]}>Enter any amount between ₹1 - ₹50,000</Text>
+              <Text 
+                style={[
+                  styles.sectionSubtitle, 
+                  { color: (parseFloat(customAmount) > 100000) ? '#ef4444' : theme.mutedText }
+                ]}
+              >
+                {parseFloat(customAmount) > 100000 
+                  ? 'Amount cannot exceed ₹1,00,000' 
+                  : 'Enter any amount between ₹1 - ₹1,00,000'}
+              </Text>
             </View>
             <View style={[styles.customAmountContainer, { backgroundColor: theme.surface, shadowColor: theme.shadow }]}>
               <View style={[styles.amountInputWrapper, { borderColor: theme.border, backgroundColor: theme.card }]}>
@@ -918,8 +962,8 @@ const customerDetails = {
                   value={customAmount}
                   onChangeText={handleCustomAmountChange}
                   placeholder="Enter amount"
-                  keyboardType="numeric"
-                  maxLength={6}
+                  keyboardType="decimal-pad"
+                  maxLength={9}
                   placeholderTextColor={theme.gray}
                 />
                 <TouchableOpacity 
@@ -973,8 +1017,8 @@ const customerDetails = {
                 <Text style={[styles.summaryValue, { color: theme.text }]}>₹ {SERVICE_FEE.toFixed(2)}</Text>
               </View>
               <View style={styles.summaryRow}>
-                <Text style={[styles.summaryLabel, { color: theme.mutedText }]}>GST (18%)</Text>
-                <Text style={[styles.summaryValue, { color: theme.text }]}>₹ {GST_FEE.toFixed(2)}</Text>
+                <Text style={[styles.summaryLabel, { color: theme.mutedText }]}>Platform Fees</Text>
+                <Text style={[styles.summaryValue, { color: theme.text }]}>₹ {PLATFORM_FEE.toFixed(2)}</Text>
               </View>
               <View style={[styles.divider, { backgroundColor: theme.border }]} />
               <View style={[styles.summaryRow, styles.totalSummaryRow]}>
@@ -996,20 +1040,20 @@ const customerDetails = {
             <TouchableOpacity
               style={[
                 styles.payButton,
-                (!selectedAmount && !customAmount) && styles.disabledButton,
+                ((!selectedAmount && !customAmount) || (parseFloat(customAmount) > 100000)) && styles.disabledButton,
                 loading && styles.loadingButton,
               ]}
-              disabled={!selectedAmount && !customAmount || loading}
+              disabled={(!selectedAmount && !customAmount) || (parseFloat(customAmount) > 100000) || loading}
               onPress={handlePayment}
               activeOpacity={0.9}
             >
               <View style={[
                 styles.payButtonContainerInner,
-                ((!selectedAmount && !customAmount) || loading) && 
+                ((!selectedAmount && !customAmount) || (parseFloat(customAmount) > 100000) || loading) && 
                 styles.disabledButtonInner
               ]}>
                 {loading ? (
-                  <View style={styles.loadingContainer}>
+                  <View style={styles.buttonLoadingContainer}>
                     <View style={styles.loadingSpinner} />
                     <Text style={styles.payButtonText}>Processing...</Text>
                   </View>
@@ -1120,13 +1164,35 @@ const customerDetails = {
             <View
               style={[
                 styles.paymentStatusIconWrap,
-                paymentStatus.type === 'success' ? styles.paymentSuccessIconWrap : styles.paymentErrorIconWrap,
+                paymentStatus.type === 'success'
+                  ? styles.paymentSuccessIconWrap
+                  : paymentStatus.type === 'warning'
+                  ? [
+                      styles.paymentWarningIconWrap,
+                      {
+                        backgroundColor: isDarkMode ? 'rgba(234, 179, 8, 0.15)' : '#fef9c3',
+                        borderColor: isDarkMode ? 'rgba(234, 179, 8, 0.3)' : '#fef08a'
+                      }
+                    ]
+                  : styles.paymentErrorIconWrap,
               ]}
             >
               <Icon
-                name={paymentStatus.type === 'success' ? 'check-circle' : 'error-outline'}
+                name={
+                  paymentStatus.type === 'success'
+                    ? 'check-circle'
+                    : paymentStatus.type === 'warning'
+                    ? 'warning'
+                    : 'error-outline'
+                }
                 size={34}
-                color={paymentStatus.type === 'success' ? '#059669' : '#dc2626'}
+                color={
+                  paymentStatus.type === 'success'
+                    ? '#059669'
+                    : paymentStatus.type === 'warning'
+                    ? '#eab308'
+                    : '#dc2626'
+                }
               />
             </View>
 
@@ -1147,13 +1213,21 @@ const customerDetails = {
             <TouchableOpacity
               style={[
                 styles.paymentStatusButton,
-                paymentStatus.type === 'success' ? styles.paymentSuccessButton : styles.paymentErrorButton,
+                paymentStatus.type === 'success'
+                  ? styles.paymentSuccessButton
+                  : paymentStatus.type === 'warning'
+                  ? [styles.paymentWarningButton, { backgroundColor: theme.primary }]
+                  : styles.paymentErrorButton,
               ]}
               onPress={hidePaymentStatus}
               activeOpacity={0.9}
             >
               <Text style={styles.paymentStatusButtonText}>
-                {paymentStatus.type === 'success' ? 'Done' : 'Try Again'}
+                {paymentStatus.type === 'success'
+                  ? 'Done'
+                  : paymentStatus.type === 'warning'
+                  ? 'OK'
+                  : 'Try Again'}
               </Text>
             </TouchableOpacity>
           </Animatable.View>
@@ -1315,6 +1389,10 @@ const styles = StyleSheet.create({
   },
   balanceItem: {
     flex: 1,
+    padding: 10,
+    borderRadius: 18,
+    borderWidth: 1,
+    justifyContent: 'center',
   },
   balanceLabel: {
     fontSize: 11,
@@ -1323,7 +1401,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   balanceAmount: {
-    fontSize: 23,
+    fontSize: 18,
     fontWeight: '800',
     color: '#059669',
   },
@@ -1625,7 +1703,7 @@ const styles = StyleSheet.create({
   loadingButton: {
     opacity: 0.8,
   },
-  loadingContainer: {
+  buttonLoadingContainer: {
     flexDirection: 'row',
     alignItems: 'center',
   },
@@ -1827,6 +1905,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#fef2f2',
     borderColor: '#fecaca',
   },
+  paymentWarningIconWrap: {
+    backgroundColor: '#fef9c3',
+    borderColor: '#fef08a',
+  },
   paymentStatusTitle: {
     fontSize: 24,
     fontWeight: '800',
@@ -1866,6 +1948,9 @@ const styles = StyleSheet.create({
   paymentErrorButton: {
     backgroundColor: '#4f46e5',
   },
+  paymentWarningButton: {
+    backgroundColor: '#eab308',
+  },
   paymentStatusButtonText: {
     color: '#fff',
     fontSize: 15,
@@ -1887,38 +1972,7 @@ siteInfoItem: {
   marginHorizontal: 4,
   alignItems: 'center',
 },
-balanceSection: {
-  paddingTop: 20,
-  borderTopWidth: 1,
-  borderTopColor: '#f1f5f9',
-},
-balanceRow: {
-  flexDirection: 'row',
-  justifyContent: 'space-between',
-  alignItems: 'stretch',
-},
-balanceItem: {
-  flex: 1,
-  backgroundColor: '#ecfdf5',
-  padding: 16,
-  borderRadius: 18,
-  marginRight: 10,
-  justifyContent: 'center',
-  borderWidth: 1,
-  borderColor: '#bbf7d0',
-},
 
-balanceLabel: {
-  fontSize: 12,
-  color: '#64748b',
-  fontWeight: '600',
-  marginBottom: 4,
-},
-balanceAmount: {
-  fontSize: 20,
-  fontWeight: '800',
-  color: '#10b981',
-},
 addressItem: {
   flex: 1,
   backgroundColor: '#f8fafc',
@@ -1938,15 +1992,5 @@ addressTextContainer: {
   flex: 1,
   marginLeft: 12,
 },
-infoLabel: {
-  fontSize: 12,
-  color: '#64748b',
-  marginBottom: 4,
-  fontWeight: '600',
-},
-infoValue: {
-  fontSize: 14,
-  fontWeight: '600',
-  color: '#1e293b',
-},
+
 });

@@ -2,8 +2,8 @@
 
 const API_CONFIG = {
 
-  // BASE_URL: "http://192.168.68.115:8000",
-  BASE_URL: "https://em.sochiot.com",
+  BASE_URL: "http://192.168.68.136:8000",
+  // BASE_URL: "https://em.sochiot.com",
 
   ENDPOINTS: {
     LOGIN: "/api/mobile-login",
@@ -16,12 +16,23 @@ const API_CONFIG = {
     METER_MONTHLY_REPORT: "/api/meter/{siteId}/consumption/monthly_report",
     RAZORPAY_ORDER: "/api/razorpay/order",
     RAZORPAY_VERIFY: "/api/razorpay/verify",
+    WALLET_TRANSACTIONS: "/api/v1/wallet/transactions",
   },
 };
 
 export const getApiUrl = (endpoint: string) => {
   const url = API_CONFIG.BASE_URL + endpoint;
   return url;
+};
+
+export const getWalletTransactionsUrl = (siteId: string | number, type?: string, fromDate?: string) => {
+  const baseUrl = API_CONFIG.BASE_URL + API_CONFIG.ENDPOINTS.WALLET_TRANSACTIONS;
+  const params: string[] = [];
+  if (siteId) params.push(`site_id=${siteId}`);
+  if (type) params.push(`type=${type}`);
+  if (fromDate) params.push(`from_date=${fromDate}`);
+  
+  return params.length > 0 ? `${baseUrl}?${params.join("&")}` : baseUrl;
 };
 
 
@@ -63,6 +74,8 @@ export const getYearlyConsumptionUrl = (siteId) => {
 export const getChangePasswordUrl = () => {
   return API_CONFIG.BASE_URL + API_CONFIG.ENDPOINTS.CHANGE_PASSWORD;
 };
+
+
 
 export const getMeterMonthlyReportUrl = (siteId: string | number, month?: string) => {
   const baseUrl = API_CONFIG.BASE_URL + 

@@ -75,11 +75,12 @@ function LayoutContent() {
       <Stack screenOptions={{ headerShown: false }}>
       
         <Stack.Screen name="(tabs)" redirect={!user} />
-      
-      
+        <Stack.Screen name="deduction-history" redirect={!user} />
+        <Stack.Screen name="transaction-history" redirect={!user} />
+        <Stack.Screen name="history" redirect={!user} />
+        
         <Stack.Screen name="(auth)" redirect={!!user} />
 
-  
         <Stack.Screen name="index" redirect />
         <Stack.Screen name="login" redirect />
         <Stack.Screen name="signup" redirect />
