@@ -23,6 +23,7 @@ import {
 import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
 import { useEnergyUnit } from "../context/EnergyUnitContext";
+import { useNavigation } from 'expo-router';
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -66,6 +67,7 @@ export default function OverviewScreen({ route }) {
   const { user, getSiteId, getSlug, getSiteName } = useAuth();
   const { theme, isDarkMode } = useTheme();
   const { energyUnitMode } = useEnergyUnit();
+  const navigation = useNavigation();
   
   // State for site info
   const [siteInfo, setSiteInfo] = useState({
@@ -281,13 +283,13 @@ useEffect(() => {
   const [slides, setSlides] = useState([
     {
       key: "current",
-      title: "Current Reading",
+      title: "Overview",
       icon: "🔋",
       rows: [
         { label: "Opening Reading", value: "Loading... kWh" },
-        { label: "Closing Reading", value: "Loading... kWh" },
+        { label: "Current Reading", value: "Loading... kWh" },
         { label: "Today's Consumption", value: "Loading... kWh", color: "#2e7d32" },
-        { label: "Grid Balance", value: "Loading..." },
+        { label: "Available Balance", value: "Loading..." },
         { label: "Last Reading Time", value: "Loading...", color: "#0b63a8" },
       ],
       consumptionData: {
@@ -326,7 +328,7 @@ useEffect(() => {
       rows: [
         { label: "Month Status", value: "Loading..." },
         { label: "Opening Reading", value: "Loading... kWh" },
-        { label: "Closing Reading", value: "Loading... kWh" },
+        { label: "Current Reading", value: "Loading... kWh" },
         { label: "Total Consumption", value: "Loading... kWh", color: "#2e7d32" },
         { label: "Updated Till", value: "Loading...", color: "#0b63a8" },
       ],
@@ -408,6 +410,16 @@ useEffect(() => {
       fetchAllData();
     }
   }, [siteInfo, isLoadingSiteInfo]);
+
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      if (siteInfo.siteId && siteInfo.siteName && !isLoadingSiteInfo) {
+        fetchAllData();
+      }
+    });
+
+    return unsubscribe;
+  }, [navigation, siteInfo, isLoadingSiteInfo]);
 
   const fetchAllData = async () => {
     if (!siteInfo.siteId || !siteInfo.siteName) {
@@ -654,6 +666,9 @@ const updateCurrentSlide = (data) => {
     closingKvah != null && openingKvah != null
       ? Math.max(closingKvah - openingKvah, 0)
       : todayKvah;
+  const availableBalance = Number(
+    siteData?.asset_information?.electric_parameters?.balance
+  );
 
   setCurrentconsumption(consumption);
 
@@ -662,13 +677,16 @@ const updateCurrentSlide = (data) => {
   // ✅ rows (as it is)
   newSlides[0].rows = [
     { label: "Opening Reading", value: formatEnergyValue(opening, openingKvah) },
-    { label: "Closing Reading", value: formatEnergyValue(closing, closingKvah) },
+    { label: "Current Reading", value: formatEnergyValue(closing, closingKvah) },
     {
       label: "Today's Consumption",
       value: formatEnergyValue(consumption, consumptionKvah),
       color: "#2e7d32",
     },
-    { label: "Grid Balance", value: `Rs. ${data.balance || 0}` },
+    {
+      label: "Available Balance",
+      value: `₹ ${Number.isNaN(availableBalance) ? "0.00" : availableBalance.toFixed(2)}`,
+    },
     {
       label: "Last Reading Time",
       value: formatDateTimeformysql(
@@ -793,7 +811,7 @@ newSlides[1].consumptionData = {
         value: formatEnergyValue(data.opening_kwh || 0, openingKvah)
       },
       { 
-        label: "Closing Reading", 
+        label: "Current Reading", 
         value: formatEnergyValue(data.closing_kwh || 0, closingKvah)
       },
       { 
@@ -1107,7 +1125,9 @@ newSlides[1].consumptionData = {
                     <View style={styles.cardIcon}>
                       <Text style={styles.cardIconText}>{item.icon}</Text>
                     </View>
-                    <Text style={[styles.cardTitle, { color: theme.text }]}>{item.title}</Text>
+                    <View style={styles.titleBlock}>
+                      <Text numberOfLines={1} style={[styles.cardTitle, { color: theme.text }]}>{item.title}</Text>
+                    </View>
                   </View>
 
                   {/* CARD BODY */}
@@ -1192,10 +1212,12 @@ newSlides[1].consumptionData = {
             <View style={styles.tileIcon}>
               <Text style={{ color: "#fff", fontSize: 20 }}>📊</Text>
             </View>
-            <Text style={[styles.tileTitle, { color: theme.text }]}>
-              {active.key === "current" ? "Current Consumption" : 
-               active.key === "today" ? "Today's Consumption" : "Monthly Consumption"}
-            </Text>
+            <View style={styles.titleBlock}>
+              <Text numberOfLines={1} style={[styles.tileTitle, { color: theme.text }]}>
+                {active.key === "current" ? "Current Consumption" : 
+                 active.key === "today" ? "Today's Consumption" : "Monthly Consumption"}
+              </Text>
+            </View>
           </View>
           
           <View style={styles.consumptionBreakdown}>
@@ -1378,7 +1400,7 @@ newSlides[1].consumptionData = {
             )}
             {meterCurrentData && active.key === "current" && (
               <View style={styles.totalItem}>
-                <Text style={[styles.totalLabel, { color: theme.mutedText }]}>Closing</Text>
+                <Text style={[styles.totalLabel, { color: theme.mutedText }]}>Current Reading</Text>
                 {getEnergySplitDisplay(currentunit || 0, currentClosingKvah).isDual ? (
                   <View style={styles.totalDualStack}>
                     <Text style={[styles.totalDualLine, { color: theme.text }]}>
@@ -1808,6 +1830,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 15,
   },
+  titleBlock: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+  },
   cardIcon: {
     width: 44,
     height: 44,
@@ -1827,8 +1854,9 @@ const styles = StyleSheet.create({
   },
   cardTitle: {
     color: "#0b63a8",
-    fontSize: 17,
-    fontWeight: "700",
+    fontSize: 19,
+    fontWeight: "800",
+    letterSpacing: 0.1,
     flexShrink: 1,
   },
   cardBody: {
@@ -1926,8 +1954,9 @@ const styles = StyleSheet.create({
   },
   tileTitle: {
     color: "#0b63a8",
-    fontSize: 16,
-    fontWeight: "700",
+    fontSize: 18,
+    fontWeight: "800",
+    letterSpacing: 0.1,
     flex: 1,
   },
 

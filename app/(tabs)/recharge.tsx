@@ -26,10 +26,12 @@ import {
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
+import { useNavigation } from 'expo-router';
 const { width, height } = Dimensions.get('window');
 
 export default function RechargeScreen() {
   const { theme, isDarkMode } = useTheme();
+  const navigation = useNavigation();
   const [selectedAmount, setSelectedAmount] = useState(null);
   const [paymentAmount, setPaymentAmount] = useState('');
   const [showNumpad, setShowNumpad] = useState(false);
@@ -47,7 +49,7 @@ export default function RechargeScreen() {
     message: '',
     details: '',
   });
-    const { user, getSlug, getSiteName, getSiteId } = useAuth();
+    const { user, getSlug, getSiteName, getSiteId, logout } = useAuth();
 const [siteInfo, setSiteInfo] = useState({
     siteName: null,
     siteId: null,
@@ -124,6 +126,16 @@ useEffect(() => {
   }
 }, [siteInfo]);
 
+useEffect(() => {
+  const unsubscribe = navigation.addListener('focus', () => {
+    if (siteInfo.siteName || siteInfo.slug) {
+      fetchSiteData();
+    }
+  });
+
+  return unsubscribe;
+}, [navigation, siteInfo]);
+
 const fetchSiteData = async () => {
   try {
     setSiteLoading(true);
@@ -155,7 +167,7 @@ const customerDetails = {
   accountId: siteData?.slug || '—',
   name: siteData?.custom_name || 'Loading...',
   meterNo: siteData?.site_name || 'Loading...',
-  availableBalance: `₹ ${
+  availableBalance: `₹${
     isNaN(rawBalance) ? "0.00" : rawBalance.toFixed(2)
   }`,
   shopName: siteData?.meter_name || 'Loading...',
@@ -225,9 +237,9 @@ const customerDetails = {
     { amount: 5000, color: '#f0fdf4' },
   ];
   const SERVICE_FEE = 10;
-  const GST_FEE = 1.8;
+  const PLATFORM_FEE = 1.8;
   const baseRechargeAmount = selectedAmount || parseFloat(customAmount) || 0;
-  const payableAmount = Math.round(baseRechargeAmount + SERVICE_FEE + GST_FEE);
+  const payableAmount = Number((baseRechargeAmount + SERVICE_FEE + PLATFORM_FEE).toFixed(2));
 
   const showPaymentStatus = (type, title, message, details = '') => {
     setPaymentStatus({
@@ -260,7 +272,7 @@ const customerDetails = {
     }
 
     const resolvedToken =
-      authToken ||
+      (authToken && authToken.length > 10) ? authToken : (
       parsedUserData?.auth_token ||
       parsedUserData?.token ||
       parsedUserData?.access_token ||
@@ -270,7 +282,8 @@ const customerDetails = {
       parsedUserData?.site?.access_token ||
       parsedUserData?.site?.bearer_token ||
       parsedUserData?.site?.api_token ||
-      "";
+      ""
+    );
 
     const authorizationValue = resolvedToken
       ? resolvedToken.startsWith("Bearer ")
@@ -343,19 +356,111 @@ const customerDetails = {
     };
   };
 
+  const getFriendlyServerPaymentError = (rawMessage) => {
+    const normalizedMessage = typeof rawMessage === 'string' ? rawMessage.toLowerCase() : '';
+
+    if (
+      normalizedMessage.includes('sqlstate') ||
+      normalizedMessage.includes('incorrect integer value') ||
+      normalizedMessage.includes('insert into') ||
+      normalizedMessage.includes('connection: mysql')
+    ) {
+      return {
+        title: 'Recharge Could Not Be Saved',
+        message: 'Your payment request reached the server, but the recharge could not be recorded properly.',
+        details: 'This looks like a server issue. Please wait a moment and try again. If money was deducted, contact support with the payment time and amount.',
+      };
+    }
+
+    if (
+      normalizedMessage.includes('server has a configuration issue') ||
+      normalizedMessage.includes('syntax error') ||
+      normalizedMessage.includes('unexpected token') ||
+      normalizedMessage.includes('<!doctype html') ||
+      normalizedMessage.includes('<html')
+    ) {
+      return {
+        title: 'Server Issue',
+        message: 'The payment server is facing a temporary problem right now.',
+        details: 'Please try again after some time. If the issue continues, contact support.',
+      };
+    }
+
+    if (
+      normalizedMessage.includes('network error') ||
+      normalizedMessage.includes('network request failed') ||
+      normalizedMessage.includes('failed to fetch')
+    ) {
+      return {
+        title: 'Network Problem',
+        message: 'We could not reach the payment server.',
+        details: 'Please check your internet connection and try again.',
+      };
+    }
+
+    return {
+      title: 'Payment Failed',
+      message: 'We could not process your recharge right now.',
+      details: 'Please try again in a moment. If the problem continues, contact support.',
+    };
+  };
+
+  const isServerSyntaxError = (value) => {
+    if (typeof value !== 'string') {
+      return false;
+    }
+
+    const normalizedValue = value.toLowerCase();
+    return (
+      normalizedValue.includes('syntax error') ||
+      normalizedValue.includes('unexpected token') ||
+      normalizedValue.includes('<!doctype html') ||
+      normalizedValue.includes('<html')
+    );
+  };
+
   const parseApiError = async (response) => {
     try {
-      const data = await response.json();
-      return data?.message || data?.error || `Request failed with status ${response.status}`;
+      const responseText = await response.text();
+      let parsedData = null;
+
+      try {
+        parsedData = responseText ? JSON.parse(responseText) : null;
+      } catch {
+        parsedData = null;
+      }
+
+      const message =
+        parsedData?.message ||
+        parsedData?.error ||
+        parsedData?.details ||
+        responseText;
+
+      if (isServerSyntaxError(message)) {
+        console.log('Payment API returned a server syntax error:', message);
+        return 'The payment server has a configuration issue right now. Please try again later.';
+      }
+
+      return message || `Request failed with status ${response.status}`;
     } catch {
       return `Request failed with status ${response.status}`;
     }
+  };
+
+  const shouldRetryOrderWithAlternateAmount = (message) => {
+    if (typeof message !== "string") return false;
+    const normalizedMessage = message.toLowerCase();
+    return (
+      normalizedMessage.includes("amount must be an integer") ||
+      normalizedMessage.includes("amount should be an integer")
+    );
   };
 
   const syncPaymentStatus = async ({
     idempotencyKey,
     orderData,
     amount,
+    displayAmount,
     razorpayResult,
     status,
     razorpayDisplayStatus,
@@ -377,6 +482,7 @@ const customerDetails = {
         payment_id: razorpayResult?.razorpay_payment_id || null,
         razorpay_signature: razorpayResult?.razorpay_signature || null,
         amount,
+        display_amount: displayAmount ?? null,
         status,
         payment_status: status,
         razorpay_status: razorpayDisplayStatus || status,
@@ -405,7 +511,11 @@ const customerDetails = {
   }
 
   if (!amountToPay || amountToPay < 1) {
-    Alert.alert('Invalid Amount', 'Please select or enter minimum ₹1');
+    showPaymentStatus('warning', 'Invalid Amount ⚠️', 'Please select or enter minimum ₹1. 😊');
+    return;
+  }
+
+  if (amountToPay > 100000) {
     return;
   }
 
@@ -414,27 +524,61 @@ const customerDetails = {
   let orderData = null;
   let idempotencyKey = '';
   let totalAmount = 0;
+  let roundedTotalAmount = 0;
   let razorpayResult = null;
 
   try {
-    totalAmount = Math.round(amountToPay + SERVICE_FEE + GST_FEE);
+    totalAmount = Number((amountToPay + SERVICE_FEE + PLATFORM_FEE).toFixed(2));
+    roundedTotalAmount = Math.round(totalAmount);
     idempotencyKey = buildIdempotencyKey();
-    const orderResponse = await fetch(getRazorpayOrderUrl(), {
-      method: "POST",
-      headers: await getAuthHeaders(idempotencyKey),
-      body: JSON.stringify({
-        amount: totalAmount,
+    const orderRequestBodies = [
+      {
+        amount: roundedTotalAmount,
+        display_amount: totalAmount,
+        recharge_amount: amountToPay,
+        service_fee: SERVICE_FEE,
+        gst_amount: PLATFORM_FEE,
         site_id: siteInfo.siteId,
         slug: siteInfo.slug,
-      }),
-    });
+      },
+    ];
 
-    if (!orderResponse.ok) {
-      const message = await parseApiError(orderResponse);
-      throw new Error(message);
+    let lastOrderErrorMessage = "";
+
+    for (let attemptIndex = 0; attemptIndex < orderRequestBodies.length; attemptIndex += 1) {
+      const orderResponse = await fetch(getRazorpayOrderUrl(), {
+        method: "POST",
+        headers: await getAuthHeaders(idempotencyKey),
+        body: JSON.stringify(orderRequestBodies[attemptIndex]),
+      });
+
+      if (orderResponse.status === 401) {
+        console.warn("Session expired (401) on recharge - logging out");
+        setLoading(false);
+        await logout();
+        return;
+      }
+
+      if (orderResponse.ok) {
+        orderData = await orderResponse.json();
+        break;
+      }
+
+      lastOrderErrorMessage = await parseApiError(orderResponse);
+      console.log(`Order API attempt ${attemptIndex + 1} failed:`, lastOrderErrorMessage);
+
+      const canRetryAlternateAmount =
+        attemptIndex < orderRequestBodies.length - 1 &&
+        shouldRetryOrderWithAlternateAmount(lastOrderErrorMessage);
+
+      if (!canRetryAlternateAmount) {
+        throw new Error(lastOrderErrorMessage);
+      }
     }
 
-    orderData = await orderResponse.json();
+    if (!orderData) {
+      throw new Error(lastOrderErrorMessage || "Order could not be created.");
+    }
 
     if (!orderData?.order_id) {
       throw new Error("Order ID was not returned by the backend.");
@@ -459,7 +603,7 @@ const customerDetails = {
       description: `Meter Recharge - ${customerDetails.accountId}`,
       currency: 'INR',
       key: orderData.razorpay_key,
-      amount: orderData.amount || Math.round(totalAmount * 100),
+      amount: orderData.amount || roundedTotalAmount,
       order_id: orderData.order_id,
       name: merchantName,
       image: merchantLogo,
@@ -495,7 +639,8 @@ const customerDetails = {
         razorpay_payment_id: razorpayResult.razorpay_payment_id,
         payment_id: razorpayResult.razorpay_payment_id,
         razorpay_signature: razorpayResult.razorpay_signature,
-        amount: totalAmount,
+        amount: roundedTotalAmount,
+        display_amount: totalAmount,
         status: 'success',
         payment_status: 'success',
         razorpay_status: 'Captured',
@@ -504,6 +649,13 @@ const customerDetails = {
         slug: siteInfo.slug,
       }),
     });
+
+    if (verifyResponse.status === 401) {
+      console.warn("Session expired (401) on payment verification - logging out");
+      setLoading(false);
+      await logout();
+      return;
+    }
 
     if (!verifyResponse.ok) {
       const message = await parseApiError(verifyResponse);
@@ -524,6 +676,8 @@ const customerDetails = {
     console.log("Payment Success:", razorpayResult);
     console.log("Payment Verify:", verifyData);
 
+    fetchSiteData();
+
     setSelectedAmount(null);
     setCustomAmount('');
     setPaymentAmount('');
@@ -539,7 +693,8 @@ const customerDetails = {
         await syncPaymentStatus({
           idempotencyKey,
           orderData,
-          amount: totalAmount,
+          amount: roundedTotalAmount,
+          displayAmount: totalAmount,
           razorpayResult,
           status: error?.code === 2 ? 'cancelled' : 'failed',
           razorpayDisplayStatus: error?.code === 2 ? 'Cancelled' : 'Failed',
@@ -552,11 +707,7 @@ const customerDetails = {
 
     const paymentError = error?.code
       ? getReadablePaymentError(error)
-      : {
-          title: 'Payment Failed',
-          message: error?.message || 'Unable to create or verify the payment right now.',
-          details: 'Please check server response and try again.',
-        };
+      : getFriendlyServerPaymentError(error?.message);
     showPaymentStatus(
       'error',
       paymentError.title,
@@ -580,14 +731,9 @@ const customerDetails = {
     } else if (value === 'clear') {
       setNumpadValue('');
     } else if (value === 'done') {
-      const amt = parseFloat(numpadValue);
-      if (amt >= 1 && amt <= 50000) {
-        setCustomAmount(numpadValue);
-        setSelectedAmount(null);
-        setShowNumpad(false);
-      } else {
-        Alert.alert('Invalid Amount', 'Please enter an amount between ₹1 to ₹50,000');
-      }
+      setCustomAmount(numpadValue);
+      setSelectedAmount(null);
+      setShowNumpad(false);
     } else if (value === '.') {
       if (!numpadValue.includes('.')) {
         setNumpadValue((p) => p + value);
@@ -598,9 +744,16 @@ const customerDetails = {
   };
 
   const handleCustomAmountChange = (text) => {
-    const numericText = text.replace(/[^0-9]/g, '');
-    setCustomAmount(numericText);
-    if (numericText) {
+    // Allow digits and one decimal point
+    let cleaned = text.replace(/[^0-9.]/g, '');
+    // Prevent multiple decimal points
+    const parts = cleaned.split('.');
+    if (parts.length > 2) {
+      cleaned = parts[0] + '.' + parts.slice(1).join('');
+    }
+
+    setCustomAmount(cleaned);
+    if (cleaned) {
       setSelectedAmount(null);
     }
   };
@@ -646,6 +799,12 @@ const customerDetails = {
               </View>
             ) : (
               <>
+              <View style={[styles.topSiteBanner, { backgroundColor: isDarkMode ? theme.card : '#eef2ff', borderColor: theme.border }]}>
+                <Text style={[styles.topSiteLabel, { color: theme.mutedText }]}>Site Name</Text>
+                <Text numberOfLines={1} style={[styles.topSiteValue, { color: theme.text }]}>
+                  {customerDetails.meterNo}
+                </Text>
+              </View>
               <View style={styles.customerHeader}>
   <View style={styles.avatarContainer}>
     <Icon name="account-circle" size={40} color="#fff" />
@@ -726,29 +885,37 @@ const customerDetails = {
                     }
                   }}
                 >
+                  <View
+                    style={[
+                      styles.cardAccentGlow,
+                      { backgroundColor: selectedAmount === opt.amount ? `${opt.color}22` : `${opt.color}12` }
+                    ]}
+                  />
+                  <View
+                    style={[
+                      styles.cardAccentBar,
+                      { backgroundColor: selectedAmount === opt.amount ? opt.color : `${opt.color}66` }
+                    ]}
+                  />
                   <View style={styles.cardContent}>
-                    <View style={styles.cardHeader}>
-                      <Text style={styles.optionIcon}>{opt.icon}</Text>
-                      {opt.tag && (
-                        <View style={[
-                          styles.tagBadge,
-                          opt.tag === 'Popular' && styles.tagPopular,
-                          opt.tag === 'Value' && styles.tagValue,
-                          opt.tag === 'Best' && styles.tagBest,
-                        ]}>
-                          <Text style={styles.tagText}>{opt.tag}</Text>
-                        </View>
-                      )}
+                    <View style={styles.amountBadgeRow}>
+                      <View
+                        style={[
+                          styles.amountBadge,
+                          { backgroundColor: selectedAmount === opt.amount ? `${opt.color}18` : '#f8fafc' }
+                        ]}
+                      >
+                        <View style={[styles.amountBadgeDot, { backgroundColor: opt.color }]} />
+                      </View>
                     </View>
-                    
                     <Text style={[
                       styles.amountText,
-                      { color: selectedAmount === opt.amount ? opt.color : theme.text }
+                      {
+                        color: selectedAmount === opt.amount ? opt.color : theme.text,
+                      }
                     ]}>
                       ₹{opt.amount.toLocaleString()}
                     </Text>
-                    
-                    <Text numberOfLines={1} style={[styles.optionDescription, { color: theme.mutedText }]}>{opt.description}</Text>
                     
                     {selectedAmount === opt.amount && (
                       <View style={styles.selectedIndicator}>
@@ -773,7 +940,16 @@ const customerDetails = {
                 <Icon name="create" size={20} color="#4f46e5" />
                 <Text style={[styles.sectionTitle, { color: theme.text }]}>Custom Amount</Text>
               </View>
-              <Text style={[styles.sectionSubtitle, { color: theme.mutedText }]}>Enter any amount between ₹1 - ₹50,000</Text>
+              <Text 
+                style={[
+                  styles.sectionSubtitle, 
+                  { color: (parseFloat(customAmount) > 100000) ? '#ef4444' : theme.mutedText }
+                ]}
+              >
+                {parseFloat(customAmount) > 100000 
+                  ? 'Amount cannot exceed ₹1,00,000' 
+                  : 'Enter any amount between ₹1 - ₹1,00,000'}
+              </Text>
             </View>
             <View style={[styles.customAmountContainer, { backgroundColor: theme.surface, shadowColor: theme.shadow }]}>
               <View style={[styles.amountInputWrapper, { borderColor: theme.border, backgroundColor: theme.card }]}>
@@ -786,8 +962,8 @@ const customerDetails = {
                   value={customAmount}
                   onChangeText={handleCustomAmountChange}
                   placeholder="Enter amount"
-                  keyboardType="numeric"
-                  maxLength={6}
+                  keyboardType="decimal-pad"
+                  maxLength={9}
                   placeholderTextColor={theme.gray}
                 />
                 <TouchableOpacity 
@@ -841,8 +1017,8 @@ const customerDetails = {
                 <Text style={[styles.summaryValue, { color: theme.text }]}>₹ {SERVICE_FEE.toFixed(2)}</Text>
               </View>
               <View style={styles.summaryRow}>
-                <Text style={[styles.summaryLabel, { color: theme.mutedText }]}>GST (18%)</Text>
-                <Text style={[styles.summaryValue, { color: theme.text }]}>₹ {GST_FEE.toFixed(2)}</Text>
+                <Text style={[styles.summaryLabel, { color: theme.mutedText }]}>Platform Fees</Text>
+                <Text style={[styles.summaryValue, { color: theme.text }]}>₹ {PLATFORM_FEE.toFixed(2)}</Text>
               </View>
               <View style={[styles.divider, { backgroundColor: theme.border }]} />
               <View style={[styles.summaryRow, styles.totalSummaryRow]}>
@@ -864,20 +1040,20 @@ const customerDetails = {
             <TouchableOpacity
               style={[
                 styles.payButton,
-                (!selectedAmount && !customAmount) && styles.disabledButton,
+                ((!selectedAmount && !customAmount) || (parseFloat(customAmount) > 100000)) && styles.disabledButton,
                 loading && styles.loadingButton,
               ]}
-              disabled={!selectedAmount && !customAmount || loading}
+              disabled={(!selectedAmount && !customAmount) || (parseFloat(customAmount) > 100000) || loading}
               onPress={handlePayment}
               activeOpacity={0.9}
             >
               <View style={[
                 styles.payButtonContainerInner,
-                ((!selectedAmount && !customAmount) || loading) && 
+                ((!selectedAmount && !customAmount) || (parseFloat(customAmount) > 100000) || loading) && 
                 styles.disabledButtonInner
               ]}>
                 {loading ? (
-                  <View style={styles.loadingContainer}>
+                  <View style={styles.buttonLoadingContainer}>
                     <View style={styles.loadingSpinner} />
                     <Text style={styles.payButtonText}>Processing...</Text>
                   </View>
@@ -885,6 +1061,11 @@ const customerDetails = {
                   <>
                     <Icon name="lock" size={20} color="#fff" style={styles.lockIcon} />
                     <Text style={styles.payButtonText}>
+                      {selectedAmount || customAmount
+                        ? `Pay ₹${payableAmount.toFixed(2)}`
+                        : 'Select Amount to Continue'}
+                    </Text>
+                    <Text style={[styles.payButtonText, styles.hiddenPayButtonText]}>
                       {selectedAmount || customAmount 
                         ? `Pay ₹${selectedAmount || customAmount}` 
                         : 'Select Amount to Continue'}
@@ -983,13 +1164,35 @@ const customerDetails = {
             <View
               style={[
                 styles.paymentStatusIconWrap,
-                paymentStatus.type === 'success' ? styles.paymentSuccessIconWrap : styles.paymentErrorIconWrap,
+                paymentStatus.type === 'success'
+                  ? styles.paymentSuccessIconWrap
+                  : paymentStatus.type === 'warning'
+                  ? [
+                      styles.paymentWarningIconWrap,
+                      {
+                        backgroundColor: isDarkMode ? 'rgba(234, 179, 8, 0.15)' : '#fef9c3',
+                        borderColor: isDarkMode ? 'rgba(234, 179, 8, 0.3)' : '#fef08a'
+                      }
+                    ]
+                  : styles.paymentErrorIconWrap,
               ]}
             >
               <Icon
-                name={paymentStatus.type === 'success' ? 'check-circle' : 'error-outline'}
+                name={
+                  paymentStatus.type === 'success'
+                    ? 'check-circle'
+                    : paymentStatus.type === 'warning'
+                    ? 'warning'
+                    : 'error-outline'
+                }
                 size={34}
-                color={paymentStatus.type === 'success' ? '#059669' : '#dc2626'}
+                color={
+                  paymentStatus.type === 'success'
+                    ? '#059669'
+                    : paymentStatus.type === 'warning'
+                    ? '#eab308'
+                    : '#dc2626'
+                }
               />
             </View>
 
@@ -1010,13 +1213,21 @@ const customerDetails = {
             <TouchableOpacity
               style={[
                 styles.paymentStatusButton,
-                paymentStatus.type === 'success' ? styles.paymentSuccessButton : styles.paymentErrorButton,
+                paymentStatus.type === 'success'
+                  ? styles.paymentSuccessButton
+                  : paymentStatus.type === 'warning'
+                  ? [styles.paymentWarningButton, { backgroundColor: theme.primary }]
+                  : styles.paymentErrorButton,
               ]}
               onPress={hidePaymentStatus}
               activeOpacity={0.9}
             >
               <Text style={styles.paymentStatusButtonText}>
-                {paymentStatus.type === 'success' ? 'Done' : 'Try Again'}
+                {paymentStatus.type === 'success'
+                  ? 'Done'
+                  : paymentStatus.type === 'warning'
+                  ? 'OK'
+                  : 'Try Again'}
               </Text>
             </TouchableOpacity>
           </Animatable.View>
@@ -1098,6 +1309,22 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '600',
   },
+  topSiteBanner: {
+    borderWidth: 1,
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    marginBottom: 16,
+  },
+  topSiteLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  topSiteValue: {
+    fontSize: 18,
+    fontWeight: '800',
+  },
   customerHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1162,6 +1389,10 @@ const styles = StyleSheet.create({
   },
   balanceItem: {
     flex: 1,
+    padding: 10,
+    borderRadius: 18,
+    borderWidth: 1,
+    justifyContent: 'center',
   },
   balanceLabel: {
     fontSize: 11,
@@ -1170,7 +1401,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   balanceAmount: {
-    fontSize: 23,
+    fontSize: 18,
     fontWeight: '800',
     color: '#059669',
   },
@@ -1233,86 +1464,80 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   rechargeOptionCard: {
-    width: (width - 42) / 2 - 6,
+    width: (width - 48) / 2 - 8,
     backgroundColor: '#fff',
-    borderRadius: 14,
-    marginBottom: 9,
+    borderRadius: 18,
+    marginBottom: 12,
     shadowColor: '#4f46e5',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.06,
-    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08,
+    shadowRadius: 14,
     elevation: 4,
-    borderWidth: 2,
+    borderWidth: 1,
     borderColor: 'transparent',
     position: 'relative',
     overflow: 'hidden',
-    minHeight: 112,
+    minHeight: 96,
   },
   selectedCard: {
     borderColor: '#4f46e5',
     shadowColor: '#4f46e5',
-    shadowOpacity: 0.2,
-    transform: [{ scale: 1.02 }],
+    shadowOpacity: 0.16,
+    transform: [{ scale: 1.015 }],
   },
-  cardContent: {
-    padding: 10,
-    flex: 1,
-    justifyContent: 'space-between',
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 6,
-    minHeight: 22,
-  },
-  optionIcon: {
-    fontSize: 16,
-  },
-  tagBadge: {
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius: 999,
-  },
-  tagPopular: {
-    backgroundColor: '#fef3c7',
-  },
-  tagValue: {
-    backgroundColor: '#dbeafe',
-  },
-  tagBest: {
-    backgroundColor: '#dcfce7',
-  },
-  tagText: {
-    fontSize: 8,
-    fontWeight: '700',
-    color: '#1e293b',
-  },
-  amountText: {
-    fontSize: 16,
-    fontWeight: '800',
-    marginBottom: 2,
-    lineHeight: 19,
-  },
-  optionDescription: {
-    fontSize: 10,
-    color: '#64748b',
-    fontWeight: '500',
-    lineHeight: 13,
-    minHeight: 13,
-  },
-  selectedIndicator: {
+  cardAccentGlow: {
     position: 'absolute',
-    bottom: 0,
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    top: -18,
+    right: -14,
+  },
+  cardAccentBar: {
+    position: 'absolute',
+    top: 0,
     left: 0,
     right: 0,
-    alignItems: 'center',
-    paddingBottom: 8,
+    height: 4,
   },
-  selectedDot: {
+  cardContent: {
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    flex: 1,
+    justifyContent: 'center',
+  },
+  amountBadgeRow: {
+    alignItems: 'flex-end',
+    marginBottom: 10,
+  },
+  amountBadge: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#eef2ff',
+  },
+  amountBadgeDot: {
     width: 8,
     height: 8,
     borderRadius: 4,
+  },
+  amountText: {
+    fontSize: 15,
+    fontWeight: '800',
+    lineHeight: 18,
+  },
+  selectedIndicator: {
+    position: 'absolute',
+    bottom: 8,
+    right: 10,
+  },
+  selectedDot: {
+    width: 18,
+    height: 5,
+    borderRadius: 999,
   },
   customAmountContainer: {
     backgroundColor: '#fff',
@@ -1478,7 +1703,7 @@ const styles = StyleSheet.create({
   loadingButton: {
     opacity: 0.8,
   },
-  loadingContainer: {
+  buttonLoadingContainer: {
     flexDirection: 'row',
     alignItems: 'center',
   },
@@ -1499,6 +1724,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     marginHorizontal: 8,
+  },
+  hiddenPayButtonText: {
+    display: 'none',
   },
   secureInfo: {
     flexDirection: 'row',
@@ -1677,6 +1905,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#fef2f2',
     borderColor: '#fecaca',
   },
+  paymentWarningIconWrap: {
+    backgroundColor: '#fef9c3',
+    borderColor: '#fef08a',
+  },
   paymentStatusTitle: {
     fontSize: 24,
     fontWeight: '800',
@@ -1716,6 +1948,9 @@ const styles = StyleSheet.create({
   paymentErrorButton: {
     backgroundColor: '#4f46e5',
   },
+  paymentWarningButton: {
+    backgroundColor: '#eab308',
+  },
   paymentStatusButtonText: {
     color: '#fff',
     fontSize: 15,
@@ -1737,38 +1972,7 @@ siteInfoItem: {
   marginHorizontal: 4,
   alignItems: 'center',
 },
-balanceSection: {
-  paddingTop: 20,
-  borderTopWidth: 1,
-  borderTopColor: '#f1f5f9',
-},
-balanceRow: {
-  flexDirection: 'row',
-  justifyContent: 'space-between',
-  alignItems: 'stretch',
-},
-balanceItem: {
-  flex: 1,
-  backgroundColor: '#ecfdf5',
-  padding: 16,
-  borderRadius: 18,
-  marginRight: 10,
-  justifyContent: 'center',
-  borderWidth: 1,
-  borderColor: '#bbf7d0',
-},
 
-balanceLabel: {
-  fontSize: 12,
-  color: '#64748b',
-  fontWeight: '600',
-  marginBottom: 4,
-},
-balanceAmount: {
-  fontSize: 20,
-  fontWeight: '800',
-  color: '#10b981',
-},
 addressItem: {
   flex: 1,
   backgroundColor: '#f8fafc',
@@ -1788,15 +1992,5 @@ addressTextContainer: {
   flex: 1,
   marginLeft: 12,
 },
-infoLabel: {
-  fontSize: 12,
-  color: '#64748b',
-  marginBottom: 4,
-  fontWeight: '600',
-},
-infoValue: {
-  fontSize: 14,
-  fontWeight: '600',
-  color: '#1e293b',
-},
+
 });
