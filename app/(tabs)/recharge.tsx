@@ -16,7 +16,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import RazorpayCheckout from 'react-native-razorpay';
-import Icon from 'react-native-vector-icons/MaterialIcons';
+import { MaterialIcons as Icon } from '@expo/vector-icons';
 import * as Animatable from 'react-native-animatable';
 import {
   getRazorpayOrderUrl,
@@ -524,16 +524,14 @@ const customerDetails = {
   let orderData = null;
   let idempotencyKey = '';
   let totalAmount = 0;
-  let roundedTotalAmount = 0;
   let razorpayResult = null;
 
   try {
     totalAmount = Number((amountToPay + SERVICE_FEE + PLATFORM_FEE).toFixed(2));
-    roundedTotalAmount = Math.round(totalAmount);
     idempotencyKey = buildIdempotencyKey();
     const orderRequestBodies = [
       {
-        amount: roundedTotalAmount,
+        amount: totalAmount,
         display_amount: totalAmount,
         recharge_amount: amountToPay,
         service_fee: SERVICE_FEE,
@@ -603,7 +601,7 @@ const customerDetails = {
       description: `Meter Recharge - ${customerDetails.accountId}`,
       currency: 'INR',
       key: orderData.razorpay_key,
-      amount: orderData.amount || roundedTotalAmount,
+      amount: orderData.amount || totalAmount,
       order_id: orderData.order_id,
       name: merchantName,
       image: merchantLogo,
@@ -639,7 +637,7 @@ const customerDetails = {
         razorpay_payment_id: razorpayResult.razorpay_payment_id,
         payment_id: razorpayResult.razorpay_payment_id,
         razorpay_signature: razorpayResult.razorpay_signature,
-        amount: roundedTotalAmount,
+        amount: totalAmount,
         display_amount: totalAmount,
         status: 'success',
         payment_status: 'success',
@@ -693,7 +691,7 @@ const customerDetails = {
         await syncPaymentStatus({
           idempotencyKey,
           orderData,
-          amount: roundedTotalAmount,
+          amount: totalAmount,
           displayAmount: totalAmount,
           razorpayResult,
           status: error?.code === 2 ? 'cancelled' : 'failed',
