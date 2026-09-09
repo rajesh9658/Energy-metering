@@ -183,10 +183,10 @@ const login = async (userid, password) => {
       return { success: false, message: errorMsg };
     }
     
-  } catch (e) {
-    const errorMsg = `A network error occurred. Please ensure your API is running and accessible. Error: ${e.message}`;
-    setError(errorMsg);
-    return { success: false, message: "A network error occurred." };
+  } catch (e: any) {
+    const errorMsg = e.message || "A network error occurred.";
+    setError(`Network error: ${errorMsg}`);
+    return { success: false, message: `Network error: ${errorMsg}` };
   }
 };
   

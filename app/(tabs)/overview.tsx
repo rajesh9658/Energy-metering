@@ -9,9 +9,9 @@ import {
   Dimensions,
   ActivityIndicator,
   RefreshControl,
-  PanResponder
+  PanResponder,
+  FlatList
 } from "react-native";
-import Swiper from "react-native-swiper";
 import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { 
@@ -26,6 +26,7 @@ import { useEnergyUnit } from "../context/EnergyUnitContext";
 import { useNavigation } from 'expo-router';
 
 const { width: screenWidth } = Dimensions.get('window');
+const SLIDE_WIDTH = screenWidth - 32;
 
 // Utility function to load site info
 const loadSiteInfo = async () => {
@@ -345,11 +346,21 @@ useEffect(() => {
 
   const [activeIndex, setActiveIndex] = useState(0);
   const [isAutoPlaying, setIsAutoPlaying] = useState(true);
-  const swiperRef = useRef(null);
+  const flatListRef = useRef(null);
+  const currentDisplayIndexRef = useRef(1);
   const autoPlayTimerRef = useRef(null);
   const userInteractionTimerRef = useRef(null);
-  const activeIndexTimerRef = useRef(null);
-  const isUserSwipingRef = useRef(false);
+
+  const displaySlides = slides.length > 1
+    ? [slides[slides.length - 1], ...slides, slides[0]]
+    : slides;
+
+  const getRealIndex = (displayIdx) => {
+    if (slides.length <= 1) return 0;
+    if (displayIdx === 0) return slides.length - 1;
+    if (displayIdx === displaySlides.length - 1) return 0;
+    return displayIdx - 1;
+  };
   
   const active = slides[activeIndex];
   const todayDailyEntry = meterDailyData?.data?.find((item) => {
@@ -369,7 +380,7 @@ useEffect(() => {
   );
   const currentOpeningKvahRaw = getNumericValue(
     meterCurrentData,
-    ["closing_kvah", "opening_kvah", "kvah", "total_kvah", "opening_kVAh", "closing_kVAh"],
+    ["opening_kvah", "opening_kVAh", "kvah_prev", "closing_kvah", "kvah", "total_kvah"],
     null
   );
   const currentOpeningKvah =
@@ -385,8 +396,8 @@ useEffect(() => {
       : null;
   
   // AUTO-SLIDE CONFIGURATION
-  const AUTO_SLIDE_INTERVAL = 11000;
-  const RESUME_DELAY = 11000;
+  const AUTO_SLIDE_INTERVAL = 4000;
+  const RESUME_DELAY = 10000;
 
   // STATIC DATA
   const [staticData, setStaticData] = useState({
@@ -643,7 +654,7 @@ const updateCurrentSlide = (data) => {
   if (!data || !siteData) return;
 
   const closing = siteData.asset_information.electric_parameters.unit;
-  const opening = data.closing_kwh;
+  const opening = data.opening_kwh ?? data.closing_kwh;
   const closingKvah = getNumericValue(
     siteData.asset_information?.electric_parameters,
     ["kvah", "total_kvah", "apparent_energy", "apparent_energy_total", "today_kvah", "current_kvah"],
@@ -651,7 +662,7 @@ const updateCurrentSlide = (data) => {
   );
   const rawOpeningKvah = getNumericValue(
     data,
-    ["closing_kvah", "opening_kvah", "kvah", "total_kvah", "opening_kVAh", "closing_kVAh"],
+    ["opening_kvah", "opening_kVAh", "kvah_prev", "closing_kvah", "kvah", "total_kvah"],
     null
   );
   const openingKvah =
@@ -893,66 +904,75 @@ newSlides[1].consumptionData = {
     }));
   };
 
+  // PROGRAMMATIC AUTO SLIDE NEXT
+  const autoSlideNext = () => {
+    if (slides.length <= 1 || !displaySlides.length) return;
+
+    // Safety check: if current index is at or past the last clone (index 4)
+    if (currentDisplayIndexRef.current >= displaySlides.length - 1) {
+      // Jump silently back to real index 1 (slide 0)
+      flatListRef.current?.scrollToIndex({ index: 1, animated: false });
+      currentDisplayIndexRef.current = 1;
+      setActiveIndex(0);
+
+      // Then slide smoothly to index 2
+      const targetIndex = 2;
+      setTimeout(() => {
+        flatListRef.current?.scrollToIndex({ index: targetIndex, animated: true });
+        currentDisplayIndexRef.current = targetIndex;
+        setActiveIndex(getRealIndex(targetIndex));
+      }, 50);
+      return;
+    }
+
+    const nextDisplayIndex = currentDisplayIndexRef.current + 1;
+    const safeIndex = Math.min(nextDisplayIndex, displaySlides.length - 1);
+    
+    flatListRef.current?.scrollToIndex({ index: safeIndex, animated: true });
+    currentDisplayIndexRef.current = safeIndex;
+    setActiveIndex(getRealIndex(safeIndex));
+  };
+
   // MANUAL NAVIGATION FUNCTIONS
   const goToNextSlide = () => {
-    if (swiperRef.current) {
-      swiperRef.current.scrollBy(1);
-      handleUserInteraction();
-    }
+    handleUserInteraction();
+    autoSlideNext();
   };
 
   const goToPrevSlide = () => {
-    if (swiperRef.current) {
-      swiperRef.current.scrollBy(-1);
-      handleUserInteraction();
+    handleUserInteraction();
+    if (slides.length <= 1 || !displaySlides.length) return;
+
+    if (currentDisplayIndexRef.current <= 1) {
+      const lastRealIndex = slides.length;
+      flatListRef.current?.scrollToIndex({ index: lastRealIndex, animated: false });
+      currentDisplayIndexRef.current = lastRealIndex;
+      setActiveIndex(slides.length - 1);
+
+      const targetIndex = lastRealIndex - 1;
+      setTimeout(() => {
+        flatListRef.current?.scrollToIndex({ index: targetIndex, animated: true });
+        currentDisplayIndexRef.current = targetIndex;
+        setActiveIndex(getRealIndex(targetIndex));
+      }, 50);
+      return;
     }
+
+    const prevDisplayIndex = Math.max(0, currentDisplayIndexRef.current - 1);
+    flatListRef.current?.scrollToIndex({ index: prevDisplayIndex, animated: true });
+    currentDisplayIndexRef.current = prevDisplayIndex;
+    setActiveIndex(getRealIndex(prevDisplayIndex));
   };
-
-  const swipeResponder = useRef(
-    PanResponder.create({
-      onMoveShouldSetPanResponder: (_, gestureState) =>
-        Math.abs(gestureState.dx) > 8 && Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 1.1,
-      onMoveShouldSetPanResponderCapture: (_, gestureState) =>
-        Math.abs(gestureState.dx) > 8 && Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 1.1,
-      onPanResponderGrant: () => {
-        handleUserInteraction();
-      },
-      onPanResponderTerminationRequest: () => false,
-      onPanResponderRelease: (_, gestureState) => {
-        const shouldGoNext = gestureState.dx < -18 || gestureState.vx < -0.18;
-        const shouldGoPrev = gestureState.dx > 18 || gestureState.vx > 0.18;
-
-        if (shouldGoNext) {
-          goToNextSlide();
-        } else if (shouldGoPrev) {
-          goToPrevSlide();
-        } else {
-          isUserSwipingRef.current = false;
-        }
-      },
-      onPanResponderTerminate: () => {
-        isUserSwipingRef.current = false;
-      },
-    })
-  ).current;
 
   // HANDLE USER INTERACTION
   const handleUserInteraction = () => {
-    isUserSwipingRef.current = true;
-
-    if (autoPlayTimerRef.current) {
-      clearInterval(autoPlayTimerRef.current);
-      autoPlayTimerRef.current = null;
-    }
-
     setIsAutoPlaying(false);
-    
+
     if (userInteractionTimerRef.current) {
       clearTimeout(userInteractionTimerRef.current);
     }
     
     userInteractionTimerRef.current = setTimeout(() => {
-      isUserSwipingRef.current = false;
       setIsAutoPlaying(true);
     }, RESUME_DELAY);
   };
@@ -961,43 +981,48 @@ newSlides[1].consumptionData = {
   useEffect(() => {
     if (isAutoPlaying) {
       autoPlayTimerRef.current = setInterval(() => {
-        if (swiperRef.current) {
-          swiperRef.current.scrollBy(1);
-        }
+        autoSlideNext();
       }, AUTO_SLIDE_INTERVAL);
     } else {
       if (autoPlayTimerRef.current) {
         clearInterval(autoPlayTimerRef.current);
+        autoPlayTimerRef.current = null;
       }
     }
 
     return () => {
       if (autoPlayTimerRef.current) {
         clearInterval(autoPlayTimerRef.current);
+        autoPlayTimerRef.current = null;
       }
       if (userInteractionTimerRef.current) {
         clearTimeout(userInteractionTimerRef.current);
       }
-      if (activeIndexTimerRef.current) {
-        clearTimeout(activeIndexTimerRef.current);
-      }
     };
-  }, [isAutoPlaying]);
+  }, [isAutoPlaying, slides.length]);
 
-  // HANDLE SWIPER INDEX CHANGE
-  const handleIndexChanged = (index) => {
-    if (activeIndexTimerRef.current) {
-      clearTimeout(activeIndexTimerRef.current);
+  const handleScrollEnd = (event) => {
+    const contentOffset = event.nativeEvent.contentOffset.x;
+    const displayIdx = Math.round(contentOffset / SLIDE_WIDTH);
+    
+    if (slides.length <= 1) return;
+
+    if (displayIdx === 0) {
+      // Slid left onto Card 3 clone -> jump silently to real Card 3 (index = slides.length)
+      const targetIdx = slides.length;
+      flatListRef.current?.scrollToIndex({ index: targetIdx, animated: false });
+      currentDisplayIndexRef.current = targetIdx;
+      setActiveIndex(slides.length - 1);
+    } else if (displayIdx === displaySlides.length - 1) {
+      // Slid right onto Card 1 clone -> jump silently to real Card 1 (index = 1)
+      const targetIdx = 1;
+      flatListRef.current?.scrollToIndex({ index: targetIdx, animated: false });
+      currentDisplayIndexRef.current = targetIdx;
+      setActiveIndex(0);
+    } else {
+      currentDisplayIndexRef.current = displayIdx;
+      setActiveIndex(getRealIndex(displayIdx));
     }
-
-    if (isUserSwipingRef.current) {
-      activeIndexTimerRef.current = setTimeout(() => {
-        setActiveIndex(index);
-      }, 180);
-      return;
-    }
-
-    setActiveIndex(index);
   };
 
   // TOGGLE AUTO-PLAY
@@ -1089,36 +1114,34 @@ newSlides[1].consumptionData = {
         <View style={styles.header}> 
         </View>
 
-        {/* SWIPER SECTION */}
-        <View style={styles.swiperWrapper} {...swipeResponder.panHandlers}>
-          <Swiper
-            ref={swiperRef}
-            height={340}
-            loop={true}
-            autoplay={false}
-            showsPagination={true}
-            dotStyle={styles.dot}
-            activeDotStyle={styles.activeDot}
-            onIndexChanged={handleIndexChanged}
-            onMomentumScrollEnd={() => {
-              isUserSwipingRef.current = false;
-            }}
-            paginationStyle={{ bottom: 10 }}
-            scrollEnabled={false}
-            bounces={true}
+        {/* SWIPER / SLIDER SECTION */}
+        <View style={styles.swiperWrapper}>
+          <FlatList
+            ref={flatListRef}
+            data={displaySlides}
+            keyExtractor={(item, index) => `${item.key}-${index}`}
+            horizontal
+            pagingEnabled
+            initialScrollIndex={1}
+            snapToInterval={SLIDE_WIDTH}
+            snapToAlignment="center"
             decelerationRate="fast"
             showsHorizontalScrollIndicator={false}
-            removeClippedSubviews={false}
-            loadMinimal={true}
-            loadMinimalSize={1}
-            autoplayTimeout={4}
-            autoplayDirection={true}
-            showsButtons={false}
-            animationDuration={300}
-            style={styles.swiperStyle}
-          >
-            {slides.map((item, index) => (
-              <View key={item.key} style={styles.swiperSlide}>
+            onScrollBeginDrag={handleUserInteraction}
+            onMomentumScrollEnd={handleScrollEnd}
+            onScrollToIndexFailed={(info) => {
+              const safeIndex = Math.max(0, Math.min(info.index, displaySlides.length - 1));
+              setTimeout(() => {
+                flatListRef.current?.scrollToIndex({ index: safeIndex, animated: false });
+              }, 50);
+            }}
+            getItemLayout={(_, index) => ({
+              length: SLIDE_WIDTH,
+              offset: SLIDE_WIDTH * index,
+              index,
+            })}
+            renderItem={({ item }) => (
+              <View style={{ width: SLIDE_WIDTH, justifyContent: "center", alignItems: "center" }}>
                 <View style={[styles.swiperCard, { backgroundColor: theme.surface, shadowColor: theme.shadow }]}>
                   {/* CARD HEADER */}
                   <View style={styles.cardHeader}>
@@ -1157,8 +1180,21 @@ newSlides[1].consumptionData = {
                   </View>
                 </View>
               </View>
+            )}
+          />
+
+          {/* PAGINATION DOTS */}
+          <View style={styles.paginationDotsContainer}>
+            {slides.map((_, index) => (
+              <View
+                key={index}
+                style={[
+                  styles.dot,
+                  activeIndex === index && [styles.activeDot, { backgroundColor: theme.primary || "#0b63a8" }]
+                ]}
+              />
             ))}
-          </Swiper>
+          </View>
 
           {/* AUTO-PLAY CONTROL AND NAVIGATION */}
           <View style={styles.controlContainer}>
@@ -1375,24 +1411,24 @@ newSlides[1].consumptionData = {
             {meterCurrentData && active.key === "current" && (
               <View style={styles.totalItem}>
                 <Text style={[styles.totalLabel, { color: theme.mutedText }]}>Opening</Text>
-                {getEnergySplitDisplay(meterCurrentData.closing_kwh || 0, currentOpeningKvah).isDual ? (
+                {getEnergySplitDisplay(meterCurrentData.opening_kwh ?? meterCurrentData.closing_kwh ?? 0, currentOpeningKvah).isDual ? (
                   <View style={styles.totalDualStack}>
                     <Text style={[styles.totalDualLine, { color: theme.text }]}>
                       <Text style={[styles.totalDualLabel, { color: theme.mutedText }]}>kWh </Text>
-                      {getEnergySplitDisplay(meterCurrentData.closing_kwh || 0, currentOpeningKvah).primaryValue}
+                      {getEnergySplitDisplay(meterCurrentData.opening_kwh ?? meterCurrentData.closing_kwh ?? 0, currentOpeningKvah).primaryValue}
                     </Text>
                     <Text style={[styles.totalDualLine, { color: theme.text }]}>
                       <Text style={[styles.totalDualLabel, { color: theme.mutedText }]}>kVAh </Text>
-                      {getEnergySplitDisplay(meterCurrentData.closing_kwh || 0, currentOpeningKvah).secondaryValue}
+                      {getEnergySplitDisplay(meterCurrentData.opening_kwh ?? meterCurrentData.closing_kwh ?? 0, currentOpeningKvah).secondaryValue}
                     </Text>
                   </View>
                 ) : (
                   <>
                     <Text style={[styles.totalValue, { color: theme.text }]}>
-                      {getEnergySplitDisplay(meterCurrentData.closing_kwh || 0, currentOpeningKvah).primaryValue}
+                      {getEnergySplitDisplay(meterCurrentData.opening_kwh ?? meterCurrentData.closing_kwh ?? 0, currentOpeningKvah).primaryValue}
                     </Text>
                     <Text style={[styles.totalUnit, { color: theme.mutedText }]}>
-                      {getEnergySplitDisplay(meterCurrentData.closing_kwh || 0, currentOpeningKvah).primaryLabel}
+                      {getEnergySplitDisplay(meterCurrentData.opening_kwh ?? meterCurrentData.closing_kwh ?? 0, currentOpeningKvah).primaryLabel}
                     </Text>
                   </>
                 )}
@@ -1731,6 +1767,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(11, 99, 168, 0.1)",
     alignSelf: 'center',
+  },
+
+  paginationDotsContainer: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    marginTop: 12,
+    marginBottom: 4,
   },
 
   dot: { 
