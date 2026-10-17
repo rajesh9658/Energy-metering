@@ -37,7 +37,7 @@ function LayoutContent() {
             shouldShowAlert: true,
             shouldPlaySound: false,
             shouldSetBadge: false,
-          }),
+          } as any),
         });
 
         await Notifications.setNotificationChannelAsync("downloads", {
@@ -89,15 +89,19 @@ function LayoutContent() {
   );
 }
 
+import { ErrorBoundary } from "./components/ErrorBoundary";
+
 export default function RootLayout() {
   return (
-    <ThemeProvider>
-      <EnergyUnitProvider>
-        <AuthProvider>
-          <LayoutContent />
-        </AuthProvider>
-      </EnergyUnitProvider>
-    </ThemeProvider>
+    <ErrorBoundary>
+      <ThemeProvider>
+        <EnergyUnitProvider>
+          <AuthProvider>
+            <LayoutContent />
+          </AuthProvider>
+        </EnergyUnitProvider>
+      </ThemeProvider>
+    </ErrorBoundary>
   );
 }
 

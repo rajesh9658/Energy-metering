@@ -29,6 +29,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
 import { useNavigation } from 'expo-router';
+import { safeApiCall } from "../utils/apiHandler";
 const { width, height } = Dimensions.get('window');
 
 export default function RechargeScreen() {
@@ -197,18 +198,52 @@ const fetchSiteData = async () => {
     setSiteLoading(true);
     setSiteError(null);
 
-    const slugToUse = siteInfo.slug || siteInfo.siteName;
-    if (!slugToUse) return;
+    const slugToUse = siteInfo.slug || siteInfo.siteName || user?.slug || user?.site_name;
+    if (!slugToUse) {
+      const cached = await AsyncStorage.getItem("meterData");
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed?.asset_information) {
+          setSiteData(parsed.asset_information);
+          return;
+        }
+      }
+      setSiteError("No site information found");
+      return;
+    }
 
-    const response = await fetch(getSiteDataUrl(slugToUse));
-    const data = await response.json();
+    const res = await safeApiCall(`site_data_${slugToUse}`, async () => {
+      const response = await fetch(getSiteDataUrl(slugToUse));
+      return await response.json();
+    });
 
-    if (data.success) {
-      setSiteData(data.asset_information);
+    if (res.data && (res.data.success || res.data.status)) {
+      setSiteData(res.data.asset_information || res.data.data || res.data);
+      setSiteError(null);
     } else {
-      setSiteError("Failed to load site data");
+      const cached = await AsyncStorage.getItem("meterData");
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed?.asset_information) {
+          setSiteData(parsed.asset_information);
+          setSiteError(null);
+          return;
+        }
+      }
+      setSiteError(res.error || "Failed to load site data");
     }
   } catch (error) {
+    try {
+      const cached = await AsyncStorage.getItem("meterData");
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed?.asset_information) {
+          setSiteData(parsed.asset_information);
+          setSiteError(null);
+          return;
+        }
+      }
+    } catch (_) {}
     setSiteError("Network error");
   } finally {
     setSiteLoading(false);

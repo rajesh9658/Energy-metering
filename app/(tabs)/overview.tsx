@@ -24,6 +24,7 @@ import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
 import { useEnergyUnit } from "../context/EnergyUnitContext";
 import { useNavigation } from 'expo-router';
+import { safeApiCall } from "../utils/apiHandler";
 
 const { width: screenWidth } = Dimensions.get('window');
 const SLIDE_WIDTH = screenWidth - 32;
@@ -272,11 +273,7 @@ export default function OverviewScreen({ route }) {
     };
   };
 
-useEffect(() => {
-  if (meterCurrentData && siteData) {
-    updateCurrentSlide(meterCurrentData);
-  }
-}, [meterCurrentData, siteData, todayKvah]);
+
 
 
 
@@ -461,81 +458,80 @@ useEffect(() => {
 
   const fetchSiteData = async () => {
     try {
-      // console.log("called the function");
-      // Use slug if available, otherwise use siteName
       const slugToUse = siteInfo.slug || siteInfo.siteName;
       if (!slugToUse) return;
-      
-      const response = await axios.get(getSiteDataUrl(slugToUse));
-      // console.log("called the function");
-      if (response.data && response.data.success) {
-        // console.log("this is the user data:",response.data);
-        setSiteData(response.data);
-       
-        setCurrentunit(response.data.asset_information.electric_parameters.unit);
-        updateSanctionedLoad(response.data.asset_information);
-        updateVoltageCurrentData(response.data.asset_information.electric_parameters);
-        await AsyncStorage.setItem(
-        "meterData",
-        JSON.stringify(response.data)
-      );
-//     const data = await AsyncStorage.getItem("meterData");
-// console.log("this is the data in meter data", JSON.parse(data));
 
+      const res = await safeApiCall(`site_data_${slugToUse}`, async () => {
+        const response = await axios.get(getSiteDataUrl(slugToUse));
+        return response.data;
+      });
+
+      if (res.data) {
+        setSiteData(res.data);
+        if (res.data.asset_information?.electric_parameters?.unit != null) {
+          setCurrentunit(res.data.asset_information.electric_parameters.unit);
+        }
+        if (res.data.asset_information) {
+          updateSanctionedLoad(res.data.asset_information);
+        }
+        if (res.data.asset_information?.electric_parameters) {
+          updateVoltageCurrentData(res.data.asset_information.electric_parameters);
+        }
       }
     } catch (err) {
-      // Don't set global error for this - just log it
+      console.log("Error in fetchSiteData:", err);
     }
   };
 
-  // const fetchMeterCurrentData = async () => {
-  //   try {
-  //     const response = await axios.get(getMeterCurrentUrl(siteInfo.siteId));
-      
-  //     if (response.data) {
-  //       setMeterCurrentData(response.data);
-  //       updateCurrentSlide(response.data);
-  //     }
-  //   } catch (err) {
-  //     // Don't set global error for this - just log it
-  //   }
-  // };
+  const fetchMeterCurrentData = async () => {
+    try {
+      if (!siteInfo.siteId) return;
+      const res = await safeApiCall(`meter_current_${siteInfo.siteId}`, async () => {
+        const response = await axios.get(getMeterCurrentUrl(siteInfo.siteId));
+        return response.data;
+      });
 
-
-const fetchMeterCurrentData = async () => {
-  const response = await axios.get(getMeterCurrentUrl(siteInfo.siteId));
-  if (response.data) {
-    setMeterCurrentData(response.data);
-  }
-};
-
-
+      if (res.data) {
+        setMeterCurrentData(res.data);
+      }
+    } catch (err) {
+      console.log("Error in fetchMeterCurrentData:", err);
+    }
+  };
 
   const fetchMeterDailyData = async () => {
     try {
+      if (!siteInfo.siteId) return;
       const currentMonth = new Date().toISOString().slice(0, 7);
-      const response = await axios.get(getMeterDailyConsumptionUrl(siteInfo.siteId, currentMonth));
-      
-      if (response.data) {
-        setMeterDailyData(response.data);
-        updateTodaySlide(response.data);
+      const res = await safeApiCall(`meter_daily_${siteInfo.siteId}_${currentMonth}`, async () => {
+        const response = await axios.get(getMeterDailyConsumptionUrl(siteInfo.siteId, currentMonth));
+        return response.data;
+      });
+
+      if (res.data) {
+        setMeterDailyData(res.data);
+        updateTodaySlide(res.data);
       }
     } catch (err) {
-      // Don't set global error for this - just log it
+      console.log("Error in fetchMeterDailyData:", err);
     }
   };
 
   const fetchMeterMonthlyData = async () => {
     try {
+      if (!siteInfo.siteId) return;
       const currentMonth = new Date().toISOString().slice(0, 7);
-      const response = await axios.get(getMeterMonthlyConsumptionUrl(siteInfo.siteId, currentMonth));
-      
-      if (response.data) {
-        setMeterMonthlyData(response.data);
-        updateMonthlySlide(response.data);
+      const res = await safeApiCall(`meter_monthly_${siteInfo.siteId}_${currentMonth}`, async () => {
+        const response = await axios.get(getMeterMonthlyConsumptionUrl(siteInfo.siteId, currentMonth));
+        return response.data;
+      });
+
+      if (res.data) {
+        setMeterMonthlyData(res.data);
+        updateMonthlySlide(res.data);
       }
     } catch (err) {
-      // Don't set global error for this - just log it
+      console.log("Error in fetchMeterMonthlyData:", err);
     }
   };
   
@@ -719,6 +715,12 @@ const updateCurrentSlide = (data) => {
 
   setSlides(newSlides);
 };
+
+  useEffect(() => {
+    if (meterCurrentData && siteData) {
+      updateCurrentSlide(meterCurrentData);
+    }
+  }, [meterCurrentData, siteData, todayKvah]);
 
 
 
