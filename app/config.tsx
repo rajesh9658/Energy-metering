@@ -2,8 +2,8 @@
 
 const API_CONFIG = {
 
-  BASE_URL: "http://192.168.68.131:8000",
-  // BASE_URL: "https://em.sochiot.com",
+  // BASE_URL: "http://192.168.68.131:8000",
+  BASE_URL: "https://em.sochiot.com",
 
   ENDPOINTS: {
     LOGIN: "/api/mobile-login",
