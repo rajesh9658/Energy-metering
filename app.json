@@ -16,17 +16,16 @@
       }
     },
     "android": {
+      "usesCleartextTraffic": true,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.jpg",
         "backgroundImage": "./assets/images/android-icon-background.jpg",
-        "monochromeImage": "./assets/images/android-icon-foreground.jpg",
-        "foregroundImage": "./assets/images/android-icon-foreground.jpg",
-        "backgroundColor": "#000000"
+        "monochromeImage": "./assets/images/android-icon-foreground.jpg"
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.energymeter.app"
+      "package": "com.mr_sanjay_gupta.Energy_metring"
     },
     "web": {
       "output": "static",

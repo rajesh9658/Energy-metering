@@ -2,8 +2,8 @@
 
 const API_CONFIG = {
 
-  // BASE_URL: "http://192.168.68.131:8000",
   BASE_URL: "https://em.sochiot.com",
+  // BASE_URL: "http://192.168.68.139:8000",
 
   ENDPOINTS: {
     LOGIN: "/api/mobile-login",
@@ -17,6 +17,10 @@ const API_CONFIG = {
     RAZORPAY_ORDER: "/api/razorpay/order",
     RAZORPAY_VERIFY: "/api/razorpay/verify",
     WALLET_TRANSACTIONS: "/api/v1/wallet/transactions",
+    
+    // 🔑 Recharge Fee Settings Endpoints
+    RECHARGE_FEE_CONFIG: "/api/v1/recharge/fee-config",
+    RECHARGE_FEE_QUOTE: "/api/v1/recharge/fee-quote",
   },
 };
 
@@ -35,13 +39,9 @@ export const getWalletTransactionsUrl = (siteId: string | number, type?: string,
   return params.length > 0 ? `${baseUrl}?${params.join("&")}` : baseUrl;
 };
 
-
-
-
 export const getSiteDataUrl = (siteName: string) => {
   const url = API_CONFIG.BASE_URL + API_CONFIG.ENDPOINTS.SITE_DATA + siteName;
   return url;
-  
 };
 
 export const getMeterCurrentUrl = (siteId: string | number) => {
@@ -61,7 +61,8 @@ export const getMeterMonthlyConsumptionUrl = (siteId: string | number, month: st
     API_CONFIG.ENDPOINTS.METER_MONTHLY_CONSUMPTION.replace("{siteId}", siteId.toString());
   return `${baseUrl}?month=${month}`;
 };
-export const getYearlyConsumptionUrl = (siteId) => {
+
+export const getYearlyConsumptionUrl = (siteId: string | number) => {
   return (
     API_CONFIG.BASE_URL +
     API_CONFIG.ENDPOINTS.METER_YEARLY_CONSUMPTION.replace(
@@ -75,13 +76,10 @@ export const getChangePasswordUrl = () => {
   return API_CONFIG.BASE_URL + API_CONFIG.ENDPOINTS.CHANGE_PASSWORD;
 };
 
-
-
 export const getMeterMonthlyReportUrl = (siteId: string | number, month?: string) => {
   const baseUrl = API_CONFIG.BASE_URL + 
     API_CONFIG.ENDPOINTS.METER_MONTHLY_REPORT.replace("{siteId}", siteId.toString());
   
-  // Optional: Add month parameter if provided
   if (month) {
     return `${baseUrl}?month=${month}`;
   }
@@ -94,6 +92,19 @@ export const getRazorpayOrderUrl = () => {
 
 export const getRazorpayVerifyUrl = () => {
   return API_CONFIG.BASE_URL + API_CONFIG.ENDPOINTS.RAZORPAY_VERIFY;
+};
+
+// 🔑 Fee Config & Quote URL Helpers
+export const getRechargeFeeConfigUrl = (siteId?: string | number) => {
+  const baseUrl = API_CONFIG.BASE_URL + API_CONFIG.ENDPOINTS.RECHARGE_FEE_CONFIG;
+  return siteId ? `${baseUrl}?site_id=${siteId}` : baseUrl;
+};
+
+export const getRechargeFeeQuoteUrl = (amount: number | string, siteId?: string | number) => {
+  const baseUrl = API_CONFIG.BASE_URL + API_CONFIG.ENDPOINTS.RECHARGE_FEE_QUOTE;
+  const params: string[] = [`amount=${encodeURIComponent(amount)}`];
+  if (siteId) params.push(`site_id=${siteId}`);
+  return `${baseUrl}?${params.join("&")}`;
 };
 
 export default function ConfigInfo() {

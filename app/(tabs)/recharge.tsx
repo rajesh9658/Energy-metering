@@ -22,11 +22,14 @@ import {
   getRazorpayOrderUrl,
   getRazorpayVerifyUrl,
   getSiteDataUrl,
+  getRechargeFeeConfigUrl,
+  getRechargeFeeQuoteUrl,
 } from '../config'; // Assuming config is in same directory
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
 import { useNavigation } from 'expo-router';
+import { safeApiCall } from "../utils/apiHandler";
 const { width, height } = Dimensions.get('window');
 
 export default function RechargeScreen() {
@@ -42,6 +45,11 @@ export default function RechargeScreen() {
   const [siteData, setSiteData] = useState(null);
   const [siteLoading, setSiteLoading] = useState(true);
   const [siteError, setSiteError] = useState(null);
+
+  // 🔑 Dynamic Fee States
+  const [feeConfig, setFeeConfig] = useState(null);
+  const [feeQuote, setFeeQuote] = useState(null);
+  const [calculatingFee, setCalculatingFee] = useState(false);
   const [paymentStatus, setPaymentStatus] = useState({
     visible: false,
     type: 'success',
@@ -136,23 +144,106 @@ useEffect(() => {
   return unsubscribe;
 }, [navigation, siteInfo]);
 
+  // 🔑 Fetch Fee Config from API when siteInfo resolves
+  useEffect(() => {
+    if (!siteInfo?.siteId) return;
+
+    const fetchFeeConfig = async () => {
+      try {
+        const url = getRechargeFeeConfigUrl(siteInfo.siteId);
+        const headers = await getAuthHeaders();
+        const res = await fetch(url, { headers });
+        const data = await res.json();
+        if (res.ok) {
+          setFeeConfig(data);
+        }
+      } catch (err) {
+        console.log("Error loading fee config:", err);
+      }
+    };
+
+    fetchFeeConfig();
+  }, [siteInfo?.siteId]);
+
+  // 🔑 Fetch Live Fee Quote from API when Amount changes (300ms Debounce)
+  useEffect(() => {
+    const amountToPay = selectedAmount || parseFloat(customAmount) || 0;
+    if (amountToPay <= 0 || !siteInfo?.siteId) {
+      setFeeQuote(null);
+      return;
+    }
+
+    setCalculatingFee(true);
+    const timer = setTimeout(async () => {
+      try {
+        const url = getRechargeFeeQuoteUrl(amountToPay, siteInfo.siteId);
+        const headers = await getAuthHeaders();
+        const res = await fetch(url, { headers });
+        const data = await res.json();
+        if (res.ok) {
+          setFeeQuote(data);
+        }
+      } catch (err) {
+        console.log("Error calculating quote:", err);
+      } finally {
+        setCalculatingFee(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [selectedAmount, customAmount, siteInfo?.siteId]);
+
 const fetchSiteData = async () => {
   try {
     setSiteLoading(true);
     setSiteError(null);
 
-    const slugToUse = siteInfo.slug || siteInfo.siteName;
-    if (!slugToUse) return;
+    const slugToUse = siteInfo.slug || siteInfo.siteName || user?.slug || user?.site_name;
+    if (!slugToUse) {
+      const cached = await AsyncStorage.getItem("meterData");
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed?.asset_information) {
+          setSiteData(parsed.asset_information);
+          return;
+        }
+      }
+      setSiteError("No site information found");
+      return;
+    }
 
-    const response = await fetch(getSiteDataUrl(slugToUse));
-    const data = await response.json();
+    const res = await safeApiCall(`site_data_${slugToUse}`, async () => {
+      const response = await fetch(getSiteDataUrl(slugToUse));
+      return await response.json();
+    });
 
-    if (data.success) {
-      setSiteData(data.asset_information);
+    if (res.data && (res.data.success || res.data.status)) {
+      setSiteData(res.data.asset_information || res.data.data || res.data);
+      setSiteError(null);
     } else {
-      setSiteError("Failed to load site data");
+      const cached = await AsyncStorage.getItem("meterData");
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed?.asset_information) {
+          setSiteData(parsed.asset_information);
+          setSiteError(null);
+          return;
+        }
+      }
+      setSiteError(res.error || "Failed to load site data");
     }
   } catch (error) {
+    try {
+      const cached = await AsyncStorage.getItem("meterData");
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed?.asset_information) {
+          setSiteData(parsed.asset_information);
+          setSiteError(null);
+          return;
+        }
+      }
+    } catch (_) {}
     setSiteError("Network error");
   } finally {
     setSiteLoading(false);
@@ -236,10 +327,11 @@ const customerDetails = {
     { amount: 2000, color: '#fef2f2' },
     { amount: 5000, color: '#f0fdf4' },
   ];
-  const SERVICE_FEE = 10;
-  const PLATFORM_FEE = 1.8;
+  // 🔑 Dynamic Fee Amounts from Server Quote API
   const baseRechargeAmount = selectedAmount || parseFloat(customAmount) || 0;
-  const payableAmount = Number((baseRechargeAmount + SERVICE_FEE + PLATFORM_FEE).toFixed(2));
+  const SERVICE_FEE = feeQuote ? Number(feeQuote.service_fee) : 0;
+  const PLATFORM_FEE = feeQuote ? Number(feeQuote.gst_amount) : 0;
+  const payableAmount = feeQuote ? Number(feeQuote.gross_payable_amount) : baseRechargeAmount;
 
   const showPaymentStatus = (type, title, message, details = '') => {
     setPaymentStatus({
@@ -510,8 +602,9 @@ const customerDetails = {
     amountToPay = parseFloat(customAmount);
   }
 
-  if (!amountToPay || amountToPay < 1) {
-    showPaymentStatus('warning', 'Invalid Amount ⚠️', 'Please select or enter minimum ₹1. 😊');
+  const minAmount = feeConfig?.min_recharge_amount || 1;
+  if (!amountToPay || amountToPay < minAmount) {
+    showPaymentStatus('warning', 'Invalid Amount ⚠️', `Please select or enter minimum ₹${minAmount}. 😊`);
     return;
   }
 
@@ -527,11 +620,11 @@ const customerDetails = {
   let razorpayResult = null;
 
   try {
-    totalAmount = Number((amountToPay + SERVICE_FEE + PLATFORM_FEE).toFixed(2));
+    totalAmount = feeQuote ? Number(feeQuote.gross_payable_amount) : Number((amountToPay + SERVICE_FEE + PLATFORM_FEE).toFixed(2));
     idempotencyKey = buildIdempotencyKey();
     const orderRequestBodies = [
       {
-        amount: totalAmount,
+        amount: amountToPay,
         display_amount: totalAmount,
         recharge_amount: amountToPay,
         service_fee: SERVICE_FEE,
@@ -601,7 +694,7 @@ const customerDetails = {
       description: `Meter Recharge - ${customerDetails.accountId}`,
       currency: 'INR',
       key: orderData.razorpay_key,
-      amount: orderData.amount || totalAmount,
+      amount: orderData.amount || Math.round(totalAmount * 100),
       order_id: orderData.order_id,
       name: merchantName,
       image: merchantLogo,
@@ -1002,6 +1095,9 @@ const customerDetails = {
               <View style={styles.summaryHeader}>
                 <Icon name="receipt" size={20} color="#4f46e5" />
                 <Text style={[styles.summaryTitle, { color: theme.text }]}>Payment Summary</Text>
+                {calculatingFee && (
+                  <ActivityIndicator size="small" color="#4f46e5" style={{ marginLeft: 8 }} />
+                )}
               </View>
               <View style={styles.summaryRow}>
                 <Text style={[styles.summaryLabel, { color: theme.mutedText }]}>Recharge Amount</Text>
@@ -1012,17 +1108,21 @@ const customerDetails = {
                   <Text style={[styles.summaryLabel, { color: theme.mutedText }]}>Service Fee</Text>
                   <Icon name="info-outline" size={16} color="#94a3b8" />
                 </View>
-                <Text style={[styles.summaryValue, { color: theme.text }]}>₹ {SERVICE_FEE.toFixed(2)}</Text>
+                <Text style={[styles.summaryValue, { color: theme.text }]}>
+                  {calculatingFee ? '...' : `₹ ${SERVICE_FEE.toFixed(2)}`}
+                </Text>
               </View>
               <View style={styles.summaryRow}>
-                <Text style={[styles.summaryLabel, { color: theme.mutedText }]}>Platform Fees</Text>
-                <Text style={[styles.summaryValue, { color: theme.text }]}>₹ {PLATFORM_FEE.toFixed(2)}</Text>
+                <Text style={[styles.summaryLabel, { color: theme.mutedText }]}>Platform Fees (GST)</Text>
+                <Text style={[styles.summaryValue, { color: theme.text }]}>
+                  {calculatingFee ? '...' : `₹ ${PLATFORM_FEE.toFixed(2)}`}
+                </Text>
               </View>
               <View style={[styles.divider, { backgroundColor: theme.border }]} />
               <View style={[styles.summaryRow, styles.totalSummaryRow]}>
                 <Text style={[styles.totalLabel, { color: theme.text }]}>Total Payable</Text>
                 <Text style={styles.totalValue}>
-                  ₹ {payableAmount.toFixed(2)}
+                  {calculatingFee ? 'Calculating...' : `₹ ${payableAmount.toFixed(2)}`}
                 </Text>
               </View>
             </Animatable.View>
@@ -1038,22 +1138,27 @@ const customerDetails = {
             <TouchableOpacity
               style={[
                 styles.payButton,
-                ((!selectedAmount && !customAmount) || (parseFloat(customAmount) > 100000)) && styles.disabledButton,
+                ((!selectedAmount && !customAmount) || (parseFloat(customAmount) > 100000) || calculatingFee) && styles.disabledButton,
                 loading && styles.loadingButton,
               ]}
-              disabled={(!selectedAmount && !customAmount) || (parseFloat(customAmount) > 100000) || loading}
+              disabled={(!selectedAmount && !customAmount) || (parseFloat(customAmount) > 100000) || loading || calculatingFee}
               onPress={handlePayment}
               activeOpacity={0.9}
             >
               <View style={[
                 styles.payButtonContainerInner,
-                ((!selectedAmount && !customAmount) || (parseFloat(customAmount) > 100000) || loading) && 
+                ((!selectedAmount && !customAmount) || (parseFloat(customAmount) > 100000) || loading || calculatingFee) && 
                 styles.disabledButtonInner
               ]}>
                 {loading ? (
                   <View style={styles.buttonLoadingContainer}>
-                    <View style={styles.loadingSpinner} />
+                    <ActivityIndicator size="small" color="#fff" />
                     <Text style={styles.payButtonText}>Processing...</Text>
+                  </View>
+                ) : calculatingFee ? (
+                  <View style={styles.buttonLoadingContainer}>
+                    <ActivityIndicator size="small" color="#fff" />
+                    <Text style={styles.payButtonText}>Calculating Fees...</Text>
                   </View>
                 ) : (
                   <>
@@ -1061,11 +1166,6 @@ const customerDetails = {
                     <Text style={styles.payButtonText}>
                       {selectedAmount || customAmount
                         ? `Pay ₹${payableAmount.toFixed(2)}`
-                        : 'Select Amount to Continue'}
-                    </Text>
-                    <Text style={[styles.payButtonText, styles.hiddenPayButtonText]}>
-                      {selectedAmount || customAmount 
-                        ? `Pay ₹${selectedAmount || customAmount}` 
                         : 'Select Amount to Continue'}
                     </Text>
                     <Icon name="arrow-forward" size={20} color="#fff" />
