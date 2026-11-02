@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Modal,
   View,
@@ -14,60 +14,97 @@ import Constants from 'expo-constants';
 import * as Animatable from 'react-native-animatable';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
-import { getApiUrl } from '../config';
+import { getAppVersionUrl } from '../config';
 
 const APP_PACKAGE_NAME = 'com.mr_sanjay_gupta.Energy_metring';
-const CURRENT_APP_VERSION =
+export const CURRENT_APP_VERSION =
   Constants.expoConfig?.version || Constants.nativeAppVersion || '1.0.0';
 
-export interface UpdateInfo {
-  hasUpdate: boolean;
+export interface AppVersionResponse {
+  latest_version: string;
+  min_version: string;
+  force_update: boolean;
+  release_notes: string;
+  store_url: string;
+  build_number?: number;
+  platform?: 'android' | 'ios';
+  channel?: 'apk' | 'play_store' | 'app_store';
+  published_at?: string | null;
+}
+
+export interface UpdateModalState {
+  visible: boolean;
   latestVersion: string;
   currentVersion: string;
   forceUpdate: boolean;
-  releaseNotes?: string;
-  storeUrl?: string;
+  releaseNotes: string;
+  storeUrl: string;
+  channel: 'apk' | 'play_store' | 'app_store';
 }
 
 /**
- * Compare two semver strings (e.g. "1.0.1" > "1.0.0")
+ * Compare two semver strings (e.g. "1.0.2" vs "1.0.1")
+ * Returns:
+ *   -1 if v1 < v2
+ *    0 if v1 == v2
+ *    1 if v1 > v2
  */
-function isNewerVersion(remoteVer: string, currentVer: string): boolean {
-  if (!remoteVer || !currentVer) return false;
+export function compareVersions(v1: string, v2: string): number {
+  if (!v1 && !v2) return 0;
+  if (!v1) return -1;
+  if (!v2) return 1;
 
   const clean = (v: string) =>
     v.replace(/[^0-9.]/g, '').split('.').map((n) => parseInt(n, 10) || 0);
 
-  const remoteParts = clean(remoteVer);
-  const currentParts = clean(currentVer);
+  const a = clean(v1);
+  const b = clean(v2);
+  const len = Math.max(a.length, b.length);
 
-  const length = Math.max(remoteParts.length, currentParts.length);
-  for (let i = 0; i < length; i++) {
-    const r = remoteParts[i] || 0;
-    const c = currentParts[i] || 0;
-    if (r > c) return true;
-    if (r < c) return false;
+  for (let i = 0; i < len; i++) {
+    const valA = a[i] || 0;
+    const valB = b[i] || 0;
+    if (valA > valB) return 1;
+    if (valA < valB) return -1;
   }
-  return false;
+  return 0;
 }
+
+// Minimum interval between automatic foreground checks (1 minute) to respect rate limits
+const CHECK_THROTTLE_MS = 60 * 1000;
 
 export function AppUpdateModal() {
   const { theme, isDarkMode } = useTheme();
-  const [modalVisible, setModalVisible] = useState(false);
-  const [updateInfo, setUpdateInfo] = useState<UpdateInfo>({
-    hasUpdate: false,
+  const lastCheckTimestamp = useRef<number>(0);
+
+  const [updateState, setUpdateState] = useState<UpdateModalState>({
+    visible: false,
     latestVersion: CURRENT_APP_VERSION,
     currentVersion: CURRENT_APP_VERSION,
     forceUpdate: false,
+    releaseNotes: '',
+    storeUrl: '',
+    channel: 'apk',
   });
 
-  const checkForUpdate = useCallback(async () => {
-    try {
-      // 1. Try fetching version info from backend
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 4000);
+  const checkForUpdate = useCallback(async (forcedManual = false) => {
+    const now = Date.now();
+    if (!forcedManual && now - lastCheckTimestamp.current < CHECK_THROTTLE_MS) {
+      return;
+    }
+    lastCheckTimestamp.current = now;
 
-      const endpoint = getApiUrl('/api/app-version');
+    try {
+      const platform = Platform.OS === 'ios' ? 'ios' : 'android';
+      const defaultChannel = platform === 'ios' ? 'app_store' : 'apk';
+      const channel =
+        (process.env.EXPO_PUBLIC_APP_CHANNEL as 'apk' | 'play_store' | 'app_store') ||
+        defaultChannel;
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+      const endpoint = getAppVersionUrl(platform, channel);
       const response = await fetch(endpoint, {
         signal: controller.signal,
         headers: { Accept: 'application/json' },
@@ -75,39 +112,43 @@ export function AppUpdateModal() {
 
       clearTimeout(timeoutId);
 
-      if (response && response.ok) {
-        const data = await response.json().catch(() => null);
-        if (data && (data.version || data.latest_version)) {
-          const remoteVersion = data.version || data.latest_version;
-          const isForce = Boolean(
-            data.force_update ||
-            (data.min_version && isNewerVersion(data.min_version, CURRENT_APP_VERSION))
-          );
+      if (!response || !response.ok) return;
 
-          if (isNewerVersion(remoteVersion, CURRENT_APP_VERSION)) {
-            setUpdateInfo({
-              hasUpdate: true,
-              latestVersion: remoteVersion,
-              currentVersion: CURRENT_APP_VERSION,
-              forceUpdate: isForce,
-              releaseNotes: data.release_notes || data.message,
-              storeUrl: data.store_url || data.play_store_url,
-            });
-            setModalVisible(true);
-            return;
-          }
-        }
+      const data: AppVersionResponse = await response.json().catch(() => null);
+      if (!data) return;
+
+      // Neutral response (no release active) or empty download URL
+      if (!data.latest_version || data.latest_version === '0.0.0' || !data.store_url) {
+        return;
       }
-    } catch {
-      // Silently ignore network failures on check to never block normal app usage
+
+      const currentVer = CURRENT_APP_VERSION;
+      const isBelowMin = compareVersions(currentVer, data.min_version || '0.0.0') < 0;
+      const isBelowLatest = compareVersions(currentVer, data.latest_version) < 0;
+      const mustForceUpdate = isBelowMin || (isBelowLatest && Boolean(data.force_update));
+
+      if (mustForceUpdate || isBelowLatest) {
+        setUpdateState({
+          visible: true,
+          latestVersion: data.latest_version,
+          currentVersion: currentVer,
+          forceUpdate: mustForceUpdate,
+          releaseNotes: data.release_notes || '',
+          storeUrl: data.store_url,
+          channel: (data.channel as any) || channel,
+        });
+      }
+    } catch (error) {
+      // Network/API errors must never block normal app usage
+      console.warn('App version check skipped:', error);
     }
   }, []);
 
   useEffect(() => {
-    // Check when app starts
-    checkForUpdate();
+    // Initial check on app startup
+    checkForUpdate(true);
 
-    // Check when app returns from background
+    // Re-check when app returns from background
     const subscription = AppState.addEventListener('change', (nextAppState: AppStateStatus) => {
       if (nextAppState === 'active') {
         checkForUpdate();
@@ -120,56 +161,80 @@ export function AppUpdateModal() {
   }, [checkForUpdate]);
 
   const handleUpdatePress = async () => {
+    const { storeUrl, channel } = updateState;
+    if (!storeUrl) return;
+
     if (Platform.OS === 'ios') {
-      const iosStoreUrl =
-        updateInfo.storeUrl ||
-        `itms-apps://apps.apple.com/app/id/${Constants.expoConfig?.ios?.bundleIdentifier || 'energymetring'}`;
       try {
-        const canOpen = await Linking.canOpenURL(iosStoreUrl);
+        const canOpen = await Linking.canOpenURL(storeUrl);
         if (canOpen) {
-          await Linking.openURL(iosStoreUrl);
+          await Linking.openURL(storeUrl);
           return;
         }
       } catch {
         // Fallback
       }
-      if (updateInfo.storeUrl) {
-        await Linking.openURL(updateInfo.storeUrl).catch(() => {});
+      await Linking.openURL(storeUrl).catch(() => {});
+      return;
+    }
+
+    // Android APK direct download
+    if (channel === 'apk' || storeUrl.toLowerCase().endsWith('.apk')) {
+      try {
+        await Linking.openURL(storeUrl);
+      } catch (err) {
+        console.warn('Failed to open APK URL:', err);
       }
       return;
     }
 
+    // Android Play Store
     const playStoreMarketUrl = `market://details?id=${APP_PACKAGE_NAME}`;
-    const playStoreWebUrl =
-      updateInfo.storeUrl ||
-      `https://play.google.com/store/apps/details?id=${APP_PACKAGE_NAME}&hl=en_IN`;
-
     try {
-      if (Platform.OS === 'android') {
-        const canOpenMarket = await Linking.canOpenURL(playStoreMarketUrl);
-        if (canOpenMarket) {
-          await Linking.openURL(playStoreMarketUrl);
-          return;
-        }
+      const canOpenMarket = await Linking.canOpenURL(playStoreMarketUrl);
+      if (canOpenMarket) {
+        await Linking.openURL(playStoreMarketUrl);
+        return;
       }
-      await Linking.openURL(playStoreWebUrl);
+      await Linking.openURL(storeUrl);
     } catch {
-      // Fallback to web link
-      await Linking.openURL(playStoreWebUrl).catch(() => {});
+      await Linking.openURL(storeUrl).catch(() => {});
     }
   };
 
   const handleDismiss = () => {
-    if (!updateInfo.forceUpdate) {
-      setModalVisible(false);
+    if (!updateState.forceUpdate) {
+      setUpdateState((prev) => ({ ...prev, visible: false }));
     }
   };
 
-  if (!modalVisible) return null;
+  if (!updateState.visible) return null;
+
+  // Determine button title & icon based on platform and channel
+  const getButtonConfig = () => {
+    if (Platform.OS === 'ios') {
+      return {
+        icon: 'apple' as const,
+        label: 'Update from App Store',
+      };
+    }
+    if (updateState.channel === 'apk' || updateState.storeUrl.toLowerCase().endsWith('.apk')) {
+      return {
+        icon: 'download' as const,
+        label: 'Download APK Update',
+      };
+    }
+    return {
+      icon: 'google-play' as const,
+      label: 'Update from Play Store',
+    };
+  };
+
+  const buttonConfig = getButtonConfig();
 
   return (
     <Modal
-      visible={modalVisible}
+      visible={updateState.visible}
       transparent
       animationType="fade"
       statusBarTranslucent
@@ -189,55 +254,88 @@ export function AppUpdateModal() {
         >
           {/* Top Decorative Icon */}
           <View style={styles.iconContainer}>
-            <View style={styles.iconCircleOuter}>
-              <View style={styles.iconCircleInner}>
-                <MaterialCommunityIcons name="rocket-launch" size={36} color="#FFFFFF" />
+            <View
+              style={[
+                styles.iconCircleOuter,
+                updateState.forceUpdate && styles.iconCircleOuterForced,
+              ]}
+            >
+              <View
+                style={[
+                  styles.iconCircleInner,
+                  updateState.forceUpdate && styles.iconCircleInnerForced,
+                ]}
+              >
+                <MaterialCommunityIcons
+                  name={updateState.forceUpdate ? 'shield-alert' : 'rocket-launch'}
+                  size={36}
+                  color="#FFFFFF"
+                />
               </View>
             </View>
           </View>
 
           {/* Title */}
           <Text style={[styles.title, { color: theme.text || '#0F172A' }]}>
-            Update Available! 🎉
+            {updateState.forceUpdate ? 'Mandatory Update Required' : 'Update Available! 🎉'}
           </Text>
 
           {/* Version badge */}
           <View style={styles.badgeRow}>
-            <View style={styles.versionBadge}>
-              <Text style={styles.versionBadgeText}>
-                v{updateInfo.latestVersion} Available
+            <View
+              style={[
+                styles.versionBadge,
+                updateState.forceUpdate && styles.versionBadgeForced,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.versionBadgeText,
+                  updateState.forceUpdate && styles.versionBadgeTextForced,
+                ]}
+              >
+                v{updateState.latestVersion} Available
               </Text>
             </View>
-            <Text style={[styles.currentVersionText, { color: theme.mutedText || '#64748B' }]}>
-              (Current: v{updateInfo.currentVersion})
+            <Text
+              style={[
+                styles.currentVersionText,
+                { color: theme.mutedText || '#64748B' },
+              ]}
+            >
+              (Current: v{updateState.currentVersion})
             </Text>
           </View>
 
-          {/* Description */}
+          {/* Release Notes / Description */}
           <Text style={[styles.description, { color: theme.mutedText || '#475569' }]}>
-            {updateInfo.releaseNotes ||
-              'A new and improved version of the Energy Metering app is ready on Google Play Store. Please update now to get the latest features, enhancements, and bug fixes.'}
+            {updateState.releaseNotes ||
+              (updateState.forceUpdate
+                ? 'A critical update is required to continue using the application. Please update now.'
+                : 'A new version of the Energy Metering app is available with improvements and bug fixes.')}
           </Text>
 
           {/* Action Buttons */}
           <View style={styles.buttonContainer}>
             <TouchableOpacity
-              style={styles.updateButton}
+              style={[
+                styles.updateButton,
+                updateState.forceUpdate && styles.updateButtonForced,
+              ]}
               activeOpacity={0.85}
               onPress={handleUpdatePress}
             >
               <MaterialCommunityIcons
-                name={Platform.OS === 'ios' ? 'apple' : 'google-play'}
+                name={buttonConfig.icon}
                 size={22}
                 color="#FFFFFF"
                 style={{ marginRight: 8 }}
               />
-              <Text style={styles.updateButtonText}>
-                {Platform.OS === 'ios' ? 'Update from App Store' : 'Update from Play Store'}
-              </Text>
+              <Text style={styles.updateButtonText}>{buttonConfig.label}</Text>
             </TouchableOpacity>
 
-            {!updateInfo.forceUpdate && (
+            {/* Later button is only rendered if update is optional */}
+            {!updateState.forceUpdate && (
               <TouchableOpacity
                 style={[
                   styles.laterButton,
@@ -261,7 +359,7 @@ export function AppUpdateModal() {
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    backgroundColor: 'rgba(0, 0, 0, 0.70)',
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 24,
@@ -292,6 +390,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  iconCircleOuterForced: {
+    backgroundColor: 'rgba(239, 68, 68, 0.15)',
+  },
   iconCircleInner: {
     width: 60,
     height: 60,
@@ -305,8 +406,12 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.4,
     shadowRadius: 8,
   },
+  iconCircleInnerForced: {
+    backgroundColor: '#EF4444',
+    shadowColor: '#EF4444',
+  },
   title: {
-    fontSize: 22,
+    fontSize: 21,
     fontWeight: '800',
     textAlign: 'center',
     letterSpacing: -0.3,
@@ -326,10 +431,17 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#C7D2FE',
   },
+  versionBadgeForced: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FECACA',
+  },
   versionBadgeText: {
     fontSize: 12,
     fontWeight: '700',
     color: '#4338CA',
+  },
+  versionBadgeTextForced: {
+    color: '#DC2626',
   },
   currentVersionText: {
     fontSize: 12,
@@ -358,6 +470,10 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 6,
+  },
+  updateButtonForced: {
+    backgroundColor: '#DC2626',
+    shadowColor: '#DC2626',
   },
   updateButtonText: {
     color: '#FFFFFF',

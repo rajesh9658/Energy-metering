@@ -1,7 +1,7 @@
 // src/config/index.ts
 
-const DEFAULT_API_BASE_URL = "https://em.sochiot.com";
-// const DEFAULT_API_BASE_URL = "http://192.168.68.124:8000";
+// const DEFAULT_API_BASE_URL = "https://em.sochiot.com";
+const DEFAULT_API_BASE_URL = "http://10.138.220.37:8000";
 
 export const API_CONFIG = {
   BASE_URL: process.env.EXPO_PUBLIC_API_BASE_URL || DEFAULT_API_BASE_URL,    
@@ -22,11 +22,22 @@ export const API_CONFIG = {
     // Recharge Fee Settings Endpoints
     RECHARGE_FEE_CONFIG: "/api/v1/recharge/fee-config",
     RECHARGE_FEE_QUOTE: "/api/v1/recharge/fee-quote",
+
+    // App Version Check
+    APP_VERSION: "/api/app-version",
   },
 };
 
 export const getApiUrl = (endpoint: string) => {
   return API_CONFIG.BASE_URL + endpoint;
+};
+
+export const getAppVersionUrl = (platform?: string, channel?: string) => {
+  const baseUrl = API_CONFIG.BASE_URL + API_CONFIG.ENDPOINTS.APP_VERSION;
+  const params: string[] = [];
+  if (platform) params.push(`platform=${encodeURIComponent(platform)}`);
+  if (channel) params.push(`channel=${encodeURIComponent(channel)}`);
+  return params.length > 0 ? `${baseUrl}?${params.join("&")}` : baseUrl;
 };
 
 export const getWalletTransactionsUrl = (siteId: string | number, type?: string, fromDate?: string) => {
