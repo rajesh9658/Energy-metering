@@ -1,5 +1,5 @@
 import React from "react";
-import HistoryListScreen, { HistoryMode } from "./components/HistoryListScreen";
+import HistoryListScreen, { HistoryMode } from "../src/components/HistoryListScreen";
 
 const historyModes: HistoryMode[] = [
   {
@@ -40,6 +40,8 @@ const historyModes: HistoryMode[] = [
   },
 ];
 
-export default function HistoryScreen() {
-  return <HistoryListScreen modes={historyModes} initialModeKey="transaction" />;
+export { historyModes };
+
+export default function HistoryScreen({ initialModeKey = "transaction" }: { initialModeKey?: string }) {
+  return <HistoryListScreen modes={historyModes} initialModeKey={initialModeKey} />;
 }

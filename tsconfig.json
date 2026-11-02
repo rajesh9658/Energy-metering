@@ -5,8 +5,17 @@
     "allowJs": true,
     "checkJs": false,
     "jsx": "react-native",
+    "baseUrl": ".",
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./src/*", "./*"],
+      "@components/*": ["./src/components/*"],
+      "@context/*": ["./src/context/*"],
+      "@utils/*": ["./src/utils/*"],
+      "@config": ["./src/config/index.ts"],
+      "@config/*": ["./src/config/*"],
+      "@theme": ["./src/theme/theme.ts"],
+      "@theme/*": ["./src/theme/*"],
+      "@hooks/*": ["./src/hooks/*"]
     }
   },
   "include": [

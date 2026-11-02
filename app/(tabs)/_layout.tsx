@@ -7,18 +7,10 @@ import {
   Animated,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useAuth } from "../context/AuthContext";
+import { useAuth } from "../../src/context/AuthContext";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useTheme } from "../context/ThemeContext";
-import Header from "../components/Header";
-
-const NOTIFICATION_PREFS_KEY = "notificationPreferences";
-const defaultNotificationPrefs = {
-  enabled: true,
-  lowBalance: true,
-  supply: true,
-  overload: true,
-};
+import { useTheme } from "../../src/context/ThemeContext";
+import Header from "../../src/components/Header";
 
 export default function TabLayout() {
   const { user, loading } = useAuth();
@@ -54,7 +46,7 @@ export default function TabLayout() {
   }
 
   if (!user) {
-    return <Redirect href="/login" />;
+    return <Redirect href="/(auth)/login" />;
   }
 
   return (

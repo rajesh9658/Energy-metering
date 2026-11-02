@@ -13,26 +13,31 @@ import RNFS from 'react-native-fs';
 import FileViewer from 'react-native-file-viewer';
 import * as Notifications from 'expo-notifications';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useAuth } from '../context/AuthContext';
-import { useTheme } from '../context/ThemeContext';
-import { useEnergyUnit } from '../context/EnergyUnitContext';
+import { useAuth } from '../../src/context/AuthContext';
+import { useTheme } from '../../src/context/ThemeContext';
+import { useEnergyUnit } from '../../src/context/EnergyUnitContext';
 import axios from 'axios';
-import { getMeterDailyConsumptionUrl, getMeterMonthlyConsumptionUrl, getYearlyConsumptionUrl, getMeterMonthlyReportUrl } from '../config';
+import { API_CONFIG, getMeterDailyConsumptionUrl, getMeterMonthlyConsumptionUrl, getYearlyConsumptionUrl, getMeterMonthlyReportUrl, getWalletTransactionsUrl } from '../../src/config';
+import { generateDailyPdfHtml, generateMonthlyPdfHtml, generateMonthlyBillPdfHtml } from '../../src/utils/reportPdfTemplates';
 
 const { width } = Dimensions.get('window');
-const { ReportDownload } = NativeModules;
 
 export default function EnergyReport() {
-  const { getSiteId } = useAuth();
+  const { user, getSiteId } = useAuth();
   const { theme, isDarkMode } = useTheme();
   const { energyUnitMode, showsKwh, showsKvah } = useEnergyUnit();
+  const [unitRate, setUnitRate] = useState<number>(Number(user?.unit_rate) || 6.8);
   
   const [timeView, setTimeView] = useState('daily');
   const [showFilter, setShowFilter] = useState(false);
   const [showReportTypeModal, setShowReportTypeModal] = useState(false);
+  const [downloadReportType, setDownloadReportType] = useState<'daily' | 'monthly'>('daily');
+  const [downloadUnit, setDownloadUnit] = useState<'kwh' | 'kvah'>('kwh');
   const currentDate = new Date();
   const [selectedYear, setSelectedYear] = useState(currentDate.getFullYear().toString());
   const [selectedMonth, setSelectedMonth] = useState(currentDate.toLocaleString('default', { month: 'long' }));
+  const [downloadMonth, setDownloadMonth] = useState<number>(currentDate.getMonth() + 1);
+  const [downloadYear, setDownloadYear] = useState<string>(currentDate.getFullYear().toString());
   const [loading, setLoading] = useState(true);
   const [hoveredIndex, setHoveredIndex] = useState(null);
   const [showAllValues, setShowAllValues] = useState(true);
@@ -77,9 +82,25 @@ export default function EnergyReport() {
     "January", "February", "March", "April", "May", "June",
     "July", "August", "September", "October", "November", "December"
   ];
+
+  const shortMonths = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+  ];
   
-  const currentYear = new Date().getFullYear();
-  const years = Array.from({ length: 5 }, (_, i) => (currentYear - i).toString());
+  const currentRealDate = new Date();
+  const currentRealYear = currentRealDate.getFullYear();
+  const currentRealMonth = currentRealDate.getMonth() + 1; // 1 to 12
+  const currentYear = currentRealYear;
+  const years = Array.from({ length: 5 }, (_, i) => (currentRealYear - i).toString());
+  const dynamicYears = years;
+
+  const handleSelectDownloadYear = (yr: string) => {
+    setDownloadYear(yr);
+    if (Number(yr) === currentRealYear && downloadMonth >= currentRealMonth) {
+      setDownloadMonth(Math.max(1, currentRealMonth - 1));
+    }
+  };
 
   // Initial data fetch
   useEffect(() => {
@@ -99,12 +120,12 @@ export default function EnergyReport() {
     const currentLength = timeView === 'daily' ? dailyData.length : monthlyData.length;
     if (!currentLength) return;
 
-    const defaultIndex = currentLength - 1;
+    const defaultIndex = 0;
     setHoveredIndex(defaultIndex);
 
     const timer = setTimeout(() => {
-      graphScrollRef.current?.scrollToEnd?.({ animated: true });
-    }, 120);
+      graphScrollRef.current?.scrollTo?.({ x: 0, animated: false });
+    }, 50);
 
     return () => clearTimeout(timer);
   }, [energyUnitMode, timeView, dailyData.length, monthlyData.length]);
@@ -130,13 +151,27 @@ export default function EnergyReport() {
     const monthIndex = months.indexOf(selectedMonth) + 1;
     const monthParam = `${selectedYear}-${monthIndex.toString().padStart(2, '0')}`;
 
+    const token = user?.token || user?.auth_token || user?.access_token || user?.bearer_token;
+    const requestHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) {
+      requestHeaders.Authorization = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
+    }
+
     try {
       const [consumptionResponse, reportResponse] = await Promise.allSettled([
-        axios.get(getMeterDailyConsumptionUrl(siteId, monthParam)),
+        axios.get(getMeterDailyConsumptionUrl(siteId, monthParam), { headers: requestHeaders }),
         axios.get(getMeterMonthlyReportUrl(siteId, monthParam), {
-          headers: { 'Content-Type': 'application/json' }
+          headers: requestHeaders
         }),
       ]);
+
+      const foundRate =
+        (consumptionResponse.status === 'fulfilled' ? consumptionResponse.value.data?.unit_rate || consumptionResponse.value.data?.rate_per_kwh : null) ||
+        (reportResponse.status === 'fulfilled' ? reportResponse.value.data?.unit_rate || reportResponse.value.data?.rate_per_kwh : null) ||
+        user?.unit_rate;
+      if (foundRate && !isNaN(Number(foundRate)) && Number(foundRate) > 0) {
+        setUnitRate(Number(foundRate));
+      }
 
       const normalizedConsumptionData =
         consumptionResponse.status === 'fulfilled'
@@ -166,8 +201,53 @@ export default function EnergyReport() {
             }))
           : normalizedReportData;
 
-      setDailyData(mergedDailyData);
-      calculateStats(mergedDailyData, 'daily');
+      // Ensure data starts from Day 1 of the selected month
+      const dayRecordMap = new Map();
+      mergedDailyData.forEach((item) => {
+        const d = String(parseInt(String(item.day), 10));
+        if (d && d !== 'NaN') {
+          dayRecordMap.set(d, item);
+        }
+      });
+
+      const yearNum = Number(selectedYear) || currentRealYear;
+      const daysInMonth = new Date(yearNum, monthIndex, 0).getDate();
+      const isCurrentMonth = yearNum === currentRealYear && monthIndex === currentRealMonth;
+
+      let maxDayInResponse = 0;
+      dayRecordMap.forEach((_, key) => {
+        const n = parseInt(key, 10);
+        if (n > maxDayInResponse) maxDayInResponse = n;
+      });
+
+      const targetEndDay = isCurrentMonth
+        ? Math.max(maxDayInResponse, currentRealDate.getDate())
+        : (maxDayInResponse > 0 ? Math.max(maxDayInResponse, daysInMonth) : daysInMonth);
+
+      const completeDailyData = [];
+      for (let day = 1; day <= targetEndDay; day++) {
+        const key = String(day);
+        if (dayRecordMap.has(key)) {
+          completeDailyData.push({
+            ...dayRecordMap.get(key),
+            day: String(day),
+          });
+        } else {
+          completeDailyData.push({
+            day: String(day),
+            date: `${selectedYear}-${String(monthIndex).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
+            daily_units: 0,
+            daily_kvah: 0,
+            daily_kvah_delta: 0,
+            daily_amount: 0,
+            energy_used: 0,
+            energy_amount: 0,
+          });
+        }
+      }
+
+      setDailyData(completeDailyData);
+      calculateStats(completeDailyData, 'daily');
       setHoveredIndex(null);
     } catch (error) {
       console.error('Error fetching daily data:', error);
@@ -177,13 +257,19 @@ export default function EnergyReport() {
     }
   };
 
-  const fetchYearlyMonthlyData = async (siteId, year) => {
+  const fetchYearlyMonthlyData = async (siteId: any, year: any) => {
+    const token = user?.token || user?.auth_token || user?.access_token || user?.bearer_token;
+    const requestHeaders: Record<string, string> = { "Content-Type": "application/json" };
+    if (token) {
+      requestHeaders.Authorization = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
+    }
+
     try {
       const response = await axios.get(
         getYearlyConsumptionUrl(siteId),
         {
           params: { year },
-          headers: { "Content-Type": "application/json" },
+          headers: requestHeaders,
         }
       );
 
@@ -219,7 +305,7 @@ export default function EnergyReport() {
   };
 
   const calculateAmount = (kwh) => {
-    const ratePerKwh = 6.8;
+    const ratePerKwh = unitRate || Number(user?.unit_rate) || 6.8;
     return (kwh * ratePerKwh).toFixed(2);
   };
 
@@ -610,8 +696,13 @@ export default function EnergyReport() {
     }
   };
 
-  // Daily Consumption Report
-  const exportDailyPDF = async () => {
+  // Unified PDF Export (Daily or Monthly, kWh or kVAh) using existing blue template
+  const exportReportPDF = async (
+    reportType: 'daily' | 'monthly' = downloadReportType,
+    unit: 'kwh' | 'kvah' = downloadUnit,
+    targetMonthNum: number = downloadMonth,
+    targetYear: string = downloadYear
+  ) => {
     try {
       const siteId = getSiteId();
       if (!siteId) {
@@ -621,196 +712,204 @@ export default function EnergyReport() {
 
       setIsGeneratingReport(true);
 
-      const monthIndex = months.indexOf(selectedMonth) + 1;
-      const monthParam = `${selectedYear}-${monthIndex.toString().padStart(2, '0')}`;
+      const isDaily = reportType === 'daily';
+      const monthIndex = isDaily ? months.indexOf(selectedMonth) + 1 : targetMonthNum;
+      const effectiveYear = isDaily ? selectedYear : targetYear;
+      const monthParam = `${effectiveYear}-${monthIndex.toString().padStart(2, '0')}`;
 
-      // Fetch daily consumption and monthly report data
+      const token = user?.token || user?.auth_token || user?.access_token || user?.bearer_token;
+      const pdfHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) {
+        pdfHeaders.Authorization = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
+      }
+
+      // 1. If Monthly report selected, first attempt to download the exact PDF generated on the Web server
+      if (reportType === 'monthly') {
+        try {
+          const serverBillUrl = `${API_CONFIG.BASE_URL}/bill/download?month=${monthIndex}&year=${effectiveYear}&format=pdf&siteId=${siteId}`;
+          const tempDownloadPath = `${FileSystem.cacheDirectory}monthly_bill_${siteId}_${effectiveYear}_${monthIndex}_${Date.now()}.pdf`;
+
+          const downloadHeaders: Record<string, string> = {
+            'X-Requested-With': 'XMLHttpRequest',
+            Accept: 'application/pdf, application/json, */*',
+          };
+          if (token) {
+            downloadHeaders.Authorization = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
+          }
+
+          const dlRes = await FileSystem.downloadAsync(serverBillUrl, tempDownloadPath, {
+            headers: downloadHeaders,
+          });
+
+          if (dlRes.status === 200) {
+            const fileInfo = await FileSystem.getInfoAsync(tempDownloadPath);
+            if (fileInfo.exists && (fileInfo as any).size > 1000) {
+              const fileName = `monthly-bill-${effectiveYear}-${monthIndex.toString().padStart(2, '0')}-${siteId}.pdf`;
+              await savePdfToDevice(tempDownloadPath, fileName);
+              setShowReportTypeModal(false);
+              return;
+            }
+          }
+        } catch (serverDlErr) {
+          console.warn('Web server /bill/download attempt failed, trying fallback:', serverDlErr);
+        }
+
+        // Secondary server endpoint: /meter-report/monthly-pdf/{siteId}?month=YYYY-MM
+        try {
+          const serverReportUrl = `${API_CONFIG.BASE_URL}/meter-report/monthly-pdf/${siteId}?month=${monthParam}`;
+          const tempReportPath = `${FileSystem.cacheDirectory}monthly_report_${siteId}_${monthParam}_${Date.now()}.pdf`;
+          const downloadHeaders: Record<string, string> = {
+            'X-Requested-With': 'XMLHttpRequest',
+            Accept: 'application/pdf, application/json, */*',
+          };
+          if (token) {
+            downloadHeaders.Authorization = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
+          }
+
+          const reportDlRes = await FileSystem.downloadAsync(serverReportUrl, tempReportPath, {
+            headers: downloadHeaders,
+          });
+
+          if (reportDlRes.status === 200) {
+            const fileInfo = await FileSystem.getInfoAsync(tempReportPath);
+            if (fileInfo.exists && (fileInfo as any).size > 1000) {
+              const fileName = `monthly-meter-report-${monthParam}-${siteId}.pdf`;
+              await savePdfToDevice(tempReportPath, fileName);
+              setShowReportTypeModal(false);
+              return;
+            }
+          }
+        } catch (serverReportErr) {
+          console.warn('Web server /meter-report/monthly-pdf attempt failed:', serverReportErr);
+        }
+      }
+
+      // Fetch both monthly report data and daily consumption to ensure all metrics exist
       const [consumptionResponse, reportResponse] = await Promise.allSettled([
-        axios.get(getMeterDailyConsumptionUrl(siteId, monthParam)),
-        axios.get(getMeterMonthlyReportUrl(siteId, monthParam), {
-          headers: { 'Content-Type': 'application/json' }
-        }),
+        axios.get(getMeterDailyConsumptionUrl(siteId, monthParam), { headers: pdfHeaders }),
+        axios.get(getMeterMonthlyReportUrl(siteId, monthParam), { headers: pdfHeaders }),
       ]);
+
+      const monthlyReportData = reportResponse.status === 'fulfilled' ? reportResponse.value.data : null;
+      const rawReports = monthlyReportData?.reports || [];
+      const meta = monthlyReportData?.meta || {
+        meter_number: user?.meter_number,
+        meter_name: user?.meter_name || user?.site_name,
+        latest_reading: new Date().toLocaleDateString('en-GB')
+      };
 
       const normalizedConsumptionData =
         consumptionResponse.status === 'fulfilled'
           ? normalizeDailyConsumptionRows(consumptionResponse.value.data?.data || [])
           : [];
 
-      const normalizedReportData =
-        reportResponse.status === 'fulfilled'
-          ? normalizeDailyReportRows(reportResponse.value.data?.reports || [])
-          : [];
-
-      const reportDataByDay = new Map(
-        normalizedReportData.map((item) => [String(item.day), item])
+      const consumptionByDay = new Map(
+        normalizedConsumptionData.map((item) => [String(item.day), item])
       );
 
-      const mergedDailyData =
-        normalizedConsumptionData.length > 0
-          ? normalizedConsumptionData.map((item) => ({
-              ...item,
-              ...(reportDataByDay.get(String(item.day)) || {}),
-              day: item.day,
-              daily_units: getDailyUnits(item),
-              daily_kvah: getDailyKvah(item),
-              daily_kvah_delta: getDailyKvahDelta(item),
-              daily_amount:
-                reportDataByDay.get(String(item.day))?.daily_amount ?? item.daily_amount,
-            }))
-          : normalizedReportData;
+      // Build unified daily list ensuring kWh and kVAh values are both present
+      let finalReports = rawReports.map((item: any) => {
+        const dayNumber = item.date ? new Date(item.date).getDate() : item.day;
+        const matchedConsumption = consumptionByDay.get(String(dayNumber)) || {};
 
-      if (mergedDailyData.length === 0) {
-        Alert.alert('Error', 'No data available for the selected period');
-        return;
-      }
+        const openingKwh = Number(item.opening_kwh ?? matchedConsumption.opening_kwh ?? 0);
+        const energyKwh = Number(item.energy_used ?? item.energy_consumed ?? matchedConsumption.daily_units ?? matchedConsumption.energy_used ?? 0);
+        const closingKwh = Number(item.closing_kwh ?? matchedConsumption.closing_kwh ?? (openingKwh + energyKwh));
 
-      // Calculate totals for daily report
-      let totalUnits = 0;
-      let totalKvah = 0;
-      let totalAmount = 0;
+        const openingKvah = Number(item.opening_kvah ?? item.opening_kVAh ?? matchedConsumption.opening_kvah ?? matchedConsumption.opening_kVAh ?? 0);
+        const energyKvah = Number(
+          item.energy_used_kvah ??
+          item.kvah_used ??
+          item.kvah_delta ??
+          matchedConsumption.daily_kvah_delta ??
+          matchedConsumption.daily_kvah ??
+          0
+        );
+        const closingKvah = Number(
+          item.closing_kvah ??
+          item.closing_kVAh ??
+          matchedConsumption.closing_kvah ??
+          (openingKvah > 0 && energyKvah > 0 ? openingKvah + energyKvah : 0)
+        );
 
-      mergedDailyData.forEach(item => {
-        totalUnits += getDailyUnits(item);
-        const kvahVal = item?.daily_kvah_delta ?? getDailyKvahDelta(item);
-        if (kvahVal != null) {
-          totalKvah += getNumericValue(kvahVal, 0);
-        }
-        totalAmount += getDailyAmount(item);
+        const energyAmt = Number(item.energy_amount ?? matchedConsumption.daily_amount ?? 0);
+        const fixedCharges = Number((item.fixed_mains || 0) + (item.fixed_dg || 0));
+        const otherCharges = Number(item.other_charges ?? 0);
+        const totalRowAmount = Number(item.total_row_amount ?? item.total_amount ?? 0);
+        const tariff = Number(item.eb_tariff ?? item.tariff_rate ?? 0);
+
+        return {
+          ...item,
+          ...matchedConsumption,
+          date: item.date || `${effectiveYear}-${monthIndex.toString().padStart(2, '0')}-${String(dayNumber).padStart(2, '0')}`,
+          meter_id: meta.meter_number || item.meter_id || '',
+          opening_kwh: openingKwh,
+          closing_kwh: closingKwh,
+          energy_used: energyKwh,
+          opening_kvah: openingKvah,
+          closing_kvah: closingKvah,
+          energy_used_kvah: energyKvah,
+          eb_tariff: tariff,
+          energy_amount: energyAmt,
+          fixed_mains: Number(item.fixed_mains || 0),
+          fixed_dg: Number(item.fixed_dg || 0),
+          other_charges: otherCharges,
+          total_row_amount: totalRowAmount,
+          opening_balance: Number(item.opening_balance || 0),
+          closing_balance: Number(item.closing_balance || 0),
+        };
       });
 
-      const html = `
-        <html>
-          <head>
-            <style>
-              body { font-family: Arial; padding: 20px; }
-              .header { text-align: center; color: #02569B; margin-bottom: 30px; }
-              .summary { background: #f5f7fa; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
-              .summary-row { display: flex; justify-content: space-between; margin-bottom: 10px; }
-              .summary-label { font-weight: bold; color: #666; }
-              .summary-value { font-weight: bold; color: #02569B; }
-              table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-              th { background: #02569B; color: white; padding: 12px; text-align: left; }
-              td { padding: 10px; border: 1px solid #ddd; }
-              .total-row { background: #e8f4fd; font-weight: bold; }
-              .footer { margin-top: 30px; text-align: center; color: #666; font-size: 12px; }
-            </style>
-          </head>
-          <body>
-            <h1 class="header">Daily Energy Consumption Report</h1>
-            
-            <div class="summary">
-              <div class="summary-row">
-                <span class="summary-label">Period:</span>
-                <span class="summary-value">${selectedMonth} ${selectedYear}</span>
-              </div>
-              <div class="summary-row">
-                <span class="summary-label">View Type:</span>
-                <span class="summary-value">Daily View</span>
-              </div>
-              <div class="summary-row">
-                <span class="summary-label">${energyUnitMode === 'kvah' ? 'Total kVAh:' : 'Total Units:'}</span>
-                <span class="summary-value">${energyUnitMode === 'kvah' ? `${totalKvah.toFixed(2)} kVAh` : `${totalUnits.toFixed(2)} kWh`}</span>
-              </div>
-              ${showsKwh && showsKvah ? `
-              <div class="summary-row">
-                <span class="summary-label">Total kVAh:</span>
-                <span class="summary-value">${totalKvah.toFixed(2)} kVAh</span>
-              </div>` : ''}
-              <div class="summary-row">
-                <span class="summary-label">Total Amount:</span>
-                <span class="summary-value">₹${totalAmount.toFixed(2)}</span>
-              </div>
-            </div>
-            
-            <table>
-              <tr>
-                <th>Date</th>
-                <th>${energyUnitMode === 'kvah' ? 'Units (kVAh)' : 'Units (kWh)'}</th>
-                ${showsKwh && showsKvah ? '<th>Units (kVAh)</th>' : ''}
-                <th>Amount (₹)</th>
-              </tr>
-              ${mergedDailyData.map((item, index) => `
-                <tr>
-                  <td>${item.day || `Day ${index + 1}`}</td>
-                  <td>${(energyUnitMode === 'kvah'
-                      ? getNumericValue(item?.daily_kvah_delta ?? getDailyKvahDelta(item), 0).toFixed(2)
-                      : getDisplayEnergyValue(getDailyUnits(item), getDailyKvah(item)).toFixed(2))}</td>
-                  ${showsKwh && showsKvah ? `<td>${getDailyKvah(item) != null ? getDailyKvah(item).toFixed(2) : '0.00'}</td>` : ''}
-                  <td>₹${getDailyAmount(item).toFixed(2)}</td>
-                </tr>
-              `).join('')}
-              <tr class="total-row">
-                <td><strong>Total</strong></td>
-                <td><strong>${energyUnitMode === 'kvah' ? `${totalKvah.toFixed(2)} kVAh` : `${totalUnits.toFixed(2)} kWh`}</strong></td>
-                ${showsKwh && showsKvah ? `<td><strong>${totalKvah.toFixed(2)} kVAh</strong></td>` : ''}
-                <td><strong>₹${totalAmount.toFixed(2)}</strong></td>
-              </tr>
-            </table>
-            
-            <div class="footer">
-              <p>Generated on ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}</p>
-              <p>Energy Monitoring System © ${new Date().getFullYear()}</p>
-            </div>
-          </body>
-        </html>`;
+      // If monthly reports endpoint had no records but consumption endpoint had data, map from consumption
+      if (finalReports.length === 0 && normalizedConsumptionData.length > 0) {
+        finalReports = normalizedConsumptionData.map((item: any) => {
+          const dayNum = String(item.day || '1').padStart(2, '0');
+          const dayDate = `${effectiveYear}-${monthIndex.toString().padStart(2, '0')}-${dayNum}`;
+          const kwhVal = getDailyUnits(item);
+          const kvahVal = getNumericValue(item?.daily_kvah_delta ?? getDailyKvahDelta(item), 0);
+          const energyAmt = Number(item.energy_amount ?? item.daily_amount ?? 0);
+          const tariff = Number(item.eb_tariff ?? item.tariff_rate ?? 0);
+          const otherCharges = Number(item.other_charges ?? 0);
+          const totalRowAmount = Number(item.total_row_amount ?? item.total_amount ?? 0);
 
-      const { uri } = await Print.printToFileAsync({ html });
-      const fileName = `daily-energy-report-${selectedYear}-${monthParam}-${Date.now()}.pdf`;
-      await savePdfToDevice(uri, fileName);
-    } catch (error) {
-      console.error('Daily PDF export error:', error);
-      Alert.alert('Error', 'Failed to generate Daily Report. Please try again.');
-    } finally {
-      setIsGeneratingReport(false);
-    }
-  };
+          return {
+            date: dayDate,
+            meter_id: meta.meter_number || '',
+            opening_kwh: Number(item.opening_kwh || 0),
+            closing_kwh: Number(item.closing_kwh || 0),
+            energy_used: kwhVal,
+            opening_kvah: Number(item.opening_kvah || 0),
+            closing_kvah: Number(item.closing_kvah || 0),
+            energy_used_kvah: kvahVal,
+            eb_tariff: tariff,
+            energy_amount: energyAmt,
+            fixed_mains: Number(item.fixed_mains || 0),
+            fixed_dg: Number(item.fixed_dg || 0),
+            other_charges: otherCharges,
+            total_row_amount: totalRowAmount,
+            opening_balance: Number(item.opening_balance || 0),
+            closing_balance: Number(item.closing_balance || 0),
+          };
+        });
+      }
 
-  // Detailed Monthly Report (New)
-  const exportDetailedPDF = async () => {
-    try {
-      const siteId = getSiteId();
-      if (!siteId) {
-        Alert.alert('Error', 'Site ID not found');
+      if (finalReports.length === 0) {
+        Alert.alert('Notice', 'No report data available for the selected period');
         return;
       }
 
-      // Format month for API (YYYY-MM format)
-      const monthIndex = months.indexOf(selectedMonth) + 1;
-      const monthParam = `${selectedYear}-${monthIndex.toString().padStart(2, '0')}`;
-
-      setIsGeneratingReport(true);
-
-      // Fetch monthly report data from new API
-      const response = await axios.get(
-        getMeterMonthlyReportUrl(siteId, monthParam),
-        {
-          headers: { 'Content-Type': 'application/json' }
-        }
-      );
-
-      const reportData = response.data;
-
-      if (!reportData.success || !reportData.reports) {
-        Alert.alert('Error', 'No report data available');
-        return;
-      }
-
-      // Prepare data for PDF
-      const { meta, reports } = reportData;
-
-      // Calculate totals
+      const isKvah = unit === 'kvah';
       let totalEnergy = 0;
       let totalEnergyAmount = 0;
       let totalFixed = 0;
       let totalOther = 0;
       let totalAmount = 0;
 
-      reports.forEach(report => {
-        const energyUsed = report.energy_used || 0;
+      finalReports.forEach((report: any) => {
+        const energyUsed = isKvah ? (report.energy_used_kvah || 0) : (report.energy_used || 0);
         const energyAmount = report.energy_amount || 0;
         const fixedCharges = (report.fixed_mains || 0) + (report.fixed_dg || 0);
-        const otherCharges = 0;
+        const otherCharges = report.other_charges || 0;
         const totalRowAmount = energyAmount + fixedCharges + otherCharges;
 
         totalEnergy += energyUsed;
@@ -820,10 +919,10 @@ export default function EnergyReport() {
         totalAmount += totalRowAmount;
       });
 
-      // Format date for display
-      const formatDate = (dateStr) => {
+      const formatDate = (dateStr: string) => {
         if (!dateStr) return '';
         const date = new Date(dateStr);
+        if (isNaN(date.getTime())) return String(dateStr);
         return date.toLocaleDateString('en-GB', {
           day: '2-digit',
           month: '2-digit',
@@ -831,288 +930,130 @@ export default function EnergyReport() {
         }).replace(/\//g, '-');
       };
 
-      // Current date and time for footer
-      const currentDateTime = new Date();
-      const generatedDate = currentDateTime.toLocaleDateString('en-GB', {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric'
-      }).replace(/\//g, '-');
-      const generatedTime = currentDateTime.toLocaleTimeString('en-GB', {
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit'
+      const resolvedSiteName =
+        meta.site_name ||
+        meta.meter_name ||
+        user?.site_name ||
+        'Energy Meter Report';
+
+      if (reportType === 'monthly') {
+        let rechargesList: Array<{ date: string; type: string; amount: number }> = [];
+        let totalRecharge = 0;
+
+        try {
+          const fromDate = `${effectiveYear}-${monthIndex.toString().padStart(2, '0')}-01`;
+          const txnUrl = `${getWalletTransactionsUrl(siteId, 'recharge', fromDate)}&per_page=50`;
+          const txnRes = await axios.get(txnUrl, { headers: pdfHeaders });
+          if (txnRes.data?.data?.transactions && Array.isArray(txnRes.data.data.transactions)) {
+            const monthPrefix = `${effectiveYear}-${monthIndex.toString().padStart(2, '0')}`;
+            const filteredTxns = txnRes.data.data.transactions.filter((t: any) => {
+              const tDate = t.transaction_date || t.created_at || '';
+              return tDate.startsWith(monthPrefix) || String(t.type || '').toLowerCase() === 'recharge';
+            });
+            rechargesList = filteredTxns.map((t: any) => {
+              const amt = Number(t.amount || 0);
+              totalRecharge += amt;
+              return {
+                date: formatDate(t.transaction_date || t.created_at),
+                type: 'Recharge',
+                amount: amt,
+              };
+            });
+          }
+        } catch (txnErr) {
+          console.log('Optional transactions fetch skipped:', txnErr);
+        }
+
+        const firstRow = finalReports[0] || {};
+        const lastRow = finalReports[finalReports.length - 1] || {};
+
+        const isKvah = unit === 'kvah';
+        const prevReading = isKvah ? Number(firstRow.opening_kvah || 0) : Number(firstRow.opening_kwh || 0);
+        const currReading = isKvah
+          ? Number(lastRow.closing_kvah || (prevReading + totalEnergy))
+          : Number(lastRow.closing_kwh || (prevReading + totalEnergy));
+        const totalUnits = totalEnergy;
+        const rate = unitRate || Number(firstRow.eb_tariff || 0) || 6.8;
+        const mainsCharge = totalUnits * rate;
+        const openingBal = Number(firstRow.opening_balance || 0);
+        const remainingBal = Number(lastRow.closing_balance || (openingBal + totalRecharge - mainsCharge));
+
+        const lastDayOfMonth = new Date(Number(effectiveYear), monthIndex, 0).getDate();
+        const billPeriodStr = `01/${monthIndex.toString().padStart(2, '0')}/${effectiveYear} - ${lastDayOfMonth.toString().padStart(2, '0')}/${monthIndex.toString().padStart(2, '0')}/${effectiveYear}`;
+        const billNoStr = `BILL-${effectiveYear}${monthIndex.toString().padStart(2, '0')}-${meta.meter_number || siteId}`;
+        const nextMonthNum = monthIndex === 12 ? 1 : monthIndex + 1;
+        const nextMonthYear = monthIndex === 12 ? Number(effectiveYear) + 1 : Number(effectiveYear);
+        const billDateStr = `${nextMonthYear}-${nextMonthNum.toString().padStart(2, '0')}-01 00:00:00`;
+
+        const html = generateMonthlyBillPdfHtml({
+          siteName: resolvedSiteName,
+          meta,
+          user,
+          billingMonth: `${effectiveYear}-${monthIndex.toString().padStart(2, '0')}`,
+          billPeriod: billPeriodStr,
+          billDate: billDateStr,
+          billNumber: billNoStr,
+          unit,
+          previousReading: prevReading,
+          currentReading: currReading,
+          unitsConsumed: totalUnits,
+          ratePerUnit: rate,
+          mainsEnergyCharge: mainsCharge,
+          dgPreviousReading: 0,
+          dgCurrentReading: 0,
+          dgUnitsConsumed: 0,
+          dgRatePerUnit: 1,
+          dgEnergyCharge: 0,
+          serverRent: 0,
+          fixedChargesMains: Number(totalFixed || 0),
+          fixedChargesDg: 0,
+          totalCurrentMonthCharges: mainsCharge + Number(totalFixed || 0),
+          previousOpeningBalance: openingBal,
+          recharges: rechargesList,
+          totalRechargePaid: totalRecharge,
+          remainingWalletBalance: remainingBal,
+        });
+
+        const { uri } = await Print.printToFileAsync({ html });
+        const fileName = `monthly-bill-invoice-${unit}-${effectiveYear}-${monthParam}-${Date.now()}.pdf`;
+        await savePdfToDevice(uri, fileName);
+        setShowReportTypeModal(false);
+        return;
+      }
+
+      const html = generateMonthlyPdfHtml({
+        siteName: resolvedSiteName,
+        meta,
+        reports: finalReports,
+        totalEnergy,
+        totalEnergyAmount,
+        totalFixed,
+        totalOther,
+        totalAmount,
+        formatDate,
+        unit,
+        reportType,
+        showTotalRow: true,
       });
 
-      // Create HTML for PDF
-      const html = `
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="UTF-8">
-            <title>Monthly Meter Report</title>
-            <style>
-                @page { 
-                    size: A4 landscape; 
-                    margin: 10mm 6mm;
-                }
-
-                body {
-                    font-family: 'Arial', sans-serif;
-                    color: #000;
-                    margin: 0;
-                    padding: 0;
-                    line-height: 1.2;
-                    -webkit-print-color-adjust: exact;
-                    background-color: #fff;
-                }
-
-                .container {
-                    width: 100%;
-                    max-width: 100%;
-                    overflow: hidden;
-                    padding-top: 5px;
-                }
-
-                .header {
-                    display: flex;
-                    align-items: center;
-                    border-bottom: 1px solid #000;
-                    padding: 0;
-                    margin: 0 0 2px 0;
-                }
-
-                .header-title {
-                    flex: 1;
-                    text-align: center;
-                    font-size: 20px;
-                    font-weight: bold;
-                    color: #1F4E79;
-                    text-transform: uppercase;
-                    line-height: 1;
-                    margin: 0;
-                    padding: 0;
-                }
-
-                .meter-info-table {
-                    width: 100%;
-                    border-collapse: collapse;
-                    margin: 10px 0;
-                    font-size: 16px;
-                }
-
-                .meter-info-table td {
-                    padding: 6px 8px;
-                    border: none;
-                    text-align: left;
-                    vertical-align: middle;
-                    line-height: 1.2;
-                }
-
-                .meter-label {
-                    font-weight: bold;
-                    color: #000;
-                    width: 18%;
-                    text-align: right;
-                    padding-right: 6px;
-                    font-size: 12px;
-                }
-
-                .meter-separator {
-                    width: 10px;
-                    text-align: center;
-                    font-weight: bold;
-                    color: #000;
-                    font-size: 16px;
-                }
-
-                .meter-value {
-                    font-weight: bold;
-                    color: #000;
-                    padding-left: 6px;
-                    font-size: 12px;
-                    background-color: #fff;
-                }
-
-                .main-table {
-                    width: 100%;
-                    border-collapse: collapse;
-                    font-size: 10pt;
-                    table-layout: fixed;
-                }
-
-                .main-table th {
-                    background-color: #1F4E79;
-                    color: #fff !important;
-                    font-weight: bold;
-                    text-transform: uppercase;
-                    font-size: 9pt;
-                    padding: 5px 3px;
-                    text-align: center;
-                    border: 1px solid #fff;
-                }
-
-                .main-table td {
-                    border: 1px solid #fff;
-                    padding: 4px 2px;
-                    text-align: center;
-                    vertical-align: middle;
-                    font-size: 10pt;
-                    font-weight: bold;
-                }
-
-                .main-table tr:nth-child(even) { 
-                    background-color: #f2f2f2; 
-                }
-
-                .numeric {
-                    text-align: right;
-                    padding-right: 6px;
-                }
-
-                .total-row {
-                    background-color: #ccc;
-                    font-weight: bold;
-                    border-top: 2px solid #000;
-                    font-size: 11pt;
-                }
-
-                .total-label {
-                    text-align: right;
-                    padding-right: 8px;
-                }
-
-                .footer {
-                    margin-top: 8px;
-                    padding-top: 6px;
-                    border-top: 1px solid #000;
-                    text-align: center;
-                    font-size: 10pt;
-                    font-weight: bold;
-                }
-
-                @media print {
-                    * {
-                        color: #000 !important;
-                        font-weight: bold !important;
-                    }
-
-                    body {
-                        font-size: 10pt;
-                        line-height: 1.1;
-                        margin-top: 4mm;
-                    }
-
-                    .meter-info-table td { font-size: 12pt !important; padding: 4px 6px !important; }
-                    .main-table { font-size: 9pt !important; page-break-inside: avoid !important; }
-                    .main-table th { font-size: 9pt !important; padding: 3px 2px !important; }
-                    .main-table td { font-size: 8.5pt !important; padding: 2px 2px !important; }
-                    tr { page-break-inside: avoid !important; }
-                    table { page-break-after: avoid !important; }
-                    .total-row td { font-size: 9pt !important; }
-                    .footer { font-size: 8pt !important; }
-                }
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <div class="header">
-                    <div class="header-title">
-                        Food Valley, Lucknow (UP)
-                    </div>
-                </div>
-
-                <table class="meter-info-table">
-                    <tr>
-                        <td class="meter-label">METER NUMBER:</td>
-                        <td class="meter-value">${meta.meter_number || 'N/A'}</td>
-                        <td class="meter-separator">|</td>
-                        <td class="meter-label">SHOP NAME:</td>
-                        <td class="meter-value">${meta.meter_name || 'N/A'}</td>
-                        <td class="meter-separator">|</td>
-                        <td class="meter-label">LAST UPDATED:</td>
-                        <td class="meter-value">${meta.latest_reading || 'N/A'}</td>
-                    </tr>
-                </table>
-
-                <table class="main-table">
-                    <thead>
-                        <tr>
-                            <th>DATE</th>
-                            <th>METER ID</th>
-                            <th>OPENING KWH</th>
-                            <th>CLOSING KWH</th>
-                            <th>ENERGY CONSUMED (KWH)</th>
-                            <th>EB TARIFF</th>
-                            <th>ENERGY AMOUNT</th>
-                            <th>FIXED CHARGES</th>
-                            <th>OTHER CHARGES</th>
-                            <th>TOTAL AMOUNT</th>
-                            <th>OPENING BALANCE</th>
-                            <th>CLOSING BALANCE</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${reports.length > 0 ? 
-                          reports.map(report => {
-                            const energyUsed = report.energy_used || 0;
-                            const energyAmount = report.energy_amount || 0;
-                            const fixedCharges = (report.fixed_mains || 0) + (report.fixed_dg || 0);
-                            const otherCharges = 0;
-                            const totalRowAmount = energyAmount + fixedCharges + otherCharges;
-                            
-                            return `
-                              <tr>
-                                  <td class="numeric">${formatDate(report.date)}</td>
-                                  <td class="numeric">${meta.meter_number || report.meter_id || ''}</td>
-                                  <td class="numeric">${(report.opening_kwh || 0).toFixed(2)}</td>
-                                  <td class="numeric">${(report.closing_kwh || 0).toFixed(2)}</td>
-                                  <td class="numeric">${energyUsed.toFixed(2)}</td>
-                                  <td class="numeric">0.00</td>
-                                  <td class="numeric">${energyAmount.toFixed(2)}</td>
-                                  <td class="numeric">${fixedCharges.toFixed(2)}</td>
-                                  <td class="numeric">${otherCharges.toFixed(2)}</td>
-                                  <td class="numeric">${totalRowAmount.toFixed(2)}</td>
-                                  <td class="numeric">${(report.opening_balance || 0).toFixed(2)}</td>
-                                  <td class="numeric">${(report.closing_balance || 0).toFixed(2)}</td>
-                              </tr>
-                            `;
-                          }).join('') : 
-                          `<tr><td colspan="12" style="text-align:center; font-style:italic;">No consumption data available for this period</td></tr>`
-                        }
-
-                        ${reports.length > 0 ? `
-                          <tr class="total-row">
-                              <td colspan="4" class="total-label">TOTAL:</td>
-                              <td class="numeric">${totalEnergy.toFixed(2)}</td>
-                              <td></td>
-                              <td class="numeric">${totalEnergyAmount.toFixed(2)}</td>
-                              <td class="numeric">${totalFixed.toFixed(2)}</td>
-                              <td class="numeric">${totalOther.toFixed(2)}</td>
-                              <td class="numeric">${totalAmount.toFixed(2)}</td>
-                              <td colspan="2"></td>
-                          </tr>
-                        ` : ''}
-                    </tbody>
-                </table>
-
-                <div class="footer">
-                    Generated on: ${generatedDate} ${generatedTime} | Page 1 of 1
-                </div>
-            </div>
-        </body>
-        </html>
-      `;
-      
       const { uri } = await Print.printToFileAsync({ html });
-      const fileName = `monthly-meter-report-${selectedYear}-${monthParam}-${Date.now()}.pdf`;
+      const fileName = `${reportType}-meter-report-${unit}-${effectiveYear}-${monthParam}-${Date.now()}.pdf`;
       await savePdfToDevice(uri, fileName);
+      setShowReportTypeModal(false);
     } catch (error) {
-      console.error('Detailed PDF export error:', error);
-      Alert.alert('Error', 'Failed to generate monthly report. Please try again.');
+      console.error('PDF export error:', error);
+      Alert.alert('Error', 'Failed to generate report. Please try again.');
     } finally {
       setIsGeneratingReport(false);
     }
+  };
+
+  const exportDailyPDF = async () => {
+    return exportReportPDF('daily', downloadUnit);
+  };
+
+  const exportDetailedPDF = async () => {
+    return exportReportPDF('monthly', downloadUnit);
   };
 
   const GraphCard = ({ title, unit, isAmount }: { title: string; unit: string; isAmount?: boolean }) => {
@@ -1149,8 +1090,28 @@ export default function EnergyReport() {
     const dataLength = timeView === 'daily' ? dailyData.length : 12;
     const selectedDetailIndex =
       isDualEnergyMode && values.length > 0
-        ? (hoveredIndex ?? values.length - 1)
+        ? (hoveredIndex !== null && hoveredIndex >= 0 && hoveredIndex < values.length
+            ? hoveredIndex
+            : values.length - 1)
         : null;
+
+    const selKwh = selectedDetailIndex !== null ? Number(values[selectedDetailIndex] || 0) : 0;
+    const selKvah = selectedDetailIndex !== null ? Number(secondaryValues[selectedDetailIndex] || 0) : 0;
+    const selPF = selKvah > 0 ? Math.min(1.0, selKwh / selKvah) : 1.0;
+    const selLabel = selectedDetailIndex !== null
+      ? (timeView === 'daily'
+          ? `${selectedMonth.slice(0, 3)} ${currentData.labels[selectedDetailIndex] || (selectedDetailIndex + 1)}`
+          : `${currentData.labels[selectedDetailIndex] || months[selectedDetailIndex] || ''} ${selectedYear}`)
+      : '';
+
+    const totalKwhNum = Number(stats.totalUnits) || 0;
+    const totalKvahNum = Number(stats.totalKvah) || 0;
+    const overallPF = totalKvahNum > 0 ? Math.min(1.0, totalKwhNum / totalKvahNum) : 1.0;
+    const pfStatus = overallPF >= 0.90
+      ? { label: 'Optimal PF', color: '#16A34A', bg: isDarkMode ? 'rgba(22, 163, 74, 0.2)' : '#DCFCE7' }
+      : overallPF >= 0.80
+        ? { label: 'Good PF', color: isDarkMode ? '#60A5FA' : '#02569B', bg: isDarkMode ? 'rgba(2, 86, 155, 0.22)' : '#E0F2FE' }
+        : { label: 'Low PF', color: isDarkMode ? '#FBBF24' : '#D97706', bg: isDarkMode ? 'rgba(217, 119, 6, 0.22)' : '#FEF3C7' };
     
     const barWidth = timeView === 'daily' 
       ? Math.max(8, Math.min(16, (width - 100) / Math.min(dataLength, 31)))
@@ -1158,7 +1119,6 @@ export default function EnergyReport() {
     
     const handleToggleValues = () => {
       setShowAllValues(!showAllValues);
-      setHoveredIndex(null);
     };
 
     const handleBarPress = (index) => {
@@ -1180,70 +1140,203 @@ export default function EnergyReport() {
         ]}
       >
         <View style={styles.cardHeader}>
-          <View style={[styles.iconBox, { backgroundColor: isDarkMode ? theme.card : "#EAF2FB" }]}>
-            {isAmount ? <Text style={styles.currIcon}>₹</Text> : <Ionicons name="speedometer-outline" size={18} color="#02569B" />}
+          <View style={[styles.iconBox, { backgroundColor: isDarkMode ? 'rgba(37, 99, 235, 0.15)' : '#EFF6FF' }]}>
+            {isAmount ? <Text style={[styles.currIcon, { color: '#2563EB' }]}>₹</Text> : <Ionicons name="speedometer-outline" size={18} color="#2563EB" />}
           </View>
-          <Text style={[styles.cardTitle, { color: theme.text }]}>{title}</Text>
+          <View style={{ flex: 1, marginRight: 6 }}>
+            <Text style={[styles.cardTitle, { color: theme.text }]} numberOfLines={1}>{title}</Text>
+            <Text style={{ fontSize: 11, color: theme.mutedText, marginTop: 1 }}>
+              {timeView === 'daily' ? 'Daily consumption breakdown' : 'Monthly consumption trend'}
+            </Text>
+          </View>
           <TouchableOpacity
             style={[
-              styles.filterBadge,
-              { backgroundColor: isDarkMode ? theme.primary : "#0F6CBD" },
+              styles.filterBadgeModern,
+              { backgroundColor: isDarkMode ? theme.primary : "#2563EB" },
             ]}
             onPress={() => setShowFilter(true)}
+            activeOpacity={0.8}
           >
-            <Ionicons name="options-outline" size={12} color="white" />
-            <Text style={styles.badgeText}>
+            <Ionicons name="calendar-outline" size={12} color="#FFFFFF" />
+            <Text style={styles.filterBadgeText}>
               {timeView === 'daily' ? `${selectedMonth.slice(0,3)} ${selectedYear}` : selectedYear}
             </Text>
+            <Ionicons name="chevron-down" size={11} color="rgba(255,255,255,0.85)" />
           </TouchableOpacity>
         </View>
 
-        {!isDualEnergyMode && (
+        {isDualEnergyMode ? (
+          <View style={styles.dualControlsWrap}>
+            <View style={[styles.seriesLegendModern, { backgroundColor: isDarkMode ? '#1E293B' : '#F8FAFC', borderColor: isDarkMode ? '#334155' : '#E2E8F0' }]}>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendDot, { backgroundColor: '#2563EB' }]} />
+                <Text style={[styles.legendText, { color: isDarkMode ? '#93C5FD' : '#1E40AF' }]} numberOfLines={1}>Active (kWh)</Text>
+              </View>
+              <View style={[styles.legendSeparatorDot, { backgroundColor: isDarkMode ? '#475569' : '#CBD5E1' }]} />
+              <View style={styles.legendItem}>
+                <View style={[styles.legendDot, { backgroundColor: '#10B981' }]} />
+                <Text style={[styles.legendText, { color: isDarkMode ? '#6EE7B7' : '#065F46' }]} numberOfLines={1}>Apparent (kVAh)</Text>
+              </View>
+            </View>
+
+            <TouchableOpacity 
+              style={[
+                styles.toggleValuesButtonModern,
+                {
+                  backgroundColor: showAllValues 
+                    ? (isDarkMode ? 'rgba(37, 99, 235, 0.25)' : '#EFF6FF')
+                    : (isDarkMode ? theme.card : "#FFFFFF"),
+                  borderColor: showAllValues 
+                    ? (isDarkMode ? '#3B82F6' : '#2563EB')
+                    : (isDarkMode ? theme.border : "#E2E8F0"),
+                },
+              ]}
+              onPress={handleToggleValues}
+              activeOpacity={0.7}
+            >
+              <Ionicons 
+                name={showAllValues ? "eye" : "eye-outline"} 
+                size={11} 
+                color={showAllValues ? (isDarkMode ? '#60A5FA' : '#2563EB') : theme.mutedText} 
+              />
+              <Text 
+                style={[
+                  styles.toggleValuesTextModern, 
+                  { 
+                    color: showAllValues ? (isDarkMode ? '#60A5FA' : '#2563EB') : theme.mutedText,
+                    fontWeight: showAllValues ? '700' : '500'
+                  }
+                ]}
+              >
+                {showAllValues ? 'Values ON' : 'Values OFF'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
           <TouchableOpacity 
             style={[
-              styles.toggleValuesButton,
+              styles.toggleValuesButtonModern,
               {
-                backgroundColor: isDarkMode ? theme.card : "#F8FBFF",
-                borderColor: isDarkMode ? theme.primary : "#0F6CBD",
+                backgroundColor: showAllValues 
+                  ? (isDarkMode ? 'rgba(37, 99, 235, 0.25)' : '#EFF6FF')
+                  : (isDarkMode ? theme.card : "#FFFFFF"),
+                borderColor: showAllValues 
+                  ? (isDarkMode ? '#3B82F6' : '#2563EB')
+                  : (isDarkMode ? theme.border : "#E2E8F0"),
+                alignSelf: 'flex-end',
+                marginBottom: spacing.md,
               },
             ]}
             onPress={handleToggleValues}
             activeOpacity={0.7}
           >
             <Ionicons 
-              name={showAllValues ? "eye-off-outline" : "eye-outline"} 
-              size={16} 
-              color={isDarkMode ? "#93C5FD" : theme.primary} 
+              name={showAllValues ? "eye" : "eye-outline"} 
+              size={12} 
+              color={showAllValues ? (isDarkMode ? '#60A5FA' : '#2563EB') : theme.mutedText} 
             />
-            <Text style={[styles.toggleValuesText, { color: isDarkMode ? "#BFDBFE" : theme.primary }]}>
-              {showAllValues ? 'Hide Values' : 'Show Values'}
+            <Text 
+              style={[
+                styles.toggleValuesTextModern, 
+                { 
+                  color: showAllValues ? (isDarkMode ? '#60A5FA' : '#2563EB') : theme.mutedText,
+                  fontWeight: showAllValues ? '700' : '500'
+                }
+              ]}
+            >
+              {showAllValues ? 'Values ON' : 'Values OFF'}
             </Text>
           </TouchableOpacity>
         )}
 
-        {isDualEnergyMode && (
-          <View style={styles.seriesLegendWrap}>
-            <View style={styles.seriesLegend}>
-              <View style={styles.legendItem}>
-                <View style={[styles.legendDot, { backgroundColor: '#02569B' }]} />
-                <Text style={[styles.legendText, { color: theme.mutedText }]}>kWh</Text>
+        {/* Hero Interactive Inspector Card for Dual Mode */}
+        {isDualEnergyMode && selectedDetailIndex !== null && (
+          <View style={[
+            styles.heroInspectorCardModern,
+            {
+              backgroundColor: isDarkMode ? '#131F33' : '#F8FAFC',
+              borderColor: isDarkMode ? '#1E293B' : '#E2E8F0',
+            }
+          ]}>
+            <View style={styles.heroInspectorHeader}>
+              <View style={styles.heroInspectorDayBadge}>
+                <View style={[styles.heroDateIconWrap, { backgroundColor: isDarkMode ? '#1E293B' : '#EFF6FF' }]}>
+                  <Ionicons name="calendar-outline" size={13} color="#2563EB" />
+                </View>
+                <Text style={[styles.heroInspectorDayText, { color: theme.text }]}>
+                  {selLabel}
+                </Text>
               </View>
-              <Text style={[styles.legendSeparator, { color: theme.mutedText }]}>|</Text>
-              <View style={styles.legendItem}>
-                <View style={[styles.legendDot, styles.legendDiamond, { backgroundColor: '#16A34A' }]} />
-                <Text style={[styles.legendText, { color: theme.mutedText }]}>kVAh</Text>
+              <View style={[
+                styles.heroInspectorPill, 
+                { 
+                  backgroundColor: hoveredIndex !== null 
+                    ? (isDarkMode ? 'rgba(37, 99, 235, 0.25)' : '#EFF6FF')
+                    : (isDarkMode ? 'rgba(16, 185, 129, 0.2)' : '#ECFDF5'),
+                  borderColor: hoveredIndex !== null
+                    ? (isDarkMode ? '#3B82F6' : '#93C5FD')
+                    : (isDarkMode ? '#10B981' : '#A7F3D0'),
+                  borderWidth: 1,
+                }
+              ]}>
+                <View style={[
+                  styles.statusDotPulse, 
+                  { backgroundColor: hoveredIndex !== null ? '#2563EB' : '#10B981' }
+                ]} />
+                <Text style={[
+                  styles.heroInspectorHint, 
+                  { color: hoveredIndex !== null ? (isDarkMode ? '#93C5FD' : '#1D4ED8') : (isDarkMode ? '#6EE7B7' : '#047857') }
+                ]}>
+                  {hoveredIndex !== null ? 'Selected Reading' : 'Latest Reading'}
+                </Text>
               </View>
+            </View>
+
+            <View style={styles.heroInspectorPodRow}>
+              {/* Active */}
+              <View style={[styles.metricPod, { backgroundColor: isDarkMode ? '#0F172A' : '#FFFFFF', borderColor: isDarkMode ? '#1E293B' : '#E2E8F0' }]}>
+                <View style={styles.metricPodHeader}>
+                  <View style={[styles.legendDotSmall, { backgroundColor: '#2563EB' }]} />
+                  <Text style={[styles.metricPodLabel, { color: theme.mutedText }]}>Active (kWh)</Text>
+                </View>
+                <Text style={[styles.metricPodValue, { color: isDarkMode ? '#60A5FA' : '#1D4ED8' }]}>
+                  {selKwh.toFixed(1)}
+                </Text>
+              </View>
+
+              {/* Apparent */}
+              <View style={[styles.metricPod, { backgroundColor: isDarkMode ? '#0F172A' : '#FFFFFF', borderColor: isDarkMode ? '#1E293B' : '#E2E8F0' }]}>
+                <View style={styles.metricPodHeader}>
+                  <View style={[styles.legendDotSmall, { backgroundColor: '#10B981' }]} />
+                  <Text style={[styles.metricPodLabel, { color: theme.mutedText }]}>Apparent (kVAh)</Text>
+                </View>
+                <Text style={[styles.metricPodValue, { color: isDarkMode ? '#34D399' : '#059669' }]}>
+                  {selKvah.toFixed(1)}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.heroInspectorFooter}>
+              <Ionicons name="finger-print-outline" size={11} color={theme.mutedText} />
+              <Text style={[styles.heroInspectorFooterText, { color: theme.mutedText }]}>
+                Tap any bar below to view its exact readings
+              </Text>
             </View>
           </View>
         )}
 
         <View style={styles.graphBody}>
-          <View style={styles.yAxis}>
+          <View style={[styles.yAxis, { paddingBottom: 26 }]}>
             <Text style={[styles.axisLabel, { color: theme.mutedText }]}>{(maxValue * 1.2).toFixed(0)}</Text>
+            <Text style={[styles.axisLabel, { color: theme.mutedText }]}>{((maxValue * 1.2) * 0.5).toFixed(0)}</Text>
             <Text style={[styles.axisLabel, { color: theme.mutedText }]}>0</Text>
           </View>
           
           <View style={styles.chartSpace}>
+            {/* Subtle horizontal reference gridlines */}
+            <View style={[styles.chartGridLine, { top: '0%', borderColor: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)' }]} />
+            <View style={[styles.chartGridLine, { top: '50%', borderColor: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)' }]} />
+
             {timeView === 'daily' ? (
               <ScrollView 
                 ref={graphScrollRef}
@@ -1251,135 +1344,203 @@ export default function EnergyReport() {
                 showsHorizontalScrollIndicator={true}
                 contentContainerStyle={styles.scrollableGraph}
               >
-                <View style={styles.pointsRow}>
-                  {values.map((v, i) => {
-                    const value = Number(v) || 0;
-                    const secondaryValue = Number(secondaryValues[i]) || 0;
-                    const bottomPos = value > 0 ? (value / (maxValue * 1.2)) * 80 : 0;
-                    const secondaryBottomPos = secondaryValue > 0 ? (secondaryValue / (maxValue * 1.2)) * 80 : 0;
-                    const isSelected = hoveredIndex === i;
-                    const prevBottomPos = i > 0 ? ((Number(values[i - 1]) || 0) / (maxValue * 1.2)) * 80 : -100;
-                    const nextBottomPos = i < values.length - 1 ? ((Number(values[i + 1]) || 0) / (maxValue * 1.2)) * 80 : -100;
-                    const isTightCluster = Math.abs(bottomPos - prevBottomPos) < 9 || Math.abs(bottomPos - nextBottomPos) < 9;
-                    const labelOffset = isTightCluster ? (i % 2 === 0 ? 18 : 10) : 8;
-                    const dailyLabelBottom = Math.min(bottomPos + labelOffset, 92);
-                    const formattedDailyValue = value.toFixed(0);
-                    const dailyLabelWidth = Math.max(28, formattedDailyValue.length * 7 + 8);
-                    const pointWidth = isDualEnergyMode
-                      ? Math.max(barWidth + 12, 42)
-                      : Math.max(barWidth + 8, Math.min(34, dailyLabelWidth + 2));
-                    
-                    return (
-                      <TouchableOpacity 
-                        key={i}
-                        style={[styles.dotContainer, { width: pointWidth }]}
-                        onPress={() => handleBarPress(i)}
-                        activeOpacity={0.7}
-                      >
-                        <View style={[styles.connectingLine, { 
-                          height: `${bottomPos}%`,
-                          backgroundColor: isSelected ? 
-                            (isAmount ? '#1E88E5' : '#02569B') : 
-                            'rgba(2, 86, 155, 0.3)'
-                        }]} />
-
-                        {isDualEnergyMode && secondaryValue > 0 && (
-                          <View
-                            style={[
-                              styles.connectingLine,
-                              styles.secondaryConnectingLine,
-                              {
-                                height: `${secondaryBottomPos}%`,
-                                backgroundColor: isSelected ? '#16A34A' : 'rgba(22, 163, 74, 0.35)',
-                              },
-                            ]}
-                          />
-                        )}
-                        
-                        <View style={[
-                          styles.dot, { 
-                            bottom: `${bottomPos}%`,
-                            backgroundColor: isAmount ? '#1E88E5' : '#02569B',
-                            transform: [{ scale: isSelected ? 1.5 : 1 }]
-                          }
-                        ]} />
-
-                        {isDualEnergyMode && secondaryValue > 0 && (
-                          <View
-                            style={[
-                              styles.dot,
-                              styles.secondaryDot,
-                              {
-                                bottom: `${secondaryBottomPos}%`,
-                                backgroundColor: '#16A34A',
-                                transform: [{ rotate: '45deg' }, { scale: isSelected ? 1.3 : 1 }],
-                              },
-                            ]}
-                          />
-                        )}
-
-                        {isDualEnergyMode && (showAllValues || selectedDetailIndex === i) && (
-                          <View
-                            style={[
-                              styles.selectedSeriesLabel,
-                              {
-                                bottom: `${Math.min(Math.max(bottomPos, secondaryBottomPos) + (showAllValues ? (i % 2 === 0 ? 8 : 14) : 10), 88)}%`,
-                                left: '50%',
-                                transform: [{ translateX: -18 }],
-                              },
-                            ]}
-                          >
-                            <Text style={styles.selectedSeriesTextPrimary}>{value.toFixed(0)}</Text>
-                            <Text style={styles.selectedSeriesTextSecondary}>{secondaryValue.toFixed(0)}</Text>
-                          </View>
-                        )}
-                        
-                        {!isDualEnergyMode && (showAllValues || isSelected) && value > 0 && (
-                          <View
-                            style={[
-                             styles.valueLabel,
-                             {
-                               position: 'absolute',
-                               bottom: `${dailyLabelBottom}%`,
-                               left: '50%',
-                               width: dailyLabelWidth,
-                               transform: [{ translateX: -dailyLabelWidth / 2 }],
-                               backgroundColor: isDarkMode ? '#0f172a' : 'rgba(0,0,0,0.65)',
-                               borderColor: isDarkMode ? theme.border : 'transparent',
-                               paddingHorizontal: 4,
-                               paddingVertical: 2,
-                               minWidth: dailyLabelWidth,
-                               borderRadius: 6,
-                             },
-                           ]}
-                          >
-                            <Text
-                              style={{
-                                fontSize: 8,
-                                fontWeight: '700',
-                                color: '#FFFFFF',
-                                textAlign: 'center',
-                              }}
-                              numberOfLines={1}
+                {isDualEnergyMode ? (
+                  <View style={styles.barGraphContainer}>
+                    {values.map((v, i) => {
+                      const value = Number(v) || 0;
+                      const secondaryValue = Number(secondaryValues[i]) || 0;
+                      const barHeight = value > 0 ? (value / (maxValue * 1.2)) * 68 : 0;
+                      const secondaryBarHeight = secondaryValue > 0 ? (secondaryValue / (maxValue * 1.2)) * 68 : 0;
+                      const isSelected = selectedDetailIndex === i;
+                      const dailyBarWidth = Math.max(7, Math.min(9, (width - 120) / Math.min(dataLength, 31)));
+                      const colWidth = dailyBarWidth * 2 + 22;
+                      const maxBarH = Math.max(barHeight, secondaryBarHeight);
+                      const pillBottomPct = Math.min(Math.max(maxBarH + 9, 18), 84);
+                      
+                      return (
+                        <TouchableOpacity 
+                          key={i}
+                          style={[
+                            styles.barCol,
+                            { width: colWidth, marginHorizontal: 2 },
+                          ]}
+                          onPress={() => handleBarPress(i)}
+                          activeOpacity={0.7}
+                        >
+                          {showAllValues && (value > 0 || secondaryValue > 0) && (
+                            <View
+                              style={[
+                                styles.cleanMicroBadge,
+                                {
+                                  bottom: `${pillBottomPct}%`,
+                                  backgroundColor: isDarkMode ? '#1E293B' : '#FFFFFF',
+                                  borderColor: isDarkMode ? '#334155' : '#E2E8F0',
+                                },
+                              ]}
                             >
-                              {formattedDailyValue}
+                              <Text style={[styles.cleanMicroText, { color: isDarkMode ? '#60A5FA' : '#2563EB' }]}>
+                                {value.toFixed(0)}
+                              </Text>
+                              <Text style={[styles.cleanMicroSep, { color: isDarkMode ? '#64748B' : '#CBD5E1' }]}>|</Text>
+                              <Text style={[styles.cleanMicroText, { color: isDarkMode ? '#34D399' : '#059669' }]}>
+                                {secondaryValue.toFixed(0)}
+                              </Text>
+                            </View>
+                          )}
+
+                          <View style={styles.dualBarWrapper}>
+                            <View
+                              style={[
+                                styles.bar,
+                                {
+                                  height: `${Math.max(barHeight, value > 0 ? 3 : 0)}%`,
+                                  width: dailyBarWidth,
+                                  backgroundColor: '#2563EB',
+                                  borderTopLeftRadius: 5,
+                                  borderTopRightRadius: 5,
+                                },
+                              ]}
+                            />
+                            <View
+                              style={[
+                                styles.bar,
+                                styles.secondaryBar,
+                                {
+                                  height: `${Math.max(secondaryBarHeight, secondaryValue > 0 ? 3 : 0)}%`,
+                                  width: dailyBarWidth,
+                                  backgroundColor: '#10B981',
+                                  borderTopLeftRadius: 5,
+                                  borderTopRightRadius: 5,
+                                },
+                              ]}
+                            />
+                          </View>
+
+                          <View style={[
+                            styles.dayLabelBadge,
+                            {
+                              position: 'absolute',
+                              bottom: -22,
+                            },
+                          ]}>
+                            <Text style={[
+                              styles.dayLabelText,
+                              {
+                                color: isSelected
+                                  ? (isDarkMode ? '#60A5FA' : '#2563EB')
+                                  : (isDarkMode ? '#94A3B8' : colors.gray500),
+                                fontWeight: isSelected ? '700' : '500',
+                                fontSize: dataLength > 20 ? 9 : 10,
+                              }
+                            ]}>
+                              {currentData.labels[i] || i + 1}
                             </Text>
                           </View>
-                        )}
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                ) : (
+                  <View style={styles.barGraphContainer}>
+                    {values.map((v, i) => {
+                      const value = Number(v) || 0;
+                      const barHeight = value > 0 ? (value / (maxValue * 1.2)) * 68 : 0;
+                      const isSelected = hoveredIndex === i;
+                      const formattedDailyValue = value.toFixed(isAmount ? 0 : (value % 1 === 0 ? 0 : 1));
+                      const dailyLabelWidth = Math.max(22, Math.min(30, formattedDailyValue.length * 6 + 5));
+                      const singleBarWidth = 16;
+                      const colWidth = 44;
+                      const singleColor = isAmount
+                        ? '#1E88E5'
+                        : energyUnitMode === 'kvah'
+                          ? '#10B981'
+                          : '#2563EB';
 
-                        <Text style={[styles.dayLabel, { 
-                          bottom: -20,
-                          fontSize: dataLength > 20 ? 9 : 10,
-                          color: isSelected
-                            ? (isDarkMode ? "#BFDBFE" : colors.primary)
-                            : (isDarkMode ? "#94A3B8" : colors.gray400)
-                        }]}>
-                          {currentData.labels[i] || i + 1}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
+                      return (
+                        <TouchableOpacity 
+                          key={i}
+                          style={[
+                            styles.barCol,
+                            { width: colWidth, marginHorizontal: 2 },
+                          ]}
+                          onPress={() => handleBarPress(i)}
+                          activeOpacity={0.7}
+                        >
+                          {(showAllValues || isSelected) && value > 0 && (
+                            <View
+                              style={[
+                                styles.barValueLabel,
+                                {
+                                  position: 'absolute',
+                                  bottom: `${Math.min(barHeight + 5, 86)}%`,
+                                  left: '50%',
+                                  width: dailyLabelWidth,
+                                  transform: [{ translateX: -dailyLabelWidth / 2 }],
+                                  backgroundColor: isDarkMode ? '#0F172A' : '#1E293B',
+                                  borderColor: isDarkMode ? theme.border : 'transparent',
+                                  paddingHorizontal: 2,
+                                  paddingVertical: 1.5,
+                                  minWidth: dailyLabelWidth,
+                                  borderRadius: 5,
+                                  zIndex: 10,
+                                },
+                              ]}
+                            >
+                              <Text
+                                style={{
+                                  fontSize: 8,
+                                  fontWeight: '700',
+                                  color: '#FFFFFF',
+                                  textAlign: 'center',
+                                }}
+                                numberOfLines={1}
+                              >
+                                {formattedDailyValue}
+                              </Text>
+                            </View>
+                          )}
+
+                          <View
+                            style={[
+                              styles.bar,
+                              {
+                                height: `${Math.max(barHeight, value > 0 ? 3 : 0)}%`,
+                                width: singleBarWidth,
+                                backgroundColor: singleColor,
+                                opacity: 0.95,
+                                borderTopLeftRadius: 6,
+                                borderTopRightRadius: 6,
+                                borderBottomLeftRadius: 2,
+                                borderBottomRightRadius: 2,
+                              },
+                            ]}
+                          />
+
+                          <View style={[
+                            styles.dayLabelBadge,
+                            {
+                              position: 'absolute',
+                              bottom: -22,
+                            },
+                          ]}>
+                            <Text style={[
+                              styles.dayLabelText,
+                              {
+                                color: isSelected
+                                  ? singleColor
+                                  : (isDarkMode ? '#94A3B8' : colors.gray500),
+                                fontWeight: isSelected ? '700' : '500',
+                                fontSize: dataLength > 20 ? 9 : 10,
+                              }
+                            ]}>
+                              {currentData.labels[i] || i + 1}
+                            </Text>
+                          </View>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                )}
               </ScrollView>
             ) : (
               <ScrollView 
@@ -1392,16 +1553,28 @@ export default function EnergyReport() {
                   {values.map((v, i) => {
                     const value = Number(v) || 0;
                     const secondaryValue = Number(secondaryValues[i]) || 0;
-                    const barHeight = value > 0 ? (value / (maxValue * 1.2)) * 80 : 0;
-                    const secondaryBarHeight = secondaryValue > 0 ? (secondaryValue / (maxValue * 1.2)) * 80 : 0;
-                    const isSelected = hoveredIndex === i;
+                    const barHeight = value > 0 ? (value / (maxValue * 1.2)) * 68 : 0;
+                    const secondaryBarHeight = secondaryValue > 0 ? (secondaryValue / (maxValue * 1.2)) * 68 : 0;
+                    const isSelected = selectedDetailIndex === i;
                     const formattedValue = value.toFixed(isAmount ? 0 : 1);
-                    const labelWidth = Math.max(38, formattedValue.length * 6 + 8);
+                    const labelWidth = Math.max(40, Math.min(52, formattedValue.length * 6.5 + 8));
+                    const singleColor = isAmount
+                      ? '#1E88E5'
+                      : energyUnitMode === 'kvah'
+                        ? '#10B981'
+                        : '#2563EB';
+                    const monthlyBarWidth = isDualEnergyMode ? 14 : 26;
+                    const colWidth = 60;
+                    const maxBarH = Math.max(barHeight, secondaryBarHeight);
+                    const pillBottomPct = Math.min(Math.max(maxBarH + 9, 18), 84);
                     
                     return (
                       <TouchableOpacity 
                         key={i}
-                        style={[styles.barCol, { width: barWidth + 10 }]}
+                        style={[
+                          styles.barCol,
+                          { width: colWidth, marginHorizontal: 5 },
+                        ]}
                         onPress={() => handleBarPress(i)}
                         activeOpacity={0.7}
                       >
@@ -1409,10 +1582,13 @@ export default function EnergyReport() {
                           <View style={[
                             styles.bar, 
                             { 
-                              height: `${barHeight}%`,
-                              width: energyUnitMode === 'both' ? Math.max(8, barWidth - 6) : barWidth,
-                              backgroundColor: isAmount ? '#1E88E5' : '#02569B',
-                              opacity: isSelected ? 1 : 0.8
+                              height: `${Math.max(barHeight, value > 0 ? 3 : 0)}%`,
+                              width: monthlyBarWidth,
+                              backgroundColor: isDualEnergyMode ? (isAmount ? '#1E88E5' : '#2563EB') : singleColor,
+                              borderTopLeftRadius: 6,
+                              borderTopRightRadius: 6,
+                              borderBottomLeftRadius: 2,
+                              borderBottomRightRadius: 2,
                             }
                           ]} />
                           {isDualEnergyMode && secondaryValue > 0 && (
@@ -1420,10 +1596,13 @@ export default function EnergyReport() {
                               styles.bar,
                               styles.secondaryBar,
                               {
-                                height: `${secondaryBarHeight}%`,
-                                width: Math.max(8, barWidth - 6),
-                                backgroundColor: '#16A34A',
-                                opacity: isSelected ? 1 : 0.88,
+                                height: `${Math.max(secondaryBarHeight, secondaryValue > 0 ? 3 : 0)}%`,
+                                width: monthlyBarWidth,
+                                backgroundColor: '#10B981',
+                                borderTopLeftRadius: 6,
+                                borderTopRightRadius: 6,
+                                borderBottomLeftRadius: 2,
+                                borderBottomRightRadius: 2,
                               }
                             ]} />
                           )}
@@ -1431,25 +1610,27 @@ export default function EnergyReport() {
                         
                         {!isDualEnergyMode && (showAllValues || isSelected) && value > 0 && (
                           <View style={[styles.barValueLabel, { 
-                            bottom: `${Math.min(barHeight + 2, 84)}%`,
+                            bottom: `${Math.min(barHeight + 5, 84)}%`,
                             left: '50%',
                             width: labelWidth,
                             transform: [{ translateX: -labelWidth / 2 }],
-                            backgroundColor: isSelected ? 
-                              (isAmount ? '#1E88E5' : '#02569B') : 
-                              (isDarkMode ? theme.card : 'rgba(255, 255, 255, 0.95)'),
-                            borderColor: isDarkMode ? theme.border : colors.gray200,
+                            backgroundColor: isDarkMode ? '#1E293B' : '#0F172A',
+                            borderColor: isDarkMode ? theme.border : '#334155',
+                            borderWidth: 0.8,
                             paddingHorizontal: 4,
-                            paddingVertical: 2,
+                            paddingVertical: 2.5,
                             minWidth: labelWidth,
+                            borderRadius: 6,
+                            alignItems: 'center',
+                            justifyContent: 'center',
                           }]}>
                             <Text style={[
                               styles.barValueText,
                               {
-                                fontSize: 8,
-                                color: isSelected
-                                  ? '#FFFFFF'
-                                  : (isDarkMode ? '#E2E8F0' : colors.primary)
+                                fontSize: 9,
+                                color: '#FFFFFF',
+                                fontWeight: '800',
+                                textAlign: 'center',
                               }
                             ]}
                             numberOfLines={1}>
@@ -1458,33 +1639,45 @@ export default function EnergyReport() {
                           </View>
                         )}
 
-                        {isDualEnergyMode && (showAllValues || selectedDetailIndex === i) && (
+                        {isDualEnergyMode && showAllValues && (value > 0 || secondaryValue > 0) && (
                           <View
                             style={[
-                              styles.selectedSeriesLabel,
+                              styles.cleanMicroBadge,
                               {
-                                bottom: `${Math.min(Math.max(barHeight, secondaryBarHeight) + (showAllValues ? (i % 2 === 0 ? 4 : 10) : 6), 86)}%`,
-                                left: '50%',
-                                transform: [{ translateX: -18 }],
+                                bottom: `${pillBottomPct}%`,
+                                backgroundColor: isDarkMode ? '#1E293B' : '#FFFFFF',
+                                borderColor: isDarkMode ? '#334155' : '#E2E8F0',
                               },
                             ]}
                           >
-                            <Text style={styles.selectedSeriesTextPrimary}>{value.toFixed(0)}</Text>
-                            <Text style={styles.selectedSeriesTextSecondary}>{secondaryValue.toFixed(0)}</Text>
+                            <Text style={[styles.cleanMicroText, { color: isDarkMode ? '#60A5FA' : '#2563EB' }]}>
+                              {value.toFixed(0)}
+                            </Text>
+                            <Text style={[styles.cleanMicroSep, { color: isDarkMode ? '#64748B' : '#CBD5E1' }]}>|</Text>
+                            <Text style={[styles.cleanMicroText, { color: isDarkMode ? '#34D399' : '#059669' }]}>
+                              {secondaryValue.toFixed(0)}
+                            </Text>
                           </View>
                         )}
 
-                        <Text style={[styles.monthLabel, { 
-                          marginTop: 4,
-                          fontSize: 10,
-                          textAlign: 'center',
-                          width: barWidth + 10,
-                          color: isSelected
-                            ? (isDarkMode ? "#BFDBFE" : colors.primary)
-                            : (isDarkMode ? "#94A3B8" : colors.gray400)
-                        }]}>
-                          {currentData.labels[i]?.slice(0,3) || months[i]?.slice(0,3)}
-                        </Text>
+                        <View style={[
+                          styles.monthLabelBadge,
+                          {
+                            position: 'absolute',
+                            bottom: -22,
+                          },
+                        ]}>
+                          <Text style={[
+                            styles.monthLabelText,
+                            { 
+                              fontSize: 10,
+                              color: isSelected ? (isDarkMode ? '#60A5FA' : '#2563EB') : (isDarkMode ? '#94A3B8' : colors.gray500),
+                              fontWeight: isSelected ? '700' : '500' 
+                            }
+                          ]}>
+                            {currentData.labels[i] || months[i]?.slice(0, 3)}
+                          </Text>
+                        </View>
                       </TouchableOpacity>
                     );
                   })}
@@ -1495,48 +1688,121 @@ export default function EnergyReport() {
         </View>
 
         {isDualEnergyMode ? (
-          <View style={[styles.dualStatsContainer, { backgroundColor: isDarkMode ? theme.card : colors.gray100, borderColor: theme.border }]}>
-            <View style={styles.dualStatsHeader}>
-              <View style={styles.dualStatsHeaderItem}>
-                <View style={[styles.dualDetailDot, { backgroundColor: '#02569B' }]} />
-                <Text style={[styles.dualStatsHeaderText, { color: theme.mutedText }]}>kWh</Text>
+          <View style={styles.dualBreakdownSection}>
+            <View style={[
+              styles.unifiedCompareCard,
+              {
+                backgroundColor: isDarkMode ? theme.surface : '#FFFFFF',
+                borderColor: isDarkMode ? theme.border : '#E2E8F0',
+              }
+            ]}>
+              {/* Header */}
+              <View style={styles.compareCardHeader}>
+                <View style={styles.compareHeaderLeft}>
+                  <View style={[styles.compareIconBadge, { backgroundColor: isDarkMode ? 'rgba(37, 99, 235, 0.2)' : '#EFF6FF' }]}>
+                    <Ionicons name="analytics" size={16} color={isDarkMode ? '#60A5FA' : '#2563EB'} />
+                  </View>
+                  <View>
+                    <Text style={[styles.compareTitle, { color: theme.text }]}>Period Summary</Text>
+                    <Text style={[styles.compareSubtitle, { color: theme.mutedText }]}>Active vs Apparent Load</Text>
+                  </View>
+                </View>
+                <View style={[styles.periodBadge, { backgroundColor: isDarkMode ? '#1E293B' : '#F1F5F9' }]}>
+                  <Text style={[styles.periodBadgeText, { color: theme.mutedText }]}>
+                    {timeView === 'daily' ? `${selectedMonth.slice(0, 3)} ${selectedYear}` : selectedYear}
+                  </Text>
+                </View>
               </View>
-              <View style={styles.dualStatsHeaderItem}>
-                <View style={[styles.dualDetailDot, styles.dualDetailDiamond, { backgroundColor: '#16A34A' }]} />
-                <Text style={[styles.dualStatsHeaderText, { color: theme.mutedText }]}>kVAh</Text>
-              </View>
-            </View>
-            <View style={styles.dualStatsRow}>
-              <View style={styles.dualStatsMetric}>
-                <Text style={[styles.statTitle, { color: isDarkMode ? "#CBD5E1" : theme.mutedText }]}>Average</Text>
-                <Text style={[styles.statValBlue, { color: isDarkMode ? "#60A5FA" : colors.primary }]}>{stats.avgU}</Text>
-              </View>
-              <View style={[styles.vDivider, { backgroundColor: theme.border }]} />
-              <View style={styles.dualStatsMetric}>
-                <Text style={[styles.statTitle, { color: isDarkMode ? "#CBD5E1" : theme.mutedText }]}>Maximum</Text>
-                <Text style={[styles.statValRed, { color: isDarkMode ? "#F87171" : colors.danger }]}>{stats.maxU}</Text>
-              </View>
-              <View style={[styles.vDivider, { backgroundColor: theme.border }]} />
-              <View style={styles.dualStatsMetric}>
-                <Text style={[styles.statTitle, { color: isDarkMode ? "#CBD5E1" : theme.mutedText }]}>Total</Text>
-                <Text style={[styles.statValGreen, { color: isDarkMode ? "#4ADE80" : colors.secondary }]}>{stats.totalUnits}</Text>
-              </View>
-            </View>
-            <View style={[styles.hDivider, { backgroundColor: theme.border }]} />
-            <View style={styles.dualStatsRow}>
-              <View style={styles.dualStatsMetric}>
-                <Text style={[styles.statTitle, { color: isDarkMode ? "#CBD5E1" : theme.mutedText }]}>Average</Text>
-                <Text style={[styles.statValBlue, { color: '#16A34A' }]}>{stats.avgKvah}</Text>
-              </View>
-              <View style={[styles.vDivider, { backgroundColor: theme.border }]} />
-              <View style={styles.dualStatsMetric}>
-                <Text style={[styles.statTitle, { color: isDarkMode ? "#CBD5E1" : theme.mutedText }]}>Maximum</Text>
-                <Text style={[styles.statValRed, { color: '#15803D' }]}>{stats.maxKvah}</Text>
-              </View>
-              <View style={[styles.vDivider, { backgroundColor: theme.border }]} />
-              <View style={styles.dualStatsMetric}>
-                <Text style={[styles.statTitle, { color: isDarkMode ? "#CBD5E1" : theme.mutedText }]}>Total</Text>
-                <Text style={[styles.statValGreen, { color: '#16A34A' }]}>{stats.totalKvah}</Text>
+
+              {/* 2-Column Side-by-Side Comparison */}
+              <View style={styles.compareColumnsRow}>
+                {/* Active Column */}
+                <View style={[
+                  styles.compareColBox,
+                  {
+                    backgroundColor: isDarkMode ? '#0F1E36' : '#F6FAFF',
+                    borderColor: isDarkMode ? '#1E3A8A' : '#D0E3F7',
+                  }
+                ]}>
+                  <View style={styles.colHeaderPill}>
+                    <View style={[styles.legendDot, { backgroundColor: '#2563EB' }]} />
+                    <Text style={[styles.colHeaderTitle, { color: isDarkMode ? '#93C5FD' : '#1D4ED8' }]}>
+                      Active Energy
+                    </Text>
+                  </View>
+                  <Text style={[styles.colSubunit, { color: isDarkMode ? '#60A5FA' : '#2563EB' }]}>
+                    Unit: kWh (Billed)
+                  </Text>
+
+                  <View style={styles.compareMetricItem}>
+                    <Text style={[styles.metricLabelSmall, { color: isDarkMode ? '#94A3B8' : '#64748B' }]}>Average</Text>
+                    <Text style={[styles.metricValBold, { color: isDarkMode ? '#60A5FA' : '#1D4ED8' }]}>
+                      {stats.avgU} <Text style={styles.metricUnitTiny}>kWh</Text>
+                    </Text>
+                  </View>
+
+                  <View style={[styles.compareInnerDivider, { backgroundColor: isDarkMode ? '#1E3A8A' : '#E2E8F0' }]} />
+
+                  <View style={styles.compareMetricItem}>
+                    <Text style={[styles.metricLabelSmall, { color: isDarkMode ? '#94A3B8' : '#64748B' }]}>Peak Maximum</Text>
+                    <Text style={[styles.metricValBold, { color: isDarkMode ? '#F87171' : '#DC2626' }]}>
+                      {stats.maxU} <Text style={styles.metricUnitTiny}>kWh</Text>
+                    </Text>
+                  </View>
+
+                  <View style={[styles.compareInnerDivider, { backgroundColor: isDarkMode ? '#1E3A8A' : '#E2E8F0' }]} />
+
+                  <View style={styles.compareMetricItem}>
+                    <Text style={[styles.metricLabelSmall, { color: isDarkMode ? '#94A3B8' : '#64748B' }]}>Total Consumed</Text>
+                    <Text style={[styles.metricValBold, { color: isDarkMode ? '#38BDF8' : '#0284C7' }]}>
+                      {stats.totalUnits} <Text style={styles.metricUnitTiny}>kWh</Text>
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Apparent Column */}
+                <View style={[
+                  styles.compareColBox,
+                  {
+                    backgroundColor: isDarkMode ? '#062E20' : '#F4FBF7',
+                    borderColor: isDarkMode ? '#065F46' : '#C7EED8',
+                  }
+                ]}>
+                  <View style={styles.colHeaderPill}>
+                    <View style={[styles.legendDot, { backgroundColor: '#10B981' }]} />
+                    <Text style={[styles.colHeaderTitle, { color: isDarkMode ? '#86EFAC' : '#059669' }]}>
+                      Apparent Energy
+                    </Text>
+                  </View>
+                  <Text style={[styles.colSubunit, { color: isDarkMode ? '#86EFAC' : '#059669' }]}>
+                    Unit: kVAh (Total)
+                  </Text>
+
+                  <View style={styles.compareMetricItem}>
+                    <Text style={[styles.metricLabelSmall, { color: isDarkMode ? '#94A3B8' : '#64748B' }]}>Average</Text>
+                    <Text style={[styles.metricValBold, { color: isDarkMode ? '#4ADE80' : '#10B981' }]}>
+                      {stats.avgKvah} <Text style={styles.metricUnitTiny}>kVAh</Text>
+                    </Text>
+                  </View>
+
+                  <View style={[styles.compareInnerDivider, { backgroundColor: isDarkMode ? '#065F46' : '#E2E8F0' }]} />
+
+                  <View style={styles.compareMetricItem}>
+                    <Text style={[styles.metricLabelSmall, { color: isDarkMode ? '#94A3B8' : '#64748B' }]}>Peak Maximum</Text>
+                    <Text style={[styles.metricValBold, { color: isDarkMode ? '#F87171' : '#DC2626' }]}>
+                      {stats.maxKvah} <Text style={styles.metricUnitTiny}>kVAh</Text>
+                    </Text>
+                  </View>
+
+                  <View style={[styles.compareInnerDivider, { backgroundColor: isDarkMode ? '#065F46' : '#E2E8F0' }]} />
+
+                  <View style={styles.compareMetricItem}>
+                    <Text style={[styles.metricLabelSmall, { color: isDarkMode ? '#94A3B8' : '#64748B' }]}>Total Apparent</Text>
+                    <Text style={[styles.metricValBold, { color: isDarkMode ? '#4ADE80' : '#10B981' }]}>
+                      {stats.totalKvah} <Text style={styles.metricUnitTiny}>kVAh</Text>
+                    </Text>
+                  </View>
+                </View>
               </View>
             </View>
           </View>
@@ -1611,98 +1877,159 @@ export default function EnergyReport() {
         style={[
           styles.topSection,
           {
-            backgroundColor: isDarkMode ? theme.background : "#F8FAFC",
+            backgroundColor: isDarkMode ? theme.surface : "#FFFFFF",
             borderBottomColor: isDarkMode ? theme.border : "#E2E8F0",
           },
         ]}
       >
-        <View style={styles.actionRow}>
-          <TouchableOpacity 
-            style={[
-              styles.downloadBtn,
-              {
-                backgroundColor: isDarkMode ? theme.surface : "#FFFFFF",
-                borderColor: isDarkMode ? theme.border : "#D8E1EC",
-              },
-            ]} 
-            onPress={() => setShowReportTypeModal(true)}
-            disabled={isGeneratingReport}
-          >
-            {isGeneratingReport ? (
-              <ActivityIndicator size="small" color={theme.primary} />
-            ) : (
-              <Ionicons name="document-text" size={16} color={theme.primary} />
-            )}
-            <Text style={[styles.downloadText, { color: theme.primary }]}>
-              {isGeneratingReport ? 'Generating...' : 'Download Report'}
+        {/* Tier 1: Screen Header & Action Buttons */}
+        <View style={styles.topHeaderBar}>
+          <View style={styles.topHeaderTitleCol}>
+            <Text style={[styles.topHeaderMainTitle, { color: isDarkMode ? '#F8FAFC' : '#0F172A' }]}>
+              Consumption Reports
             </Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity
-            style={[
-              styles.refreshBtn,
-              {
-                backgroundColor: isDarkMode ? theme.surface : "#FFFFFF",
-                borderColor: isDarkMode ? theme.border : "#D8E1EC",
-              },
-            ]}
-            onPress={fetchData}
-          >
-            <Ionicons name="refresh-outline" size={16} color={theme.primary} />
-            <Text style={[styles.downloadText, { color: theme.primary }]}>Refresh</Text>
-          </TouchableOpacity>
+            <Text style={[styles.topHeaderSubtitle, { color: theme.mutedText }]}>
+              Daily & monthly energy analytics
+            </Text>
+          </View>
+
+          {/* Quick Actions */}
+          <View style={styles.actionButtonGroup}>
+            <TouchableOpacity 
+              style={[
+                styles.downloadBtnModern,
+                {
+                  backgroundColor: isDarkMode ? 'rgba(37, 99, 235, 0.15)' : '#EFF6FF',
+                  borderColor: isDarkMode ? 'rgba(59, 130, 246, 0.35)' : '#BFDBFE',
+                },
+              ]} 
+              onPress={() => {
+                const now = new Date();
+                const realYear = now.getFullYear();
+                const realMonth = now.getMonth() + 1;
+                
+                let defaultYear = realYear;
+                let defaultMonth = realMonth - 1;
+                if (defaultMonth < 1) {
+                  defaultMonth = 12;
+                  defaultYear = realYear - 1;
+                }
+
+                setDownloadMonth(defaultMonth);
+                setDownloadYear(defaultYear.toString());
+                setDownloadReportType(timeView === 'daily' ? 'daily' : 'monthly');
+                setDownloadUnit(energyUnitMode === 'kvah' ? 'kvah' : 'kwh');
+                setShowReportTypeModal(true);
+              }}
+              disabled={isGeneratingReport}
+              activeOpacity={0.7}
+            >
+              {isGeneratingReport ? (
+                <ActivityIndicator size="small" color={theme.primary} />
+              ) : (
+                <Ionicons name="document-text" size={14} color={isDarkMode ? '#60A5FA' : '#2563EB'} />
+              )}
+              <Text style={[styles.downloadTextModern, { color: isDarkMode ? '#60A5FA' : '#2563EB' }]}>
+                {isGeneratingReport ? 'Exporting...' : 'Report'}
+              </Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={[
+                styles.refreshIconBtnModern,
+                {
+                  backgroundColor: isDarkMode ? theme.surface : "#FFFFFF",
+                  borderColor: isDarkMode ? theme.border : "#D8E1EC",
+                },
+              ]}
+              onPress={fetchData}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="refresh-outline" size={16} color={theme.primary} />
+            </TouchableOpacity>
+          </View>
         </View>
 
+        {/* Tier 2: Full-Width Modern Segmented Switcher */}
         <View
           style={[
-            styles.tabBar,
+            styles.tabBarModernFull,
             {
-              backgroundColor: isDarkMode ? theme.surface : "#E8EEF5",
-              borderColor: isDarkMode ? theme.border : "#D8E1EC",
+              backgroundColor: isDarkMode ? 'rgba(30, 41, 59, 0.75)' : '#F1F5F9',
+              borderColor: isDarkMode ? theme.border : '#E2E8F0',
             },
           ]}
         >
           <TouchableOpacity 
             onPress={() => handleViewChange('daily')} 
             style={[
-              styles.tab,
-              timeView === 'daily' && styles.activeTab,
-              timeView === 'daily' && {
-                backgroundColor: isDarkMode ? theme.primary : "#FFFFFF",
-                borderWidth: 1,
-                borderColor: isDarkMode ? theme.primary : "#D8E1EC",
-              },
-              timeView !== 'daily' && { backgroundColor: 'transparent' },
+              styles.tabModernFull,
+              timeView === 'daily' && [
+                styles.activeTabModernFull,
+                {
+                  backgroundColor: isDarkMode ? theme.primary : '#FFFFFF',
+                  shadowColor: '#000',
+                  shadowOpacity: isDarkMode ? 0.3 : 0.08,
+                  shadowRadius: 4,
+                  shadowOffset: { width: 0, height: 2 },
+                  elevation: 2,
+                }
+              ],
             ]}
+            activeOpacity={0.8}
           >
+            <Ionicons 
+              name="calendar-outline" 
+              size={15} 
+              color={timeView === 'daily' ? (isDarkMode ? '#FFFFFF' : theme.primary) : theme.mutedText} 
+            />
             <Text
               style={[
-                styles.tabText,
-                timeView === 'daily' && styles.activeTabText,
-                { color: timeView === 'daily' ? (isDarkMode ? "#F8FAFC" : "#334155") : theme.mutedText },
+                styles.tabTextModernFull,
+                { 
+                  color: timeView === 'daily' 
+                    ? (isDarkMode ? '#FFFFFF' : '#0F172A') 
+                    : theme.mutedText,
+                  fontWeight: timeView === 'daily' ? '700' : '600',
+                },
               ]}
             >
               Daily View
             </Text>
           </TouchableOpacity>
+
           <TouchableOpacity 
             onPress={() => handleViewChange('monthly')} 
             style={[
-              styles.tab,
-              timeView === 'monthly' && styles.activeTab,
-              timeView === 'monthly' && {
-                backgroundColor: isDarkMode ? theme.primary : "#FFFFFF",
-                borderWidth: 1,
-                borderColor: isDarkMode ? theme.primary : "#D8E1EC",
-              },
-              timeView !== 'monthly' && { backgroundColor: 'transparent' },
+              styles.tabModernFull,
+              timeView === 'monthly' && [
+                styles.activeTabModernFull,
+                {
+                  backgroundColor: isDarkMode ? theme.primary : '#FFFFFF',
+                  shadowColor: '#000',
+                  shadowOpacity: isDarkMode ? 0.3 : 0.08,
+                  shadowRadius: 4,
+                  shadowOffset: { width: 0, height: 2 },
+                  elevation: 2,
+                }
+              ],
             ]}
+            activeOpacity={0.8}
           >
+            <Ionicons 
+              name="bar-chart-outline" 
+              size={15} 
+              color={timeView === 'monthly' ? (isDarkMode ? '#FFFFFF' : theme.primary) : theme.mutedText} 
+            />
             <Text
               style={[
-                styles.tabText,
-                timeView === 'monthly' && styles.activeTabText,
-                { color: timeView === 'monthly' ? (isDarkMode ? "#F8FAFC" : "#334155") : theme.mutedText },
+                styles.tabTextModernFull,
+                { 
+                  color: timeView === 'monthly' 
+                    ? (isDarkMode ? '#FFFFFF' : '#0F172A') 
+                    : theme.mutedText,
+                  fontWeight: timeView === 'monthly' ? '700' : '600',
+                },
               ]}
             >
               Monthly View
@@ -1715,67 +2042,184 @@ export default function EnergyReport() {
         <GraphCard title={energyGraphTitle} unit={energyGraphUnit} />
         <View style={styles.spacer} />
       </ScrollView>
-
-      {/* Report Type Selection Modal */}
+      {/* Report Type & Energy Unit Selection Modal */}
       <Modal visible={showReportTypeModal} transparent animationType="fade">
         <View style={styles.reportTypeModal}>
-          <View style={[styles.reportTypeContent, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-            <Text style={[styles.reportTypeTitle, { color: theme.text }]}>Select Report Type</Text>
+          <View style={[styles.reportTypeContent, { backgroundColor: theme.surface, borderColor: theme.border, maxHeight: '90%' }]}>
             
-
-            
-            <TouchableOpacity 
-              style={[
-                styles.reportTypeOption,
-                {
-                  borderColor: theme.border,
-                  backgroundColor: isDarkMode ? theme.card : colors.gray100,
-                },
-              ]}
-              onPress={() => {
-                setShowReportTypeModal(false);
-                exportDetailedPDF();
-              }}
-            >
-              <Ionicons name="calendar-outline" size={20} color={theme.primary} />
-              <View style={styles.reportTypeTextContainer}>
-                <Text style={[styles.reportTypeName, { color: theme.text }]}>Daily Report</Text>
-                <Text style={[styles.reportTypeDesc, { color: theme.mutedText }]}>Day-wise consumption for selected month</Text>
+            {/* Header */}
+            <View style={styles.modalHeaderRow}>
+              <View style={[styles.modalHeaderIconBadge, { backgroundColor: theme.primary + '18' }]}>
+                <Ionicons name="cloud-download-outline" size={22} color={theme.primary} />
               </View>
-            </TouchableOpacity>
-
-            <TouchableOpacity 
-              style={[
-                styles.reportTypeOption,
-                {
-                  borderColor: theme.border,
-                  backgroundColor: isDarkMode ? theme.card : colors.gray100,
-                },
-              ]}
-              onPress={() => {
-                setShowReportTypeModal(false);
-                exportDetailedPDF();
-              }}
-            >
-              <Ionicons name="document-attach" size={20} color={theme.primary} />
-              <View style={styles.reportTypeTextContainer}>
-                <Text style={[styles.reportTypeName, { color: theme.text }]}>Monthly Report</Text>
-                <Text style={[styles.reportTypeDesc, { color: theme.mutedText }]}>Official detailed monthly meter report</Text>
+              <View style={{ flex: 1, marginLeft: 12 }}>
+                <Text style={[styles.reportTypeTitle, { color: theme.text, textAlign: 'left', marginBottom: 2 }]}>
+                  Download Report
+                </Text>
+                <Text style={{ fontSize: 12, color: theme.mutedText }}>
+                  {`Daily Log: ${selectedMonth} ${selectedYear}`}
+                </Text>
               </View>
-            </TouchableOpacity>
-            
-            <TouchableOpacity 
-              style={[
-                styles.cancelReportBtn,
-                {
-                  backgroundColor: isDarkMode ? theme.card : colors.gray200,
-                  borderColor: theme.border,
-                },
-              ]}
-              onPress={() => setShowReportTypeModal(false)}
-            >
-              <Text style={[styles.cancelReportText, { color: isDarkMode ? "#E2E8F0" : theme.text }]}>Cancel</Text>
-            </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => setShowReportTypeModal(false)}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Ionicons name="close" size={22} color={theme.mutedText} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 10 }}>
+              {/* DAILY REPORT CONTENT */}
+              <View style={{ marginTop: 14 }}>
+                {/* Daily Period Banner */}
+                <View style={[styles.dailyInfoCard, { backgroundColor: isDarkMode ? theme.card : '#F0F9FF', borderColor: theme.primary + '30' }]}>
+                  <Ionicons name="information-circle" size={20} color={theme.primary} />
+                  <View style={{ flex: 1, marginLeft: 10 }}>
+                    <Text style={[styles.dailyInfoTitle, { color: theme.text }]}>
+                      Current Selected Period
+                    </Text>
+                    <Text style={[styles.dailyInfoSubtitle, { color: theme.mutedText }]}>
+                      {selectedMonth} {selectedYear} (Day-by-day table)
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Energy Metric Selection */}
+                <View style={[styles.sectionHeaderRow, { marginTop: 14 }]}>
+                  <Ionicons name="flash" size={16} color={theme.primary} />
+                  <Text style={[styles.reportModalSectionLabel, { color: theme.text, marginLeft: 6 }]}>
+                    Select Energy Metric
+                  </Text>
+                </View>
+
+                <View style={styles.unitSelectorRow}>
+                  <TouchableOpacity
+                    style={[
+                      styles.unitPillModern,
+                      {
+                        borderColor: downloadUnit === 'kwh' ? theme.primary : theme.border,
+                        backgroundColor:
+                          downloadUnit === 'kwh'
+                            ? theme.primary
+                            : isDarkMode ? theme.card : '#FFFFFF',
+                      },
+                    ]}
+                    onPress={() => setDownloadUnit('kwh')}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons
+                      name="flash"
+                      size={18}
+                      color={downloadUnit === 'kwh' ? '#FFFFFF' : theme.mutedText}
+                    />
+                    <View style={{ marginLeft: 8 }}>
+                      <Text
+                        style={[
+                          styles.unitPillTitle,
+                          {
+                            color: downloadUnit === 'kwh' ? '#FFFFFF' : theme.text,
+                            fontWeight: downloadUnit === 'kwh' ? '700' : '500',
+                          },
+                        ]}
+                      >
+                        kWh (Active)
+                      </Text>
+                      <Text
+                        style={[
+                          styles.unitPillSubtitle,
+                          {
+                            color: downloadUnit === 'kwh' ? '#E2E8F0' : theme.mutedText,
+                          },
+                        ]}
+                      >
+                        Active energy units
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.unitPillModern,
+                      {
+                        borderColor: downloadUnit === 'kvah' ? theme.primary : theme.border,
+                        backgroundColor:
+                          downloadUnit === 'kvah'
+                            ? theme.primary
+                            : isDarkMode ? theme.card : '#FFFFFF',
+                      },
+                    ]}
+                    onPress={() => setDownloadUnit('kvah')}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons
+                      name="speedometer"
+                      size={18}
+                      color={downloadUnit === 'kvah' ? '#FFFFFF' : theme.mutedText}
+                    />
+                    <View style={{ marginLeft: 8 }}>
+                      <Text
+                        style={[
+                          styles.unitPillTitle,
+                          {
+                            color: downloadUnit === 'kvah' ? '#FFFFFF' : theme.text,
+                            fontWeight: downloadUnit === 'kvah' ? '700' : '500',
+                          },
+                        ]}
+                      >
+                        kVAh (Apparent)
+                      </Text>
+                      <Text
+                        style={[
+                          styles.unitPillSubtitle,
+                          {
+                            color: downloadUnit === 'kvah' ? '#E2E8F0' : theme.mutedText,
+                          },
+                        ]}
+                      >
+                        Apparent energy units
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {/* Action Buttons */}
+              <TouchableOpacity
+                style={[styles.downloadSubmitBtn, { backgroundColor: theme.primary, marginTop: 18 }]}
+                onPress={() => exportReportPDF('daily', downloadUnit)}
+                disabled={isGeneratingReport}
+              >
+                {isGeneratingReport ? (
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <ActivityIndicator size="small" color="#FFFFFF" style={{ marginRight: 8 }} />
+                    <Text style={styles.downloadSubmitText}>Downloading PDF...</Text>
+                  </View>
+                ) : (
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <Ionicons name="download-outline" size={18} color="#FFFFFF" style={{ marginRight: 8 }} />
+                    <Text style={styles.downloadSubmitText}>
+                      {`Download Daily Report (${downloadUnit.toUpperCase()})`}
+                    </Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.cancelReportBtn,
+                  {
+                    backgroundColor: isDarkMode ? theme.card : '#F1F5F9',
+                    borderColor: theme.border,
+                    marginTop: 10,
+                  },
+                ]}
+                onPress={() => setShowReportTypeModal(false)}
+              >
+                <Text style={[styles.cancelReportText, { color: isDarkMode ? '#E2E8F0' : theme.text }]}>
+                  Cancel
+                </Text>
+              </TouchableOpacity>
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -1989,16 +2433,113 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   topSection: {
-    paddingHorizontal: spacing.xl,
-    paddingTop: spacing.xxxl,
-    paddingBottom: spacing.lg,
-    backgroundColor: colors.white,
+    paddingHorizontal: spacing.lg,
+    paddingTop: Platform.OS === 'ios' ? 12 : spacing.md,
+    paddingBottom: spacing.md,
     borderBottomWidth: 1,
     borderBottomColor: colors.gray200,
     ...shadows.sm,
   },
+  topHeaderBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.xs,
+  },
+  topHeaderTitleCol: {
+    flex: 1,
+    paddingRight: 8,
+  },
+  topHeaderMainTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    letterSpacing: -0.3,
+  },
+  topHeaderSubtitle: {
+    fontSize: 11,
+    fontWeight: '500',
+    marginTop: 1,
+  },
+  tabBarModernFull: {
+    width: '100%',
+    flexDirection: 'row',
+    borderRadius: 12,
+    padding: 3,
+    borderWidth: 1,
+    marginTop: 8,
+  },
+  tabModernFull: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 9,
+    borderRadius: 9,
+  },
+  activeTabModernFull: {
+    borderRadius: 9,
+  },
+  tabTextModernFull: {
+    fontSize: 13,
+  },
+  topControlBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  tabBarModern: {
+    flex: 1,
+    flexDirection: 'row',
+    borderRadius: 12,
+    padding: 3,
+    borderWidth: 1,
+  },
+  tabModern: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    paddingVertical: 8,
+    borderRadius: 9,
+  },
+  activeTabModern: {
+    borderRadius: 9,
+  },
+  tabTextModern: {
+    fontSize: 12,
+  },
+  actionButtonGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  downloadBtnModern: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 11,
+    paddingVertical: 7,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  downloadTextModern: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  refreshIconBtnModern: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+  },
+
   scroll: {
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: spacing.md,
     paddingBottom: spacing.xxxl,
     paddingTop: spacing.md,
   },
@@ -2006,7 +2547,7 @@ const styles = StyleSheet.create({
     height: spacing.xxxl,
   },
 
-  // Action Buttons
+  // Legacy Action Buttons (backward compatibility)
   actionRow: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
@@ -2044,7 +2585,7 @@ const styles = StyleSheet.create({
     color: colors.primary,
   },
 
-  // Tabs
+  // Legacy Tabs
   tabBar: {
     flexDirection: 'row',
     backgroundColor: colors.gray200,
@@ -2073,34 +2614,49 @@ const styles = StyleSheet.create({
   // Cards
   card: {
     backgroundColor: colors.white,
-    borderRadius: borderRadius.xl,
-    padding: spacing.xl,
+    borderRadius: 18,
+    padding: spacing.lg,
     marginBottom: spacing.lg,
-    ...shadows.md,
+    borderWidth: 1,
+    borderColor: colors.gray200,
+    overflow: 'hidden',
+    ...shadows.sm,
   },
   cardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: spacing.lg,
+    marginBottom: spacing.md,
   },
   iconBox: {
     width: 36,
     height: 36,
-    borderRadius: borderRadius.md,
-    backgroundColor: colors.primaryLight,
+    borderRadius: 10,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: spacing.md,
+    marginRight: 10,
   },
   currIcon: {
-    color: colors.primary,
-    fontWeight: '700',
+    fontWeight: '800',
     fontSize: 16,
   },
   cardTitle: {
-    flex: 1,
     ...typography.h3,
-    color: colors.black,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  filterBadgeModern: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 20,
+    gap: 4,
+    ...shadows.sm,
+  },
+  filterBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
   },
   filterBadge: {
     backgroundColor: colors.primary,
@@ -2137,6 +2693,195 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginLeft: spacing.xs,
   },
+  dualControlsWrap: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.md,
+    gap: 6,
+  },
+  seriesLegendModern: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 4.5,
+    borderRadius: 20,
+    borderWidth: 1,
+    flexShrink: 1,
+  },
+  legendSeparatorDot: {
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
+    marginHorizontal: 5,
+  },
+  toggleValuesButtonModern: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 7,
+    paddingVertical: 4,
+    borderRadius: 20,
+    borderWidth: 1,
+    flexShrink: 0,
+  },
+  toggleValuesTextModern: {
+    fontSize: 9.5,
+  },
+  toggleValuesButtonCompact: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    borderRadius: borderRadius.round,
+    borderWidth: 1,
+  },
+  toggleValuesTextCompact: {
+    fontSize: 11,
+    fontWeight: '600',
+    marginLeft: 4,
+  },
+
+  // Hero Inspector Card Modern
+  heroInspectorCardModern: {
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 12,
+    marginBottom: spacing.md,
+  },
+  heroDateIconWrap: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  heroInspectorPodRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 8,
+    marginBottom: 6,
+  },
+  metricPod: {
+    flex: 1,
+    borderRadius: 10,
+    borderWidth: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    alignItems: 'center',
+  },
+  metricPodHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginBottom: 4,
+  },
+  metricPodLabel: {
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  metricPodValue: {
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  metricPodSub: {
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  statusDotPulse: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginRight: 4,
+  },
+  legendDotSmall: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  heroInspectorFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    paddingTop: 4,
+  },
+  heroInspectorFooterText: {
+    fontSize: 10,
+    fontWeight: '500',
+  },
+
+  // Legacy Hero Inspector Card (for fallback)
+  heroInspectorCard: {
+    borderRadius: borderRadius.lg,
+    borderWidth: 1,
+    paddingVertical: 9,
+    paddingHorizontal: 12,
+    marginBottom: spacing.md,
+  },
+  heroInspectorHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  heroInspectorDayBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  heroInspectorDayText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  heroInspectorPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: borderRadius.round,
+  },
+  heroInspectorHint: {
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  heroInspectorGrid: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 6,
+  },
+  heroGridCol: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  heroGridColHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginBottom: 2,
+  },
+  heroGridLabel: {
+    ...typography.tiny,
+    fontWeight: '600',
+  },
+  heroGridVal: {
+    fontSize: 13,
+    fontWeight: '800',
+    lineHeight: 16,
+  },
+  heroGridUnit: {
+    fontSize: 9,
+    fontWeight: '500',
+  },
+  heroGridDivider: {
+    width: 1,
+    height: 20,
+  },
   seriesLegendWrap: {
     alignItems: 'center',
     marginBottom: spacing.sm,
@@ -2156,12 +2901,12 @@ const styles = StyleSheet.create({
   legendItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginHorizontal: 4,
+    marginHorizontal: 1,
   },
   legendDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
     marginRight: 4,
   },
   legendDiamond: {
@@ -2169,7 +2914,7 @@ const styles = StyleSheet.create({
     transform: [{ rotate: '45deg' }],
   },
   legendText: {
-    ...typography.tiny,
+    fontSize: 10,
     fontWeight: '700',
     color: colors.gray500,
   },
@@ -2178,9 +2923,79 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 
+  // Tooltip & Micro Badges
+  selectedTooltipPill: {
+    position: 'absolute',
+    paddingHorizontal: 6,
+    paddingVertical: 2.5,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    zIndex: 50,
+    elevation: 8,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.18,
+    shadowRadius: 3,
+    shadowOffset: { width: 0, height: 1 },
+  },
+  selectedTooltipRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+  },
+  selectedTooltipKwh: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: '#60A5FA',
+  },
+  selectedTooltipKvah: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: '#34D399',
+  },
+  selectedTooltipUnit: {
+    fontSize: 8,
+    fontWeight: '600',
+    color: '#94A3B8',
+  },
+  selectedTooltipSep: {
+    fontSize: 8,
+    color: '#64748B',
+    marginHorizontal: 1.5,
+  },
+  legendDotMicro: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+  },
+  cleanMicroBadge: {
+    position: 'absolute',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: 5,
+    borderWidth: 1,
+    zIndex: 10,
+    shadowColor: '#000',
+    shadowOpacity: 0.04,
+    shadowRadius: 2,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 1,
+  },
+  cleanMicroText: {
+    fontSize: 8,
+    fontWeight: '700',
+  },
+  cleanMicroSep: {
+    fontSize: 7,
+    marginHorizontal: 1.5,
+  },
+
   // Graph Components
   graphBody: {
-    height: 200,
+    height: 220,
     flexDirection: 'row',
     marginBottom: spacing.xl,
   },
@@ -2191,11 +3006,18 @@ const styles = StyleSheet.create({
   },
   chartSpace: {
     flex: 1,
-    borderLeftWidth: 1,
     borderBottomWidth: 1,
     borderColor: colors.gray300,
     position: 'relative',
-    overflow: 'hidden',
+    overflow: 'visible',
+  },
+  chartGridLine: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    borderBottomWidth: 1,
+    borderStyle: 'dashed',
+    zIndex: 1,
   },
   axisLabel: {
     ...typography.tiny,
@@ -2205,7 +3027,8 @@ const styles = StyleSheet.create({
 
   // Scrollable graph content
   scrollableGraph: {
-    paddingRight: spacing.md,
+    paddingHorizontal: 16,
+    paddingRight: 40,
     minWidth: '100%',
   },
 
@@ -2294,80 +3117,190 @@ const styles = StyleSheet.create({
     color: colors.white,
     textAlign: 'center',
   },
-  selectedSeriesLabel: {
+  dualBarValuePill: {
     position: 'absolute',
-    alignItems: 'center',
-    zIndex: 24,
-  },
-  selectedSeriesTextPrimary: {
-    fontSize: 7,
-    lineHeight: 8,
-    fontWeight: '800',
-    color: '#02569B',
-    textAlign: 'center',
-    backgroundColor: 'rgba(255,255,255,0.92)',
-    paddingHorizontal: 3,
-    paddingVertical: 1,
-    borderRadius: 6,
-    overflow: 'hidden',
-  },
-  selectedSeriesTextSecondary: {
-    fontSize: 7,
-    lineHeight: 8,
-    fontWeight: '800',
-    color: '#16A34A',
-    textAlign: 'center',
-    backgroundColor: 'rgba(255,255,255,0.92)',
-    paddingHorizontal: 3,
-    paddingVertical: 1,
-    borderRadius: 6,
-    marginTop: 2,
-    overflow: 'hidden',
-  },
-  dualDetailDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: 6,
-  },
-  dualDetailDiamond: {
-    borderRadius: 2,
-    transform: [{ rotate: '45deg' }],
-  },
-  dualStatsContainer: {
-    borderRadius: borderRadius.lg,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.md,
-    borderWidth: 1,
-    marginBottom: spacing.lg,
-  },
-  dualStatsHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: spacing.sm,
-    paddingHorizontal: spacing.sm,
-  },
-  dualStatsHeaderItem: {
     flexDirection: 'row',
     alignItems: 'center',
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: 8,
+    zIndex: 25,
+    elevation: 4,
+    gap: 3,
+    ...shadows.sm,
   },
-  dualStatsHeaderText: {
-    ...typography.tiny,
-    fontWeight: '700',
+  dualValueKwhText: {
+    fontSize: 9,
+    fontWeight: '800',
+    textAlign: 'center',
   },
-  dualStatsRow: {
-    flexDirection: 'row',
-    alignItems: 'stretch',
+  dualValueSep: {
+    fontSize: 8,
+    fontWeight: '600',
+    textAlign: 'center',
   },
-  dualStatsMetric: {
-    flex: 1,
+  dualValueKvahText: {
+    fontSize: 9,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  dayLabelBadge: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 4,
+    minWidth: 18,
   },
-  hDivider: {
+  dayLabelText: {
+    textAlign: 'center',
+  },
+  monthLabelBadge: {
+    marginTop: 4,
+    paddingHorizontal: 3,
+    paddingVertical: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  monthLabelText: {
+    textAlign: 'center',
+  },
+  dualBreakdownSection: {
+    marginTop: spacing.xs,
+    marginBottom: spacing.lg,
+    gap: 12,
+  },
+  unifiedCompareCard: {
+    borderRadius: borderRadius.lg,
+    borderWidth: 1,
+    padding: spacing.md,
+    ...shadows.sm,
+  },
+  compareCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.md,
+  },
+  compareHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  compareIconBadge: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  compareTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  compareSubtitle: {
+    ...typography.tiny,
+    fontWeight: '500',
+  },
+  periodBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: borderRadius.sm,
+  },
+  periodBadgeText: {
+    ...typography.tiny,
+    fontWeight: '600',
+  },
+  compareColumnsRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: spacing.sm,
+  },
+  compareColBox: {
+    flex: 1,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    padding: spacing.sm,
+  },
+  colHeaderPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginBottom: 2,
+  },
+  colHeaderTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  colSubunit: {
+    fontSize: 9,
+    fontWeight: '500',
+    marginBottom: 8,
+  },
+  compareMetricItem: {
+    paddingVertical: 3,
+  },
+  metricLabelSmall: {
+    fontSize: 10,
+    fontWeight: '600',
+    marginBottom: 1,
+  },
+  metricValBold: {
+    fontSize: 13,
+    fontWeight: '800',
+    lineHeight: 16,
+  },
+  metricUnitTiny: {
+    fontSize: 9,
+    fontWeight: '500',
+  },
+  compareInnerDivider: {
     height: 1,
-    marginVertical: spacing.sm,
+    marginVertical: 4,
+  },
+  pfBannerBox: {
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    padding: spacing.sm,
+    marginTop: 4,
+  },
+  pfBannerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  pfBannerHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  pfBannerTitle: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  pfBannerScore: {
+    fontSize: 13,
+    fontWeight: '800',
+    marginLeft: 2,
+  },
+  pfBannerMax: {
+    fontSize: 9,
+    fontWeight: '500',
+  },
+  pfStatusBadgeSmall: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: borderRadius.round,
+  },
+  pfStatusBadgeTextSmall: {
+    fontSize: 9,
+    fontWeight: '700',
+  },
+  pfProgressTrack: {
+    height: 6,
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  pfProgressBar: {
+    height: '100%',
+    borderRadius: 3,
   },
   
   // Bar Graph Value Labels
@@ -2395,7 +3328,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-end',
     paddingHorizontal: spacing.xs,
-    paddingBottom: 25,
+    paddingBottom: 26,
     minWidth: '100%',
   },
   barCol: {
@@ -2409,18 +3342,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-end',
     justifyContent: 'center',
-    gap: 4,
-    minHeight: '100%',
+    gap: 3,
+    height: '100%',
   },
   bar: {
-    borderTopLeftRadius: borderRadius.sm,
-    borderTopRightRadius: borderRadius.sm,
-    marginBottom: spacing.xs,
+    borderTopLeftRadius: 4,
+    borderTopRightRadius: 4,
     minHeight: 2,
   },
   secondaryBar: {
-    borderTopLeftRadius: borderRadius.sm,
-    borderTopRightRadius: borderRadius.sm,
+    borderTopLeftRadius: 4,
+    borderTopRightRadius: 4,
   },
 
   // Statistics
@@ -2500,16 +3432,173 @@ const styles = StyleSheet.create({
   reportTypeContent: {
     backgroundColor: colors.white,
     borderRadius: 16,
-    padding: 24,
-    width: '90%',
-    maxWidth: 400,
+    padding: 20,
+    width: '94%',
+    maxWidth: 420,
     ...shadows.lg,
+  },
+  modalHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  modalHeaderIconBadge: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   reportTypeTitle: {
     ...typography.h2,
     color: colors.primary,
     marginBottom: 20,
     textAlign: 'center',
+  },
+  reportModalSectionLabel: {
+    ...typography.body,
+    fontWeight: '700',
+    fontSize: 13,
+    marginBottom: 8,
+  },
+  reportSegmentContainer: {
+    flexDirection: 'row',
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 3,
+    marginBottom: 6,
+  },
+  reportSegmentBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    borderRadius: 9,
+    gap: 6,
+  },
+  reportSegmentBtnActive: {
+    ...shadows.sm,
+  },
+  reportSegmentBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  completedBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+  },
+  completedBadgeText: {
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  yearScrollContainer: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingVertical: 2,
+  },
+  yearPillModern: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 70,
+  },
+  yearPillModernText: {
+    fontSize: 13,
+  },
+  monthGridModern: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 6,
+  },
+  monthGridCard: {
+    width: '23%',
+    paddingVertical: 10,
+    paddingHorizontal: 4,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  monthCardNumber: {
+    fontSize: 14,
+    lineHeight: 16,
+  },
+  monthCardName: {
+    fontSize: 11,
+    lineHeight: 14,
+    marginTop: 2,
+  },
+  monthCardCheckmark: {
+    position: 'absolute',
+    top: 2,
+    right: 3,
+  },
+  monthCardLock: {
+    position: 'absolute',
+    top: 3,
+    right: 3,
+  },
+  dailyInfoCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 6,
+  },
+  dailyInfoTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  dailyInfoSubtitle: {
+    fontSize: 11,
+    marginTop: 2,
+  },
+  unitSelectorRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 10,
+  },
+  unitPillModern: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    borderWidth: 1.5,
+  },
+  unitPillTitle: {
+    fontSize: 13,
+  },
+  unitPillSubtitle: {
+    fontSize: 10,
+    marginTop: 1,
+  },
+  downloadSubmitBtn: {
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 4,
+  },
+  downloadSubmitText: {
+    ...typography.body,
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 14,
   },
   reportTypeOption: {
     flexDirection: 'row',
@@ -2535,8 +3624,8 @@ const styles = StyleSheet.create({
     color: colors.gray500,
   },
   cancelReportBtn: {
-    marginTop: 16,
-    padding: 16,
+    marginTop: 10,
+    padding: 12,
     backgroundColor: colors.gray200,
     borderRadius: 12,
     alignItems: 'center',

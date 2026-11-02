@@ -17,8 +17,8 @@ import { useRouter, useLocalSearchParams } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { getChangePasswordUrl } from "./config";
-import { useTheme } from "./context/ThemeContext";
+import { getChangePasswordUrl } from "../src/config";
+import { useTheme } from "../src/context/ThemeContext";
 
 const { height } = Dimensions.get("window");
 const PLACEHOLDER_COLOR = "#4B5563";
@@ -392,7 +392,16 @@ export default function ChangePasswordSimple() {
                   </LinearGradient>
                 </TouchableOpacity>
 
-                <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+                <TouchableOpacity
+                  style={styles.backButton}
+                  onPress={() => {
+                    if (router.canGoBack()) {
+                      router.back();
+                    } else {
+                      router.replace("/(auth)/login");
+                    }
+                  }}
+                >
                   <Text style={styles.backButtonText}>Back to Login</Text>
                 </TouchableOpacity>
               </LinearGradient>

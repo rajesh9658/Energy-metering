@@ -7,21 +7,18 @@ import {
   Animated,
   Modal,
   StyleSheet,
+  ScrollView,
+  TouchableWithoutFeedback,
+  DeviceEventEmitter,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "../context/AuthContext";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "../context/ThemeContext";
-import { usePathname, useRouter } from "expo-router";
-
-const NOTIFICATION_PREFS_KEY = "notificationPreferences";
-const defaultNotificationPrefs = {
-  enabled: true,
-  lowBalance: true,
-  supply: true,
-  overload: true,
-};
+import { useRouter, usePathname } from "expo-router";
+import { NOTIFICATION_PREFS_KEY, defaultNotificationPrefs } from "../hooks/useNotificationPreferences";
+import { getSiteDataUrl } from "../config";
 
 type HeaderProps = {
   showBackButton?: boolean;
@@ -32,14 +29,20 @@ export default function Header({ showBackButton = false, onBackPress }: HeaderPr
   const { user, loading, logout } = useAuth();
   const { theme, isDarkMode, toggleTheme } = useTheme();
   const insets = useSafeAreaInsets();
-  const pathname = usePathname();
   const router = useRouter();
+  const pathname = usePathname();
 
   const [toastVisible, setToastVisible] = useState(false);
   const [toastMsg, setToastMsg] = useState("");
   const [showNotificationsModal, setShowNotificationsModal] = useState(false);
   const [notificationPrefs, setNotificationPrefs] = useState(defaultNotificationPrefs);
-  const [notificationItems, setNotificationItems] = useState<{ id: string; title: string; detail: string; tone: string }[]>([]);
+  const [notificationItems, setNotificationItems] = useState<{
+    id: string;
+    title: string;
+    detail: string;
+    tone: string;
+    actionType?: "recharge";
+  }[]>([]);
   const fadeAnim = useState(new Animated.Value(0))[0];
 
   const showToast = (message: string) => {
@@ -50,6 +53,78 @@ export default function Header({ showBackButton = false, onBackPress }: HeaderPr
       Animated.delay(2000),
       Animated.timing(fadeAnim, { toValue: 0, duration: 300, useNativeDriver: true }),
     ]).start(() => setToastVisible(false));
+  };
+
+  const getAuthHeaders = () => {
+    const token =
+      user?.token ||
+      user?.auth_token ||
+      user?.access_token ||
+      user?.bearer_token ||
+      user?.site?.token;
+
+    const headers: Record<string, string> = { Accept: "application/json" };
+    if (token) {
+      headers.Authorization = token.startsWith("Bearer ") ? token : `Bearer ${token}`;
+    }
+    return headers;
+  };
+
+  const resolveMeterData = async (): Promise<any> => {
+    // 1. Direct "meterData" from AsyncStorage
+    try {
+      const stored = await AsyncStorage.getItem("meterData");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed) return parsed;
+      }
+    } catch (_) {}
+
+    // 2. Slug-based cache from safeApiCall
+    const slug =
+      user?.slug ||
+      user?.site_name ||
+      user?.site?.slug ||
+      user?.site?.site_name;
+
+    if (slug) {
+      try {
+        const cached = await AsyncStorage.getItem(`CACHE_site_data_${slug}`);
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (parsed) {
+            await AsyncStorage.setItem("meterData", cached);
+            return parsed;
+          }
+        }
+      } catch (_) {}
+    }
+
+    // 3. Fallback to direct site data cache if available
+    try {
+      const cached = await AsyncStorage.getItem("meterCurrentData");
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed) return parsed;
+      }
+    } catch (_) {}
+
+    // 4. Live fetch if slug is available
+    if (slug) {
+      try {
+        const headers = getAuthHeaders();
+        const res = await fetch(getSiteDataUrl(slug), { headers });
+        const json = await res.json();
+        if (json && (json.success || json.status || json.asset_information)) {
+          await AsyncStorage.setItem("meterData", JSON.stringify(json));
+          return json;
+        }
+      } catch (err) {
+        // silent fail on network error
+      }
+    }
+
+    return null;
   };
 
   const loadNotificationState = async () => {
@@ -63,26 +138,68 @@ export default function Header({ showBackButton = false, onBackPress }: HeaderPr
         return;
       }
 
-      const storedMeterData = await AsyncStorage.getItem("meterData");
-      if (!storedMeterData) {
+      const meterData = await resolveMeterData();
+      if (!meterData) {
         setNotificationItems([]);
         return;
       }
 
-      const meterData = JSON.parse(storedMeterData);
-      const assetInformation = meterData?.asset_information || {};
-      const siteValues = assetInformation.site_values || {};
-      const electricParameters = assetInformation.electric_parameters || {};
-      const balance = Number(electricParameters.balance || 0);
+      const assetInformation =
+        meterData?.asset_information ||
+        meterData?.data?.asset_information ||
+        meterData?.data ||
+        meterData ||
+        {};
+      const siteValues = assetInformation?.site_values || meterData?.site_values || {};
+      const electricParameters =
+        assetInformation?.electric_parameters || meterData?.electric_parameters || {};
+
+      const rawBalance =
+        electricParameters?.balance ??
+        assetInformation?.balance ??
+        meterData?.balance ??
+        null;
+
       const alerts: { id: string; title: string; detail: string; tone: string }[] = [];
 
-      if (parsedPrefs.lowBalance && (balance < 500 || siteValues.low_balance_cut)) {
-        alerts.push({
-          id: "low-balance",
-          title: "Low Balance",
-          detail: `Current balance is approximately Rs ${balance.toFixed(2)}. Recharge is recommended.`,
-          tone: "warning",
-        });
+      const threshold =
+        typeof parsedPrefs.lowBalanceThreshold === "number" && !isNaN(parsedPrefs.lowBalanceThreshold)
+          ? parsedPrefs.lowBalanceThreshold
+          : !isNaN(Number(parsedPrefs.lowBalanceThreshold))
+          ? Number(parsedPrefs.lowBalanceThreshold)
+          : 500;
+
+      if (parsedPrefs.lowBalance && rawBalance != null) {
+        const balance =
+          typeof rawBalance === "number"
+            ? rawBalance
+            : parseFloat(String(rawBalance).replace(/,/g, "").trim());
+
+        if (!isNaN(balance)) {
+          const isNegative = balance < 0;
+          const isBelowOrAtThreshold = balance <= threshold;
+          const isCut = siteValues.low_balance_cut === true;
+
+          if (isNegative) {
+            alerts.push({
+              id: "low-balance",
+              title: "Low Balance",
+              detail: `Your balance is negative (₹ ${balance.toFixed(2)}). Please recharge immediately to avoid power disconnection.`,
+              tone: "danger",
+              actionType: "recharge",
+            });
+          } else if (isBelowOrAtThreshold || isCut) {
+            alerts.push({
+              id: "low-balance",
+              title: "Low Balance",
+              detail: isBelowOrAtThreshold
+                ? `Current balance is ₹ ${balance.toFixed(2)} (at or below limit ₹ ${threshold}). Please recharge your meter.`
+                : `Low balance cut detected (₹ ${balance.toFixed(2)}). Please recharge immediately to restore power.`,
+              tone: isCut ? "danger" : "warning",
+              actionType: "recharge",
+            });
+          }
+        }
       }
 
       if (parsedPrefs.supply && siteValues.relay_status === false) {
@@ -120,20 +237,32 @@ export default function Header({ showBackButton = false, onBackPress }: HeaderPr
 
   useEffect(() => {
     loadNotificationState();
-  }, [pathname]);
+  }, [pathname, user]);
 
   useEffect(() => {
+    const sub1 = DeviceEventEmitter.addListener("NOTIFICATION_PREFS_UPDATED", () => {
+      loadNotificationState();
+    });
+    const sub2 = DeviceEventEmitter.addListener("METER_DATA_UPDATED", () => {
+      loadNotificationState();
+    });
+
     const intervalId = setInterval(() => {
       loadNotificationState();
-    }, 3000);
+    }, 60000);
 
-    return () => clearInterval(intervalId);
-  }, []);
+    return () => {
+      sub1.remove();
+      sub2.remove();
+      clearInterval(intervalId);
+    };
+  }, [user]);
 
   const handleLogout = async () => {
     showToast("Logged out successfully!");
     setTimeout(async () => {
       await logout();
+      router.replace("/(auth)/login");
     }, 800);
   };
 
@@ -181,8 +310,8 @@ export default function Header({ showBackButton = false, onBackPress }: HeaderPr
       {/* ================= HEADER CONTENT ================= */}
       <View
         style={{
-          paddingTop: insets.top + 10,
-          paddingBottom: 14,
+          paddingTop: insets.top + 8,
+          paddingBottom: 10,
           paddingHorizontal: 14,
           flexDirection: "row",
           justifyContent: "space-between",
@@ -246,13 +375,31 @@ export default function Header({ showBackButton = false, onBackPress }: HeaderPr
 
         <View style={styles.rightSection}>
           <TouchableOpacity
-            onPress={() => setShowNotificationsModal(true)}
+            onPress={() => {
+              loadNotificationState();
+              setShowNotificationsModal(true);
+            }}
             activeOpacity={0.7}
             style={[headerButtonStyle, { position: "relative" }]}
           >
-            <Ionicons name="notifications-outline" size={16} color={theme.headerText} />
+            <Ionicons
+              name={notificationPrefs.enabled && notificationItems.length > 0 ? "notifications" : "notifications-outline"}
+              size={17}
+              color={
+                notificationPrefs.enabled && notificationItems.length > 0
+                  ? (notificationItems.some((i) => i.tone === "danger") ? "#EF4444" : "#F59E0B")
+                  : theme.headerText
+              }
+            />
             {notificationPrefs.enabled && notificationItems.length > 0 && (
-              <View style={styles.badge}>
+              <View
+                style={[
+                  styles.badge,
+                  {
+                    backgroundColor: notificationItems.some((i) => i.tone === "danger") ? "#EF4444" : "#F59E0B",
+                  },
+                ]}
+              >
                 <Text style={styles.badgeText}>{notificationItems.length}</Text>
               </View>
             )}
@@ -377,6 +524,24 @@ export default function Header({ showBackButton = false, onBackPress }: HeaderPr
                     <Text style={[styles.notificationDetail, { color: theme.mutedText || theme.gray }]}>
                       {item.detail}
                     </Text>
+                    {item.actionType === "recharge" && (
+                      <TouchableOpacity
+                        activeOpacity={0.8}
+                        onPress={() => {
+                          setShowNotificationsModal(false);
+                          router.push("/recharge");
+                        }}
+                        style={[
+                          styles.actionButton,
+                          {
+                            backgroundColor: item.tone === "danger" ? "#EF4444" : theme.primary,
+                          },
+                        ]}
+                      >
+                        <Ionicons name="flash" size={13} color="#FFFFFF" />
+                        <Text style={styles.actionButtonText}>Please Recharge Now</Text>
+                      </TouchableOpacity>
+                    )}
                   </View>
                 </View>
               ))
@@ -460,15 +625,16 @@ const styles = StyleSheet.create({
   },
   badge: {
     position: "absolute",
-    top: 5,
-    right: 4,
-    minWidth: 15,
-    height: 15,
-    borderRadius: 7.5,
+    top: 2,
+    right: 2,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
     backgroundColor: "#EF4444",
     justifyContent: "center",
     alignItems: "center",
     paddingHorizontal: 3,
+    zIndex: 2,
   },
   badgeText: {
     color: "#fff",
@@ -547,5 +713,21 @@ const styles = StyleSheet.create({
   notificationDetail: {
     fontSize: 12,
     lineHeight: 18,
+  },
+  actionButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    alignSelf: "flex-start",
+    marginTop: 9,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 8,
+    gap: 6,
+  },
+  actionButtonText: {
+    color: "#FFFFFF",
+    fontSize: 12,
+    fontWeight: "700",
   },
 });
