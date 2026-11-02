@@ -1,13 +1,34 @@
-
-import { Stack, Redirect } from "expo-router";
+import { Stack } from "expo-router";
 import { isRunningInExpoGo } from "expo";
-
-import { AuthProvider, useAuth } from "./context/AuthContext"; 
-import { ActivityIndicator, View, StyleSheet, StatusBar } from "react-native";
-import { useEffect } from "react";
+import React, { useEffect } from "react";
+import { ActivityIndicator, View, StyleSheet, StatusBar, Platform } from "react-native";
 import * as SplashScreen from 'expo-splash-screen';
-import { ThemeProvider, useTheme } from "./context/ThemeContext";
-import { EnergyUnitProvider, useEnergyUnit } from "./context/EnergyUnitContext";
+
+if (Platform.OS === 'web' && typeof document !== 'undefined') {
+  try {
+    const styleId = 'global-inter-font-override';
+    if (!document.getElementById(styleId)) {
+      const style = document.createElement('style');
+      style.id = styleId;
+      style.textContent = `
+        html, body, button, input, textarea, select, * {
+          font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+          -webkit-font-smoothing: antialiased;
+          -moz-osx-font-smoothing: grayscale;
+        }
+      `;
+      document.head.appendChild(style);
+    }
+  } catch {
+    // Ignore in non-browser execution
+  }
+}
+
+import { AuthProvider, useAuth } from "../src/context/AuthContext";
+import { ThemeProvider, useTheme } from "../src/context/ThemeContext";
+import { EnergyUnitProvider, useEnergyUnit } from "../src/context/EnergyUnitContext";
+import { ErrorBoundary } from "../src/components/ErrorBoundary";
+import { AppUpdateModal } from "../src/components/AppUpdateModal";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -73,23 +94,17 @@ function LayoutContent() {
         backgroundColor={theme.background}
       />
       <Stack screenOptions={{ headerShown: false }}>
-      
+        <Stack.Screen name="(auth)" redirect={!!user} />
         <Stack.Screen name="(tabs)" redirect={!user} />
+        <Stack.Screen name="history" redirect={!user} />
         <Stack.Screen name="deduction-history" redirect={!user} />
         <Stack.Screen name="transaction-history" redirect={!user} />
-        <Stack.Screen name="history" redirect={!user} />
-        
-        <Stack.Screen name="(auth)" redirect={!!user} />
-
-        <Stack.Screen name="index" redirect />
-        <Stack.Screen name="login" redirect />
-        <Stack.Screen name="signup" redirect />
+        <Stack.Screen name="change-password" />
+        <Stack.Screen name="index" />
       </Stack>
     </>
   );
 }
-
-import { ErrorBoundary } from "./components/ErrorBoundary";
 
 export default function RootLayout() {
   return (
@@ -98,6 +113,7 @@ export default function RootLayout() {
         <EnergyUnitProvider>
           <AuthProvider>
             <LayoutContent />
+            <AppUpdateModal />
           </AuthProvider>
         </EnergyUnitProvider>
       </ThemeProvider>

@@ -13,11 +13,11 @@ import {
   Animated
 } from "react-native";
 import { useState, useEffect, useRef } from "react";
-import { useAuth } from "../context/AuthContext"; 
+import { useAuth } from "../../src/context/AuthContext"; 
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from 'expo-linear-gradient';
-import { useTheme } from "../context/ThemeContext";
+import { useTheme } from "../../src/context/ThemeContext";
 
 const { width, height } = Dimensions.get('window');
 

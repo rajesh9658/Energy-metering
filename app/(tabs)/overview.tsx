@@ -4,14 +4,15 @@ import {
   Text,
   StyleSheet,
   ScrollView,
-  SafeAreaView,
   TouchableOpacity,
   Dimensions,
   ActivityIndicator,
   RefreshControl,
   PanResponder,
-  FlatList
+  FlatList,
+  DeviceEventEmitter,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { 
@@ -19,12 +20,12 @@ import {
   getMeterCurrentUrl, 
   getMeterDailyConsumptionUrl, 
   getMeterMonthlyConsumptionUrl 
-} from "../config";
-import { useAuth } from "../context/AuthContext";
-import { useTheme } from "../context/ThemeContext";
-import { useEnergyUnit } from "../context/EnergyUnitContext";
+} from "../../src/config";
+import { useAuth } from "../../src/context/AuthContext";
+import { useTheme } from "../../src/context/ThemeContext";
+import { useEnergyUnit } from "../../src/context/EnergyUnitContext";
 import { useNavigation } from 'expo-router';
-import { safeApiCall } from "../utils/apiHandler";
+import { safeApiCall } from "../../src/utils/apiHandler";
 
 const { width: screenWidth } = Dimensions.get('window');
 const SLIDE_WIDTH = screenWidth - 32;
@@ -81,6 +82,16 @@ export default function OverviewScreen({ route }) {
   
   const [isLoadingSiteInfo, setIsLoadingSiteInfo] = useState(true);
 
+  // STATE FOR API DATA
+  const [siteData, setSiteData] = useState(null);
+  const [meterCurrentData, setMeterCurrentData] = useState(null);
+  const [meterDailyData, setMeterDailyData] = useState(null);
+  const [meterMonthlyData, setMeterMonthlyData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState(null);
+  const [currentunit, setCurrentunit] = useState(null);
+  const [currentconsumption, setCurrentconsumption] = useState(null);
 
   // Load site info on component mount and when user changes
   useEffect(() => {
@@ -92,8 +103,6 @@ export default function OverviewScreen({ route }) {
         const authSiteId = getSiteId();
         const authSiteName = getSiteName();
         const authSlug = getSlug();
-        // console.log("AuthContext Site ID:", authSiteId);
-        // console.log("AuthContext Site Name:", authSiteName);
         if (authSiteId && authSiteName) {
           setSiteInfo({
             siteName: authSiteName,
@@ -107,7 +116,6 @@ export default function OverviewScreen({ route }) {
         
         // Priority 2: AsyncStorage से load करें
         const storageSiteInfo = await loadSiteInfo();
-        console.log("storageSiteInfo", storageSiteInfo);
         if (storageSiteInfo.siteId && storageSiteInfo.siteName) {
           setSiteInfo(storageSiteInfo);
         } else {
@@ -124,19 +132,6 @@ export default function OverviewScreen({ route }) {
     
     loadInitialData();
   }, [user]);
-
-
-  
-  // STATE FOR API DATA
-  const [siteData, setSiteData] = useState(null);
-  const [meterCurrentData, setMeterCurrentData] = useState(null);
-  const [meterDailyData, setMeterDailyData] = useState(null);
-  const [meterMonthlyData, setMeterMonthlyData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState(null);
-  const [currentunit, setCurrentunit] = useState(null);
-  const [currentconsumption, setCurrentconsumption] = useState(null);
   
   const getNumericValue = (source, keys, fallback = 0) => {
     if (!source) return fallback;
@@ -456,18 +451,36 @@ export default function OverviewScreen({ route }) {
     }
   };
 
+  const getAuthHeaders = () => {
+    const token =
+      user?.token ||
+      user?.auth_token ||
+      user?.access_token ||
+      user?.bearer_token ||
+      siteInfo?.user?.token ||
+      siteInfo?.user?.auth_token;
+
+    const headers: Record<string, string> = { Accept: 'application/json' };
+    if (token) {
+      headers.Authorization = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
+    }
+    return headers;
+  };
+
   const fetchSiteData = async () => {
     try {
       const slugToUse = siteInfo.slug || siteInfo.siteName;
       if (!slugToUse) return;
 
       const res = await safeApiCall(`site_data_${slugToUse}`, async () => {
-        const response = await axios.get(getSiteDataUrl(slugToUse));
+        const response = await axios.get(getSiteDataUrl(slugToUse), { headers: getAuthHeaders() });
         return response.data;
       });
 
       if (res.data) {
         setSiteData(res.data);
+        AsyncStorage.setItem("meterData", JSON.stringify(res.data)).catch(() => {});
+        DeviceEventEmitter.emit("METER_DATA_UPDATED");
         if (res.data.asset_information?.electric_parameters?.unit != null) {
           setCurrentunit(res.data.asset_information.electric_parameters.unit);
         }
@@ -487,7 +500,7 @@ export default function OverviewScreen({ route }) {
     try {
       if (!siteInfo.siteId) return;
       const res = await safeApiCall(`meter_current_${siteInfo.siteId}`, async () => {
-        const response = await axios.get(getMeterCurrentUrl(siteInfo.siteId));
+        const response = await axios.get(getMeterCurrentUrl(siteInfo.siteId), { headers: getAuthHeaders() });
         return response.data;
       });
 
@@ -504,7 +517,7 @@ export default function OverviewScreen({ route }) {
       if (!siteInfo.siteId) return;
       const currentMonth = new Date().toISOString().slice(0, 7);
       const res = await safeApiCall(`meter_daily_${siteInfo.siteId}_${currentMonth}`, async () => {
-        const response = await axios.get(getMeterDailyConsumptionUrl(siteInfo.siteId, currentMonth));
+        const response = await axios.get(getMeterDailyConsumptionUrl(siteInfo.siteId, currentMonth), { headers: getAuthHeaders() });
         return response.data;
       });
 
@@ -522,7 +535,7 @@ export default function OverviewScreen({ route }) {
       if (!siteInfo.siteId) return;
       const currentMonth = new Date().toISOString().slice(0, 7);
       const res = await safeApiCall(`meter_monthly_${siteInfo.siteId}_${currentMonth}`, async () => {
-        const response = await axios.get(getMeterMonthlyConsumptionUrl(siteInfo.siteId, currentMonth));
+        const response = await axios.get(getMeterMonthlyConsumptionUrl(siteInfo.siteId, currentMonth), { headers: getAuthHeaders() });
         return response.data;
       });
 
@@ -553,100 +566,8 @@ export default function OverviewScreen({ route }) {
   });
 };
 
-
-
   // Update Current Slide
-  // const updateCurrentSlide = (data) => {
-  //   let lastupdatetime = "2026-01-16 11:07:20";
-  //   // let currentunit = null;
-  //   if(siteData){
-  //     // console.log("siteData", siteData);
-  //   // currentunit = siteData.asset_information.electric_parameters.unit;
-  //   lastupdatetime = siteData.asset_information.electric_parameters.updatedAt;
-  //   // console.log("lastupdatetime :",lastupdatetime)
-  //   }
-  //   if (!data) return;
-  //   // console.log("data", data);
-  //   const newSlides = [...slides];
-  //   setCurrentconsumption(currentunit - data.closing_kwh);
-    
-  //   newSlides[0].rows = [
-  //     //the api is returning the one day prev data 
-  //     //so the closing of the prev will be the 
-  //     //opening of the today
-  //     //the sitedata is returning the updated value 
-      
-  //     { 
-  //       label: "Opening Reading", 
-  //       value: `${data.closing_kwh?.toFixed(2) || "0.00"} kWh`
-  //     },
-  //     { 
-  //       label: "Closing Reading", 
-  //       value: `${currentunit?.toFixed(2) || "0.00"} kWh`
-  //     },
-  //     { 
-  //       label: "Today's Consumption", 
-  //       value: `${currentconsumption.toFixed(2)} kWh`, 
-  //       color: "#2e7d32"
-  //     },
-  //     { 
-  //       label: "Grid Balance", 
-  //       value: `Rs. ${data.balance || "0"}`
-  //     },
-  //     { 
-  //       label: "Last Reading Time", 
-  //       value: formatDateTimeformysql(lastupdatetime), 
-  //       color: "#0b63a8"
-  //     },
-  //   ];
-
-  //   newSlides[0].consumptionData = {
-  //     grid: currentconsumption,
-  //     dg: 0,
-  //     total: currentconsumption,
-  //     gridPercent: "100.00%",
-  //     dgPercent: "0.00%",
-  //   };
-
-  //   setSlides(newSlides);
-  // };
-
-// const updateCurrentSlide = (data) => {
-//   if (!data || !siteData) return;
-
-//   const closing = siteData.asset_information.electric_parameters.unit;
-//   const opening = data.closing_kwh;
-
-//   if (closing == null || opening == null) return;
-
-//   const consumption = Math.max(closing - opening, 0);
-
-//   setCurrentconsumption(consumption);
-
-//   const newSlides = [...slides];
-//   newSlides[0].rows = [
-//     { label: "Opening Reading", value: `${opening.toFixed(2)} kWh` },
-//     { label: "Closing Reading", value: `${closing.toFixed(2)} kWh` },
-//     {
-//       label: "Today's Consumption",
-//       value: `${consumption.toFixed(2)} kWh`,
-//       color: "#2e7d32",
-//     },
-//     { label: "Grid Balance", value: `Rs. ${data.balance || 0}` },
-//     {
-//       label: "Last Reading Time",
-//       value: formatDateTimeformysql(
-//         siteData.asset_information.electric_parameters.updatedAt
-//       ),
-//       color: "#0b63a8",
-//     },
-//   ];
-
-//   setSlides(newSlides);
-// };
-
-
-const updateCurrentSlide = (data) => {
+  const updateCurrentSlide = (data) => {
   if (!data || !siteData) return;
 
   const closing = siteData.asset_information.electric_parameters.unit;
@@ -1098,7 +1019,7 @@ newSlides[1].consumptionData = {
   }
 
   return (
-    <SafeAreaView style={[styles.safe, { backgroundColor: theme.background }]}>
+    <View style={[styles.safe, { backgroundColor: theme.background }]}>
       <ScrollView
         style={[styles.container, { backgroundColor: theme.background }]}
         showsVerticalScrollIndicator={false}
@@ -1112,10 +1033,6 @@ newSlides[1].consumptionData = {
           />
         }
       >
-        {/* HEADER SECTION */}
-        <View style={styles.header}> 
-        </View>
-
         {/* SWIPER / SLIDER SECTION */}
         <View style={styles.swiperWrapper}>
           <FlatList
@@ -1143,7 +1060,7 @@ newSlides[1].consumptionData = {
               index,
             })}
             renderItem={({ item }) => (
-              <View style={{ width: SLIDE_WIDTH, justifyContent: "center", alignItems: "center" }}>
+              <View style={{ width: SLIDE_WIDTH }}>
                 <View style={[styles.swiperCard, { backgroundColor: theme.surface, shadowColor: theme.shadow }]}>
                   {/* CARD HEADER */}
                   <View style={styles.cardHeader}>
@@ -1636,7 +1553,7 @@ newSlides[1].consumptionData = {
         {/* BOTTOM GAP */}
         <View style={styles.bottomGap} />
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -1653,7 +1570,8 @@ const styles = StyleSheet.create({
     flex: 1 
   },
   scrollContent: {
-    paddingBottom: 20,
+    paddingTop: 16,
+    paddingBottom: 24,
   },
   
   // LOADING STYLES
@@ -1731,8 +1649,7 @@ const styles = StyleSheet.create({
   
   // SWIPER WRAPPER
   swiperWrapper: {
-    height: 400,
-    marginBottom: 20,
+    marginBottom: 16,
     paddingHorizontal: 16,
     overflow: "hidden",
   },
@@ -1760,23 +1677,22 @@ const styles = StyleSheet.create({
     shadowColor: "#000",
     shadowOffset: { 
       width: 0, 
-      height: 8 
+      height: 4 
     },
-    shadowOpacity: 0.18,
-    shadowRadius: 15,
-    elevation: 14,
-    height: 340,
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    elevation: 4,
+    minHeight: 390,
     borderWidth: 1,
-    borderColor: "rgba(11, 99, 168, 0.1)",
-    alignSelf: 'center',
+    borderColor: "rgba(11, 99, 168, 0.08)",
   },
 
   paginationDotsContainer: {
     flexDirection: "row",
     justifyContent: "center",
     alignItems: "center",
-    marginTop: 12,
-    marginBottom: 4,
+    marginTop: 14,
+    marginBottom: 2,
   },
 
   dot: { 
@@ -1799,8 +1715,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginTop: 15,
-    paddingHorizontal: 16,
+    marginTop: 12,
   },
 
   // AUTO-PLAY CONTROL
@@ -1971,10 +1886,10 @@ const styles = StyleSheet.create({
     padding: 20,
     marginHorizontal: 16,
     marginBottom: 16,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.16,
-    shadowRadius: 15,
-    elevation: 10,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    elevation: 4,
     borderWidth: 1,
     borderColor: "rgba(11, 99, 168, 0.08)",
     overflow: 'visible',

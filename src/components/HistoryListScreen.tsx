@@ -14,6 +14,7 @@ import {
   LayoutAnimation,
   UIManager,
   Animated,
+  FlatList,
 } from "react-native";
 
 if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -28,16 +29,6 @@ import { useRouter } from "expo-router";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import { useTheme } from "../context/ThemeContext";
-
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  } as any),
-});
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Header from "./Header";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -83,7 +74,7 @@ const buildMonthOptions = (records: HistoryRecord[]) => {
         const match = record.month.match(/\b(20\d{2})\b/);
         return match ? match[1] : null;
       })
-      .find(Boolean) || "2026";
+      .find(Boolean) || new Date().getFullYear().toString();
 
   const allMonths = [
     "Jan",
@@ -209,6 +200,7 @@ export default function HistoryListScreen({
   const [txnLastPage, setTxnLastPage] = useState(1);
   const [dedPage, setDedPage] = useState(1);
   const [dedLastPage, setDedLastPage] = useState(1);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   const resolvedInitialMode =
     modes.find((mode) => mode.key === initialModeKey)?.key || modes[0]?.key;
@@ -247,10 +239,12 @@ export default function HistoryListScreen({
     return () => subscription.remove();
   }, []);
 
-  const fetchModeData = async (modeKey: string, pageNumber: number, isRefresh = false) => {
+  const fetchModeData = async (modeKey: string, pageNumber: number, isRefresh = false, isLoadMore = false) => {
     if (!siteId) return;
-    if (pageNumber === 1 && !isRefresh) {
+    if (pageNumber === 1 && !isRefresh && !isLoadMore) {
       setLoading(true);
+    } else if (isLoadMore) {
+      setLoadingMore(true);
     }
     
     try {
@@ -304,17 +298,39 @@ export default function HistoryListScreen({
         if (modeKey === "transaction") {
           setTxnPage(pageNumber);
           setTxnLastPage(lastPageVal);
-          setTransactionRecords(filteredRecords);
+          if (pageNumber === 1) {
+            setTransactionRecords(filteredRecords);
+          } else {
+            setTransactionRecords((prev) => {
+              const existingIds = new Set(prev.map((r) => r.id));
+              const newUnique = filteredRecords.filter((r) => !existingIds.has(r.id));
+              return [...prev, ...newUnique];
+            });
+          }
         } else {
           setDedPage(pageNumber);
           setDedLastPage(lastPageVal);
-          setDeductionRecords(filteredRecords);
+          if (pageNumber === 1) {
+            setDeductionRecords(filteredRecords);
+          } else {
+            setDeductionRecords((prev) => {
+              const existingIds = new Set(prev.map((r) => r.id));
+              const newUnique = filteredRecords.filter((r) => !existingIds.has(r.id));
+              return [...prev, ...newUnique];
+            });
+          }
+        }
+
+        // If page 1 had fewer than 4 filtered records but more pages exist, automatically fetch next page
+        if (pageNumber === 1 && filteredRecords.length < 4 && pageNumber < lastPageVal) {
+          fetchModeData(modeKey, pageNumber + 1, false, true);
         }
       }
     } catch (err: any) {
       if (err.response?.status === 401) {
         console.warn("Session expired (401) - logging out");
         await logout();
+        router.replace("/(auth)/login");
       } else if (err.response?.status === 404) {
         if (modeKey === "transaction") {
           setTxnPage(1);
@@ -330,17 +346,74 @@ export default function HistoryListScreen({
       }
     } finally {
       setLoading(false);
+      setLoadingMore(false);
       setRefreshing(false);
     }
   };
 
   useEffect(() => {
-    fetchModeData(activeModeKey, 1, false);
+    if (activeModeKey === "transaction") {
+      if (transactionRecords.length === 0) {
+        fetchModeData("transaction", 1, false);
+      }
+    } else {
+      if (deductionRecords.length === 0) {
+        fetchModeData("deduction", 1, false);
+      }
+    }
   }, [siteId, activeModeKey]);
 
   const onRefresh = () => {
     setRefreshing(true);
     fetchModeData(activeModeKey, 1, true);
+  };
+
+  const handleLoadMore = () => {
+    if (loading || loadingMore || refreshing) return;
+
+    if (activeModeKey === "transaction") {
+      if (txnPage < txnLastPage) {
+        fetchModeData("transaction", txnPage + 1, false, true);
+      }
+    } else {
+      if (dedPage < dedLastPage) {
+        fetchModeData("deduction", dedPage + 1, false, true);
+      }
+    }
+  };
+
+  const getIconDetails = (status: string) => {
+    switch (status?.toLowerCase()) {
+      case "recharge":
+        return {
+          name: "arrow-up-sharp" as const,
+          color: "#10B981",
+          bgColor: isDarkMode ? "rgba(16, 185, 129, 0.08)" : "#ECFDF5",
+          borderColor: isDarkMode ? "rgba(16, 185, 129, 0.25)" : "rgba(16, 185, 129, 0.18)",
+        };
+      case "refund":
+        return {
+          name: "arrow-undo-sharp" as const,
+          color: "#0D9488",
+          bgColor: isDarkMode ? "rgba(13, 148, 136, 0.08)" : "#F0FDFA",
+          borderColor: isDarkMode ? "rgba(13, 148, 136, 0.25)" : "rgba(13, 148, 136, 0.18)",
+        };
+      case "adjustment":
+        return {
+          name: "swap-horizontal-sharp" as const,
+          color: "#3B82F6",
+          bgColor: isDarkMode ? "rgba(59, 130, 246, 0.08)" : "#EFF6FF",
+          borderColor: isDarkMode ? "rgba(59, 130, 246, 0.25)" : "rgba(59, 130, 246, 0.18)",
+        };
+      case "deduction":
+      default:
+        return {
+          name: "arrow-down-sharp" as const,
+          color: "#EF4444",
+          bgColor: isDarkMode ? "rgba(239, 68, 68, 0.08)" : "#FEF2F2",
+          borderColor: isDarkMode ? "rgba(239, 68, 68, 0.25)" : "rgba(239, 68, 68, 0.18)",
+        };
+    }
   };
 
   const processedModes = useMemo(() => {
@@ -779,7 +852,9 @@ export default function HistoryListScreen({
         </View>
       </View>
 
-      <ScrollView
+      <FlatList
+        data={visibleRecords}
+        keyExtractor={(record, index) => record.id ? String(record.id) : String(index)}
         style={[styles.container, { backgroundColor: theme.background }]}
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]}
         showsVerticalScrollIndicator={false}
@@ -791,217 +866,114 @@ export default function HistoryListScreen({
             tintColor={activeMode.accentColor}
           />
         }
-      >
-        <View style={styles.sectionHeader}>
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>{activeMode.sectionTitle}</Text>
-          <Text style={[styles.sectionCount, { color: theme.mutedText }]}>
-            {visibleRecords.length} shown
-          </Text>
-        </View>
-
-        {loading && visibleRecords.length === 0 ? (
-          <View style={{ flex: 1, justifyContent: "center", alignItems: "center", paddingVertical: 50 }}>
-            <ActivityIndicator size="large" color={activeMode.accentColor} />
-            <Text style={{ marginTop: 10, color: theme.mutedText, fontSize: 13, fontWeight: "600" }}>Loading records...</Text>
+        ListHeaderComponent={
+          <View style={styles.sectionHeader}>
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>{activeMode.sectionTitle}</Text>
+            <Text style={[styles.sectionCount, { color: theme.mutedText }]}>
+              {visibleRecords.length} shown
+            </Text>
           </View>
-        ) : (
-          <>
-            {visibleRecords.map((record) => {
-              const getIconDetails = (status: string) => {
-                switch (status?.toLowerCase()) {
-                  case "recharge":
-                    return {
-                      name: "arrow-up-sharp" as const,
-                      color: "#10B981",
-                      bgColor: isDarkMode ? "rgba(16, 185, 129, 0.08)" : "#ECFDF5",
-                      borderColor: isDarkMode ? "rgba(16, 185, 129, 0.25)" : "rgba(16, 185, 129, 0.18)",
-                    };
-                  case "refund":
-                    return {
-                      name: "arrow-undo-sharp" as const,
-                      color: "#0D9488",
-                      bgColor: isDarkMode ? "rgba(13, 148, 136, 0.08)" : "#F0FDFA",
-                      borderColor: isDarkMode ? "rgba(13, 148, 136, 0.25)" : "rgba(13, 148, 136, 0.18)",
-                    };
-                  case "adjustment":
-                    return {
-                      name: "swap-horizontal-sharp" as const,
-                      color: "#3B82F6",
-                      bgColor: isDarkMode ? "rgba(59, 130, 246, 0.08)" : "#EFF6FF",
-                      borderColor: isDarkMode ? "rgba(59, 130, 246, 0.25)" : "rgba(59, 130, 246, 0.18)",
-                    };
-                  case "deduction":
-                  default:
-                    return {
-                      name: "arrow-down-sharp" as const,
-                      color: "#EF4444",
-                      bgColor: isDarkMode ? "rgba(239, 68, 68, 0.08)" : "#FEF2F2",
-                      borderColor: isDarkMode ? "rgba(239, 68, 68, 0.25)" : "rgba(239, 68, 68, 0.18)",
-                    };
-                }
-              };
-              
-              const iconInfo = getIconDetails(record.status);
+        }
+        renderItem={({ item: record }) => {
+          const iconInfo = getIconDetails(record.status);
 
-              return (
-                <View
-                  key={record.id}
-                  style={[
-                    styles.recordCard,
-                    {
-                      backgroundColor: theme.surface,
-                      borderColor: theme.border,
-                      shadowColor: theme.shadow,
-                    },
-                  ]}
-                >
-                  <View style={[styles.circularBadge, { backgroundColor: iconInfo.bgColor, borderColor: iconInfo.borderColor }]}>
-                    <Ionicons name={iconInfo.name} size={18} color={iconInfo.color} />
-                  </View>
-
-                  <View style={styles.recordBody}>
-                    <View style={styles.recordMainRow}>
-                      <View style={styles.recordTextContainer}>
-                        <Text style={[styles.recordTitle, { color: theme.text }]}>{record.title}</Text>
-                        <Text style={[styles.recordSubtitle, { color: theme.mutedText }]}>
-                          {record.subtitle}
-                        </Text>
-                      </View>
-
-                      <View style={styles.recordAmountContainer}>
-                        <Text
-                          style={[
-                            styles.recordAmount,
-                            {
-                              color: record.amount.startsWith("-")
-                                ? "#EF4444"
-                                : record.amount.startsWith("+")
-                                  ? "#10B981"
-                                  : theme.text,
-                            },
-                          ]}
-                        >
-                          {record.amount}
-                        </Text>
-                        {record.meta && activeModeKey !== "deduction" ? (
-                          <Text style={[styles.recordMeta, { color: theme.mutedText }]}>
-                            {record.meta}
-                          </Text>
-                        ) : null}
-                      </View>
-                    </View>
-
-                    <View style={styles.recordFooterRow}>
-                      <Ionicons name="time-outline" size={10} color={theme.mutedText} style={{ marginRight: 3 }} />
-                      <Text style={[styles.recordDate, { color: theme.mutedText }]}>{record.date}</Text>
-                    </View>
-                  </View>
-                </View>
-              );
-            })}
-
-            {visibleRecords.length === 0 && (
-              <View
-                style={[
-                  styles.emptyState,
-                  {
-                    backgroundColor: theme.surface,
-                    borderColor: theme.border,
-                  },
-                ]}
-              >
-                <Ionicons name="file-tray-outline" size={28} color={theme.mutedText} />
-                <Text style={[styles.emptyTitle, { color: theme.text }]}>No matching records</Text>
-                <Text style={[styles.emptyText, { color: theme.mutedText }]}>
-                  Try changing the status or month filter to see more history.
-                </Text>
+          return (
+            <View
+              key={record.id}
+              style={[
+                styles.recordCard,
+                {
+                  backgroundColor: theme.surface,
+                  borderColor: theme.border,
+                  shadowColor: theme.shadow,
+                },
+              ]}
+            >
+              <View style={[styles.circularBadge, { backgroundColor: iconInfo.bgColor, borderColor: iconInfo.borderColor }]}>
+                <Ionicons name={iconInfo.name} size={18} color={iconInfo.color} />
               </View>
-            )}
 
-            {activeModeKey === "transaction" ? (
-              txnLastPage > 1 && (
-                <View style={styles.paginationRow}>
-                  <TouchableOpacity
-                    disabled={txnPage === 1 || loading}
-                    onPress={() => fetchModeData("transaction", txnPage - 1)}
-                    style={[
-                      styles.pageButton,
-                      {
-                        backgroundColor: theme.surface,
-                        borderColor: theme.border,
-                        opacity: txnPage === 1 ? 0.4 : 1,
-                      },
-                    ]}
-                  >
-                    <Ionicons name="chevron-back" size={16} color={activeMode.accentColor} />
-                    <Text style={[styles.pageButtonText, { color: activeMode.accentColor }]}>Prev</Text>
-                  </TouchableOpacity>
+              <View style={styles.recordBody}>
+                <View style={styles.recordMainRow}>
+                  <View style={styles.recordTextContainer}>
+                    <Text style={[styles.recordTitle, { color: theme.text }]}>{record.title}</Text>
+                    <Text style={[styles.recordSubtitle, { color: theme.mutedText }]}>
+                      {record.subtitle}
+                    </Text>
+                  </View>
 
-                  <Text style={[styles.pageIndicatorText, { color: theme.text }]}>
-                    Page {txnPage} of {txnLastPage}
-                  </Text>
-
-                  <TouchableOpacity
-                    disabled={txnPage === txnLastPage || loading}
-                    onPress={() => fetchModeData("transaction", txnPage + 1)}
-                    style={[
-                      styles.pageButton,
-                      {
-                        backgroundColor: theme.surface,
-                        borderColor: theme.border,
-                        opacity: txnPage === txnLastPage ? 0.4 : 1,
-                      },
-                    ]}
-                  >
-                    <Text style={[styles.pageButtonText, { color: activeMode.accentColor }]}>Next</Text>
-                    <Ionicons name="chevron-forward" size={16} color={activeMode.accentColor} />
-                  </TouchableOpacity>
+                  <View style={styles.recordAmountContainer}>
+                    <Text
+                      style={[
+                        styles.recordAmount,
+                        {
+                          color: record.amount.startsWith("-")
+                            ? "#EF4444"
+                            : record.amount.startsWith("+")
+                              ? "#10B981"
+                              : theme.text,
+                        },
+                      ]}
+                    >
+                      {record.amount}
+                    </Text>
+                    {record.meta && activeModeKey !== "deduction" ? (
+                      <Text style={[styles.recordMeta, { color: theme.mutedText }]}>
+                        {record.meta}
+                      </Text>
+                    ) : null}
+                  </View>
                 </View>
-              )
-            ) : (
-              dedLastPage > 1 && (
-                <View style={styles.paginationRow}>
-                  <TouchableOpacity
-                    disabled={dedPage === 1 || loading}
-                    onPress={() => fetchModeData("deduction", dedPage - 1)}
-                    style={[
-                      styles.pageButton,
-                      {
-                        backgroundColor: theme.surface,
-                        borderColor: theme.border,
-                        opacity: dedPage === 1 ? 0.4 : 1,
-                      },
-                    ]}
-                  >
-                    <Ionicons name="chevron-back" size={16} color={activeMode.accentColor} />
-                    <Text style={[styles.pageButtonText, { color: activeMode.accentColor }]}>Prev</Text>
-                  </TouchableOpacity>
 
-                  <Text style={[styles.pageIndicatorText, { color: theme.text }]}>
-                    Page {dedPage} of {dedLastPage}
-                  </Text>
-
-                  <TouchableOpacity
-                    disabled={dedPage === dedLastPage || loading}
-                    onPress={() => fetchModeData("deduction", dedPage + 1)}
-                    style={[
-                      styles.pageButton,
-                      {
-                        backgroundColor: theme.surface,
-                        borderColor: theme.border,
-                        opacity: dedPage === dedLastPage ? 0.4 : 1,
-                      },
-                    ]}
-                  >
-                    <Text style={[styles.pageButtonText, { color: activeMode.accentColor }]}>Next</Text>
-                    <Ionicons name="chevron-forward" size={16} color={activeMode.accentColor} />
-                  </TouchableOpacity>
+                <View style={styles.recordFooterRow}>
+                  <Ionicons name="time-outline" size={10} color={theme.mutedText} style={{ marginRight: 3 }} />
+                  <Text style={[styles.recordDate, { color: theme.mutedText }]}>{record.date}</Text>
                 </View>
-              )
-            )}
-          </>
-        )}
-      </ScrollView>
+              </View>
+            </View>
+          );
+        }}
+        ListEmptyComponent={
+          loading && visibleRecords.length === 0 ? (
+            <View style={{ justifyContent: "center", alignItems: "center", paddingVertical: 50 }}>
+              <ActivityIndicator size="large" color={activeMode.accentColor} />
+              <Text style={{ marginTop: 10, color: theme.mutedText, fontSize: 13, fontWeight: "600" }}>Loading records...</Text>
+            </View>
+          ) : (
+            <View
+              style={[
+                styles.emptyState,
+                {
+                  backgroundColor: theme.surface,
+                  borderColor: theme.border,
+                },
+              ]}
+            >
+              <Ionicons name="file-tray-outline" size={28} color={theme.mutedText} />
+              <Text style={[styles.emptyTitle, { color: theme.text }]}>No matching records</Text>
+              <Text style={[styles.emptyText, { color: theme.mutedText }]}>
+                Try changing the status or month filter to see more history.
+              </Text>
+            </View>
+          )
+        }
+        ListFooterComponent={
+          loadingMore ? (
+            <View style={{ paddingVertical: 20, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8 }}>
+              <ActivityIndicator size="small" color={activeMode.accentColor} />
+              <Text style={{ color: theme.mutedText, fontSize: 12, fontWeight: "600" }}>Loading more...</Text>
+            </View>
+          ) : (
+            (activeModeKey === "transaction" ? txnPage >= txnLastPage : dedPage >= dedLastPage) && visibleRecords.length > 0 ? (
+              <View style={{ paddingVertical: 20, alignItems: "center", justifyContent: "center" }}>
+                <Text style={{ color: theme.mutedText, fontSize: 11, fontWeight: "500" }}>All records loaded</Text>
+              </View>
+            ) : null
+          )
+        }
+        onEndReached={handleLoadMore}
+        onEndReachedThreshold={0.5}
+      />
 
       {/* Custom Download Success Modal Dialog */}
       <Modal

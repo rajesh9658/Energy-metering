@@ -1,4 +1,22 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { DeviceEventEmitter } from "react-native";
+import axios from "axios";
+
+// Global Axios Interceptor to catch 401 Unauthorized across the entire app
+let isSessionExpiredEmitted = false;
+axios.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error?.response?.status === 401 && !isSessionExpiredEmitted) {
+      isSessionExpiredEmitted = true;
+      DeviceEventEmitter.emit("SESSION_EXPIRED");
+      setTimeout(() => {
+        isSessionExpiredEmitted = false;
+      }, 5000);
+    }
+    return Promise.reject(error);
+  }
+);
 
 export interface ApiResponse<T> {
   data: T | null;

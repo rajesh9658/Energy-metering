@@ -9,25 +9,24 @@ import {
   Dimensions,
   ActivityIndicator,
   RefreshControl,
-  Modal
+  Modal,
+  TextInput,
+  KeyboardAvoidingView,
+  Platform,
+  DeviceEventEmitter,
 } from 'react-native';
 import { Ionicons, MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getSiteDataUrl } from '../config';
-import { useAuth } from '../context/AuthContext'; // Adjust path as per your project
-import { useTheme } from '../context/ThemeContext';
-import { EnergyUnitMode, useEnergyUnit } from '../context/EnergyUnitContext';
+import { getSiteDataUrl } from '../../src/config';
+import { useAuth } from '../../src/context/AuthContext';
+import { useTheme } from '../../src/context/ThemeContext';
+import { EnergyUnitMode, useEnergyUnit } from '../../src/context/EnergyUnitContext';
+import Constants from 'expo-constants';
 
 const { width } = Dimensions.get('window');
-const NOTIFICATION_PREFS_KEY = 'notificationPreferences';
-const defaultNotificationPrefs = {
-  enabled: true,
-  lowBalance: true,
-  supply: true,
-  overload: true,
-};
+import { NOTIFICATION_PREFS_KEY, defaultNotificationPrefs } from '../../src/hooks/useNotificationPreferences';
 
 export default function MoreScreen() {
   // AuthContext से data लें
@@ -57,6 +56,7 @@ export default function MoreScreen() {
   const [showNotificationModal, setShowNotificationModal] = useState(false);
   const [showEnergyUnitModal, setShowEnergyUnitModal] = useState(false);
   const [notificationPrefs, setNotificationPrefs] = useState(defaultNotificationPrefs);
+  const [customThresholdInput, setCustomThresholdInput] = useState<string>('500');
   const [siteInfo, setSiteInfo] = useState({
     siteName: null,
     siteId: null,
@@ -124,7 +124,15 @@ export default function MoreScreen() {
         const savedPrefs = await AsyncStorage.getItem(NOTIFICATION_PREFS_KEY);
         if (savedPrefs) {
           const parsedPrefs = JSON.parse(savedPrefs);
-          setNotificationPrefs({ ...defaultNotificationPrefs, ...parsedPrefs });
+          const initialThreshold = Number(parsedPrefs.lowBalanceThreshold) > 0
+            ? Number(parsedPrefs.lowBalanceThreshold)
+            : 500;
+          setNotificationPrefs({
+            ...defaultNotificationPrefs,
+            ...parsedPrefs,
+            lowBalanceThreshold: initialThreshold,
+          });
+          setCustomThresholdInput(String(initialThreshold));
           setNotificationsEnabled(parsedPrefs.enabled ?? true);
         }
         // Priority 1: AuthContext से
@@ -177,9 +185,24 @@ export default function MoreScreen() {
         return;
       }
       
-      const response = await axios.get(getSiteDataUrl(slugToUse));
+      const token =
+        user?.token ||
+        user?.auth_token ||
+        user?.access_token ||
+        user?.bearer_token ||
+        siteInfo.user?.token ||
+        siteInfo.user?.auth_token;
+
+      const headers: Record<string, string> = { Accept: 'application/json' };
+      if (token) {
+        headers.Authorization = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
+      }
+
+      const response = await axios.get(getSiteDataUrl(slugToUse), { headers });
       if (response.data && response.data.success) {
         setSiteData(response.data);
+        AsyncStorage.setItem("meterData", JSON.stringify(response.data)).catch(() => {});
+        DeviceEventEmitter.emit('METER_DATA_UPDATED');
       }
     } catch (err) {
       console.error("Error fetching site data:", err);
@@ -212,20 +235,63 @@ export default function MoreScreen() {
     });
   };
 
+  const handleSelectBalancePreset = (amount: number) => {
+    setCustomThresholdInput(String(amount));
+    setNotificationPrefs(prev => ({
+      ...prev,
+      lowBalance: true,
+      lowBalanceThreshold: amount,
+    }));
+  };
+
+  const handleCustomThresholdChange = (text: string) => {
+    const cleaned = text.replace(/[^0-9]/g, '');
+    setCustomThresholdInput(cleaned);
+    const parsed = parseInt(cleaned, 10);
+    if (!isNaN(parsed) && parsed >= 0) {
+      setNotificationPrefs(prev => ({
+        ...prev,
+        lowBalance: true,
+        lowBalanceThreshold: parsed,
+      }));
+    }
+  };
+
   const saveNotificationPreferences = async () => {
     try {
-      await AsyncStorage.setItem(NOTIFICATION_PREFS_KEY, JSON.stringify(notificationPrefs));
-      setNotificationsEnabled(notificationPrefs.enabled);
+      const parsedVal = parseInt(customThresholdInput, 10);
+      const finalThreshold = !isNaN(parsedVal) && parsedVal >= 0
+        ? parsedVal
+        : (notificationPrefs.lowBalanceThreshold ?? 500);
+
+      const toSave = {
+        ...defaultNotificationPrefs,
+        ...notificationPrefs,
+        lowBalance: true,
+        lowBalanceThreshold: finalThreshold,
+      };
+
+      await AsyncStorage.setItem(NOTIFICATION_PREFS_KEY, JSON.stringify(toSave));
+      setNotificationPrefs(toSave);
+      setCustomThresholdInput(String(finalThreshold));
+      setNotificationsEnabled(toSave.enabled);
+
+      if (siteData) {
+        await AsyncStorage.setItem("meterData", JSON.stringify(siteData)).catch(() => {});
+      }
+
       setShowNotificationModal(false);
+      DeviceEventEmitter.emit('NOTIFICATION_PREFS_UPDATED');
     } catch (error) {
       console.error('Error saving notification preferences:', error);
     }
   };
 
+  const thresholdVal = notificationPrefs.lowBalanceThreshold ?? 500;
   const notificationSummary = !notificationPrefs.enabled
     ? 'Alerts are turned off'
     : [
-        notificationPrefs.lowBalance ? 'low balance' : null,
+        notificationPrefs.lowBalance ? `low balance (≤ ₹${thresholdVal})` : null,
         notificationPrefs.supply ? 'supply' : null,
         notificationPrefs.overload ? 'overload' : null,
       ].filter(Boolean).join(', ') || 'No alert types selected';
@@ -312,23 +378,23 @@ export default function MoreScreen() {
         <View style={[styles.siteHeader, { backgroundColor: theme.surface, borderColor: theme.border }, elevatedCardStyle]}>
           <View style={styles.siteHeaderLeft}>
             <View style={[styles.siteIcon, { backgroundColor: theme.card }]}>
-              <FontAwesome5 name="building" size={24} color={theme.primary} />
+              <FontAwesome5 name="building" size={20} color={theme.primary} />
             </View>
-            <View>
-              <Text style={[styles.siteName, { color: theme.text }]}>
+            <View style={{ flex: 1, minWidth: 0, justifyContent: 'center' }}>
+              <Text
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.8}
+                style={[styles.siteName, { color: theme.text }]}
+              >
                 {asset_information.site_name || siteInfo.siteName || 'Site Name'}
               </Text>
               <View style={styles.siteLocation}>
-                <Ionicons name="location-outline" size={14} color={theme.mutedText} />
-                <Text style={[styles.locationText, { color: theme.mutedText }]}>
+                <Ionicons name="location-outline" size={13} color={theme.mutedText} />
+                <Text numberOfLines={1} style={[styles.locationText, { color: theme.mutedText }]}>
                   {asset_information.location || 'Location not specified'}
                 </Text>
               </View>
-              {user?.name && (
-                <Text style={styles.userInfo}>
-                  
-                </Text>
-              )}
             </View>
           </View>
           <View style={[styles.statusBadge, isConnected ? styles.connected : styles.disconnected]}>
@@ -532,7 +598,14 @@ export default function MoreScreen() {
           <Text style={[styles.sectionTitle, { color: theme.text }]}>Settings</Text>
 
           <View style={[styles.settingsCard, { backgroundColor: theme.surface, borderColor: theme.border }, elevatedCardStyle]}>
-            <TouchableOpacity style={styles.settingItem} activeOpacity={0.8} onPress={() => setShowNotificationModal(true)}>
+            <TouchableOpacity
+              style={styles.settingItem}
+              activeOpacity={0.8}
+              onPress={() => {
+                setCustomThresholdInput(String(notificationPrefs.lowBalanceThreshold ?? 500));
+                setShowNotificationModal(true);
+              }}
+            >
               <View style={styles.settingLeft}>
                 <View style={[styles.settingIconContainer, { backgroundColor: theme.card }]}>
                   <Ionicons name="notifications-outline" size={22} color={theme.primary} />
@@ -573,68 +646,6 @@ export default function MoreScreen() {
             </TouchableOpacity>
           </View>
         </View>
-        
-        {/* Settings */}
-       {/* <View style={styles.settingsSection}>
-          <Text style={styles.sectionTitle}>Settings</Text>
-          
-          <View style={styles.settingsCard}>
-            <View style={styles.settingItem}>
-              <View style={styles.settingLeft}>
-                <View style={styles.settingIconContainer}>
-                  <Ionicons name="notifications-outline" size={22} color="#0b63a8" />
-                </View>
-                <View>
-                  <Text style={styles.settingTitle}>Notifications</Text>
-                  <Text style={styles.settingDesc}>Receive alerts and updates</Text>
-                </View>
-              </View>
-              <Switch
-                value={notificationsEnabled}
-                onValueChange={setNotificationsEnabled}
-                trackColor={{ false: '#d1d5db', true: '#a7f3d0' }}
-                thumbColor={notificationsEnabled ? '#10b981' : '#9ca3af'}
-              />
-            </View>
-            
-            <View style={styles.horizontalDivider} />
-            
-            <View style={styles.settingItem}>
-              <View style={styles.settingLeft}>
-                <View style={styles.settingIconContainer}>
-                  <Ionicons name="moon-outline" size={22} color="#0b63a8" />
-                </View>
-                <View>
-                  <Text style={styles.settingTitle}>Dark Mode</Text>
-                  <Text style={styles.settingDesc}>Switch to dark theme</Text>
-                </View>
-              </View>
-              <Switch
-                value={darkModeEnabled}
-                onValueChange={setDarkModeEnabled}
-                trackColor={{ false: '#d1d5db', true: '#a7f3d0' }}
-                thumbColor={darkModeEnabled ? '#10b981' : '#9ca3af'}
-              />
-            </View>
-          </View>
-        </View>
-
-        {/* Quick Menu */}
-        {/*<View style={styles.menuSection}>
-          <Text style={styles.sectionTitle}>Quick Menu</Text>
-          
-          <View style={styles.menuGrid}>
-            {menuItems.map((item, index) => (
-              <TouchableOpacity key={index} style={styles.menuItem}>
-                <View style={styles.menuIconBox}>
-                  <Text style={styles.menuIconText}>{item.icon}</Text>
-                </View>
-                <Text style={styles.menuItemTitle}>{item.title}</Text>
-                <Text style={styles.menuItemDesc}>{item.description}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
 
         {/* App Info */}
         <View style={[styles.appInfo, { backgroundColor: theme.surface, borderColor: theme.border }, elevatedCardStyle]}>
@@ -642,7 +653,9 @@ export default function MoreScreen() {
             <Ionicons name="flash-outline" size={32} color={theme.primary} />
           </View>
           <Text style={[styles.appName, { color: theme.text }]}>Energy Meter</Text>
-          <Text style={[styles.appVersion, { color: theme.mutedText }]}>Version 2.1.0</Text>
+          <Text style={[styles.appVersion, { color: theme.mutedText }]}>
+            Version {Constants.expoConfig?.version || '1.0.0'}
+          </Text>
           <Text style={[styles.appTagline, { color: theme.text }]}>Smart Energy Monitoring</Text>
           
           
@@ -652,81 +665,172 @@ export default function MoreScreen() {
       </View>
 
       <Modal visible={showNotificationModal} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.modalOverlay}
+        >
           <View style={[styles.notificationModal, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-            <Text style={[styles.notificationModalTitle, { color: theme.text }]}>Notification Settings</Text>
-            <Text style={[styles.notificationModalDesc, { color: theme.mutedText }]}>
-              Choose which alerts should appear in the navbar bell.
-            </Text>
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={{ paddingBottom: 4 }}
+            >
+              <Text style={[styles.notificationModalTitle, { color: theme.text }]}>Notification Settings</Text>
+              <Text style={[styles.notificationModalDesc, { color: theme.mutedText }]}>
+                Choose which alerts should appear in the navbar bell.
+              </Text>
 
-            <View style={[styles.notificationOptionRow, { borderColor: theme.border }]}>
-              <View style={styles.notificationOptionText}>
-                <Text style={[styles.notificationOptionTitle, { color: theme.text }]}>Enable Notifications</Text>
-                <Text style={[styles.notificationOptionDesc, { color: theme.mutedText }]}>Show bell alerts in the navbar</Text>
+              <View style={[styles.notificationOptionRow, { borderColor: theme.border }]}>
+                <View style={styles.notificationOptionText}>
+                  <Text style={[styles.notificationOptionTitle, { color: theme.text }]}>Enable Notifications</Text>
+                  <Text style={[styles.notificationOptionDesc, { color: theme.mutedText }]}>Show bell alerts in the navbar</Text>
+                </View>
+                <Switch
+                  value={notificationPrefs.enabled}
+                  onValueChange={(value) => updateNotificationPref('enabled', value)}
+                  trackColor={{ false: theme.border, true: '#a7f3d0' }}
+                  thumbColor={notificationPrefs.enabled ? theme.success : theme.gray}
+                />
               </View>
-              <Switch
-                value={notificationPrefs.enabled}
-                onValueChange={(value) => updateNotificationPref('enabled', value)}
-                trackColor={{ false: theme.border, true: '#a7f3d0' }}
-                thumbColor={notificationPrefs.enabled ? theme.success : theme.gray}
-              />
-            </View>
 
-            <View style={[styles.notificationOptionRow, { borderColor: theme.border }]}>
-              <View style={styles.notificationOptionText}>
-                <Text style={[styles.notificationOptionTitle, { color: theme.text }]}>Low Balance</Text>
-                <Text style={[styles.notificationOptionDesc, { color: theme.mutedText }]}>Show an alert when balance gets low</Text>
+              <View style={[styles.notificationOptionRow, { borderColor: theme.border }]}>
+                <View style={styles.notificationOptionText}>
+                  <Text style={[styles.notificationOptionTitle, { color: theme.text }]}>Low Balance</Text>
+                  <Text style={[styles.notificationOptionDesc, { color: theme.mutedText }]}>
+                    Show alert when balance drops to ₹{customThresholdInput || '500'} or below
+                  </Text>
+                </View>
+                <Switch
+                  value={notificationPrefs.lowBalance}
+                  onValueChange={(value) => updateNotificationPref('lowBalance', value)}
+                  trackColor={{ false: theme.border, true: '#a7f3d0' }}
+                  thumbColor={notificationPrefs.lowBalance ? theme.success : theme.gray}
+                />
               </View>
-              <Switch
-                value={notificationPrefs.lowBalance}
-                onValueChange={(value) => updateNotificationPref('lowBalance', value)}
-                trackColor={{ false: theme.border, true: '#a7f3d0' }}
-                thumbColor={notificationPrefs.lowBalance ? theme.success : theme.gray}
-              />
-            </View>
 
-            <View style={[styles.notificationOptionRow, { borderColor: theme.border }]}>
-              <View style={styles.notificationOptionText}>
-                <Text style={[styles.notificationOptionTitle, { color: theme.text }]}>Supply Alerts</Text>
-                <Text style={[styles.notificationOptionDesc, { color: theme.mutedText }]}>Show alerts for disconnected supply or relay off</Text>
+              {notificationPrefs.lowBalance && (
+                <View style={[styles.thresholdContainer, { backgroundColor: isDarkMode ? '#1e293b' : '#F1F5F9', borderColor: theme.border }]}>
+                  <View style={styles.thresholdHeaderRow}>
+                    <Text style={[styles.thresholdLabel, { color: theme.text }]}>
+                      Custom Balance Limit
+                    </Text>
+                    <View style={[styles.thresholdBadge, { backgroundColor: isDarkMode ? 'rgba(59,130,246,0.2)' : '#EFF6FF', borderColor: theme.primary }]}>
+                      <Text style={[styles.thresholdBadgeText, { color: theme.primary }]}>
+                        ₹{customThresholdInput || '0'}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Preset Quick Chips */}
+                  <View style={styles.presetRow}>
+                    {[200, 500, 1000, 2000].map((amount) => {
+                      const isSelected = Number(customThresholdInput) === amount;
+                      return (
+                        <TouchableOpacity
+                          key={amount}
+                          style={[
+                            styles.presetChip,
+                            {
+                              borderColor: isSelected ? theme.primary : theme.border,
+                              backgroundColor: isSelected ? theme.primary : (isDarkMode ? theme.surface : '#ffffff'),
+                            },
+                          ]}
+                          onPress={() => handleSelectBalancePreset(amount)}
+                          activeOpacity={0.7}
+                        >
+                          <Text
+                            style={[
+                              styles.presetChipText,
+                              { color: isSelected ? '#ffffff' : theme.text },
+                            ]}
+                          >
+                            ₹{amount}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+
+                  {/* Custom Input Field */}
+                  <View
+                    style={[
+                      styles.thresholdInputWrapper,
+                      {
+                        borderColor: theme.border,
+                        backgroundColor: isDarkMode ? theme.surface : '#ffffff',
+                      },
+                    ]}
+                  >
+                    <Text style={[styles.currencyPrefix, { color: theme.primary }]}>₹</Text>
+                    <TextInput
+                      style={[styles.thresholdInput, { color: theme.text }]}
+                      keyboardType="number-pad"
+                      value={customThresholdInput}
+                      onChangeText={handleCustomThresholdChange}
+                      placeholder="Enter custom amount"
+                      placeholderTextColor={theme.mutedText}
+                      maxLength={7}
+                    />
+                    {customThresholdInput.length > 0 && (
+                      <TouchableOpacity
+                        onPress={() => handleCustomThresholdChange('')}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        style={styles.inputClearBtn}
+                      >
+                        <Ionicons name="close-circle" size={16} color={theme.mutedText} />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+
+                  <Text style={[styles.thresholdHint, { color: theme.mutedText }]}>
+                    🔔 Alert triggers if balance is ₹{customThresholdInput || '500'} or below
+                  </Text>
+                </View>
+              )}
+
+              <View style={[styles.notificationOptionRow, { borderColor: theme.border }]}>
+                <View style={styles.notificationOptionText}>
+                  <Text style={[styles.notificationOptionTitle, { color: theme.text }]}>Supply Alerts</Text>
+                  <Text style={[styles.notificationOptionDesc, { color: theme.mutedText }]}>Show alerts for disconnected supply or relay off</Text>
+                </View>
+                <Switch
+                  value={notificationPrefs.supply}
+                  onValueChange={(value) => updateNotificationPref('supply', value)}
+                  trackColor={{ false: theme.border, true: '#a7f3d0' }}
+                  thumbColor={notificationPrefs.supply ? theme.success : theme.gray}
+                />
               </View>
-              <Switch
-                value={notificationPrefs.supply}
-                onValueChange={(value) => updateNotificationPref('supply', value)}
-                trackColor={{ false: theme.border, true: '#a7f3d0' }}
-                thumbColor={notificationPrefs.supply ? theme.success : theme.gray}
-              />
-            </View>
 
-            <View style={[styles.notificationOptionRow, { borderColor: theme.border }]}>
-              <View style={styles.notificationOptionText}>
-                <Text style={[styles.notificationOptionTitle, { color: theme.text }]}>Overload Alerts</Text>
-                <Text style={[styles.notificationOptionDesc, { color: theme.mutedText }]}>Show DG overload and overload limit alerts</Text>
+              <View style={[styles.notificationOptionRow, { borderColor: theme.border }]}>
+                <View style={styles.notificationOptionText}>
+                  <Text style={[styles.notificationOptionTitle, { color: theme.text }]}>Overload Alerts</Text>
+                  <Text style={[styles.notificationOptionDesc, { color: theme.mutedText }]}>Show DG overload and overload limit alerts</Text>
+                </View>
+                <Switch
+                  value={notificationPrefs.overload}
+                  onValueChange={(value) => updateNotificationPref('overload', value)}
+                  trackColor={{ false: theme.border, true: '#a7f3d0' }}
+                  thumbColor={notificationPrefs.overload ? theme.success : theme.gray}
+                />
               </View>
-              <Switch
-                value={notificationPrefs.overload}
-                onValueChange={(value) => updateNotificationPref('overload', value)}
-                trackColor={{ false: theme.border, true: '#a7f3d0' }}
-                thumbColor={notificationPrefs.overload ? theme.success : theme.gray}
-              />
-            </View>
 
-            <View style={styles.notificationModalActions}>
-              <TouchableOpacity
-                style={[styles.notificationModalBtn, { backgroundColor: isDarkMode ? theme.card : '#F3F4F6', borderColor: theme.border }]}
-                onPress={() => setShowNotificationModal(false)}
-              >
-                <Text style={[styles.notificationModalBtnText, { color: theme.text }]}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.notificationModalBtn, { backgroundColor: theme.primary, borderColor: theme.primary }]}
-                onPress={saveNotificationPreferences}
-              >
-                <Text style={[styles.notificationModalBtnText, { color: '#fff' }]}>Save</Text>
-              </TouchableOpacity>
-            </View>
+              <View style={styles.notificationModalActions}>
+                <TouchableOpacity
+                  style={[styles.notificationModalBtn, { backgroundColor: isDarkMode ? theme.card : '#F3F4F6', borderColor: theme.border }]}
+                  onPress={() => setShowNotificationModal(false)}
+                >
+                  <Text style={[styles.notificationModalBtnText, { color: theme.text }]}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.notificationModalBtn, { backgroundColor: theme.primary, borderColor: theme.primary }]}
+                  onPress={saveNotificationPreferences}
+                >
+                  <Text style={[styles.notificationModalBtnText, { color: '#fff' }]}>Save</Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       <Modal visible={showEnergyUnitModal} transparent animationType="fade">
@@ -892,14 +996,14 @@ const styles = StyleSheet.create({
   },
   siteHeader: {
     backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
-    marginHorizontal: 16,
-    marginTop: 16,
-    marginBottom: 20,
+    borderRadius: 14,
+    padding: 14,
+    marginHorizontal: 0,
+    marginTop: 14,
+    marginBottom: 16,
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
@@ -908,20 +1012,22 @@ const styles = StyleSheet.create({
   },
   siteHeaderLeft: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     flex: 1,
+    marginRight: 10,
+    minWidth: 0,
   },
   siteIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     backgroundColor: '#eff6ff',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
+    marginRight: 10,
   },
   siteName: {
-    fontSize: 19,
+    fontSize: 15,
     fontWeight: '700',
     color: '#111827',
     marginBottom: 2,
@@ -929,25 +1035,24 @@ const styles = StyleSheet.create({
   siteLocation: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 4,
   },
   locationText: {
-    fontSize: 13,
+    fontSize: 12,
     color: '#6b7280',
+    marginLeft: 3,
   },
   userInfo: {
     fontSize: 12,
     color: '#9ca3af',
-    marginTop: 4,
+    marginTop: 2,
   },
   statusBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
     backgroundColor: '#f3f4f6',
-    marginTop: 4,
   },
   connected: {
     backgroundColor: '#d1fae5',
@@ -956,10 +1061,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#fee2e2',
   },
   statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: 6,
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    marginRight: 5,
   },
   dotConnected: {
     backgroundColor: '#10b981',
@@ -968,23 +1073,22 @@ const styles = StyleSheet.create({
     backgroundColor: '#ef4444',
   },
   statusText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
   },
   sectionHeaderText: {
-    fontSize: 19,
+    fontSize: 18,
     fontWeight: '700',
     color: '#111827',
-    marginBottom: 16,
-    marginHorizontal: 16,
+    marginBottom: 12,
+    marginHorizontal: 0,
   },
   chargesContainer: {
-    marginBottom: 20,
+    marginBottom: 16,
   },
   chargesGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    paddingHorizontal: 16,
     justifyContent: 'space-between',
   },
   chargeCard: {
@@ -1027,7 +1131,6 @@ const styles = StyleSheet.create({
   statusGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    paddingHorizontal: 16,
     justifyContent: 'space-between',
   },
   statusCard: {
@@ -1237,6 +1340,7 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     padding: 20,
     borderWidth: 1,
+    maxHeight: '88%',
   },
   notificationModalTitle: {
     fontSize: 20,
@@ -1246,7 +1350,7 @@ const styles = StyleSheet.create({
   notificationModalDesc: {
     fontSize: 13,
     lineHeight: 19,
-    marginBottom: 18,
+    marginBottom: 14,
   },
   notificationOptionRow: {
     flexDirection: 'row',
@@ -1268,10 +1372,83 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
   },
+  thresholdContainer: {
+    marginVertical: 10,
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  thresholdHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  thresholdLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  thresholdBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  thresholdBadgeText: {
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  presetRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+    gap: 6,
+  },
+  presetChip: {
+    flex: 1,
+    paddingVertical: 7,
+    borderRadius: 8,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  presetChipText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  thresholdInputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    height: 42,
+    marginBottom: 6,
+  },
+  currencyPrefix: {
+    fontSize: 16,
+    fontWeight: '700',
+    marginRight: 6,
+  },
+  thresholdInput: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '600',
+    padding: 0,
+  },
+  inputClearBtn: {
+    padding: 4,
+  },
+  thresholdHint: {
+    fontSize: 11,
+    marginTop: 2,
+    lineHeight: 15,
+  },
   notificationModalActions: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginTop: 18,
+    gap: 12,
   },
   notificationModalBtn: {
     flex: 1,

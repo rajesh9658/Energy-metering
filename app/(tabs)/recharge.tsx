@@ -12,9 +12,10 @@ import {
   KeyboardAvoidingView,
   Platform,
   StatusBar,
-  SafeAreaView,
   ActivityIndicator,
+  DeviceEventEmitter,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import RazorpayCheckout from 'react-native-razorpay';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import * as Animatable from 'react-native-animatable';
@@ -24,17 +25,18 @@ import {
   getSiteDataUrl,
   getRechargeFeeConfigUrl,
   getRechargeFeeQuoteUrl,
-} from '../config'; // Assuming config is in same directory
+} from '../../src/config';
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useAuth } from "../context/AuthContext";
-import { useTheme } from "../context/ThemeContext";
-import { useNavigation } from 'expo-router';
-import { safeApiCall } from "../utils/apiHandler";
+import { useAuth } from "../../src/context/AuthContext";
+import { useTheme } from "../../src/context/ThemeContext";
+import { useNavigation, useRouter } from 'expo-router';
+import { safeApiCall } from "../../src/utils/apiHandler";
 const { width, height } = Dimensions.get('window');
 
 export default function RechargeScreen() {
   const { theme, isDarkMode } = useTheme();
   const navigation = useNavigation();
+  const router = useRouter();
   const [selectedAmount, setSelectedAmount] = useState(null);
   const [paymentAmount, setPaymentAmount] = useState('');
   const [showNumpad, setShowNumpad] = useState(false);
@@ -213,12 +215,15 @@ const fetchSiteData = async () => {
     }
 
     const res = await safeApiCall(`site_data_${slugToUse}`, async () => {
-      const response = await fetch(getSiteDataUrl(slugToUse));
+      const headers = await getAuthHeaders();
+      const response = await fetch(getSiteDataUrl(slugToUse), { headers });
       return await response.json();
     });
 
     if (res.data && (res.data.success || res.data.status)) {
       setSiteData(res.data.asset_information || res.data.data || res.data);
+      AsyncStorage.setItem("meterData", JSON.stringify(res.data)).catch(() => {});
+      DeviceEventEmitter.emit("METER_DATA_UPDATED");
       setSiteError(null);
     } else {
       const cached = await AsyncStorage.getItem("meterData");
@@ -252,18 +257,33 @@ const fetchSiteData = async () => {
 
 
   // Customer details from API
- const rawBalance = Number(siteData?.electric_parameters?.balance);
+  const rawBalance = Number(siteData?.electric_parameters?.balance);
 
-const customerDetails = {
-  accountId: siteData?.slug || '—',
-  name: siteData?.custom_name || 'Loading...',
-  meterNo: siteData?.site_name || 'Loading...',
-  availableBalance: `₹${
-    isNaN(rawBalance) ? "0.00" : rawBalance.toFixed(2)
-  }`,
-  shopName: siteData?.meter_name || 'Loading...',
-  address: siteData?.location || 'Loading...',
-};
+  const resolvedCustomerName =
+    siteData?.custom_name ||
+    siteData?.customer_name ||
+    siteData?.consumer_name ||
+    siteData?.user_name ||
+    siteData?.meter_name ||
+    siteInfo.user?.custom_name ||
+    siteInfo.user?.customer_name ||
+    siteInfo.user?.name ||
+    siteInfo.user?.site_name ||
+    siteInfo.siteName ||
+    user?.name ||
+    user?.site_name ||
+    '';
+
+  const customerDetails = {
+    accountId: siteData?.slug || siteInfo.slug || user?.slug || '—',
+    name: resolvedCustomerName || (siteLoading ? 'Loading...' : 'Consumer'),
+    meterNo: siteData?.site_name || siteInfo.siteName || user?.site_name || '—',
+    availableBalance: `₹${
+      isNaN(rawBalance) ? "0.00" : rawBalance.toFixed(2)
+    }`,
+    shopName: siteData?.meter_name || siteInfo.siteName || user?.site_name || '—',
+    address: siteData?.location || '—',
+  };
 
 
   const rechargeOptions = [
@@ -584,6 +604,9 @@ const customerDetails = {
         error_message: errorMessage || null,
         site_id: siteInfo.siteId,
         slug: siteInfo.slug,
+        customer_name: customerDetails.name,
+        name: customerDetails.name,
+        meter_no: customerDetails.meterNo,
       }),
     });
   };
@@ -622,6 +645,32 @@ const customerDetails = {
   try {
     totalAmount = feeQuote ? Number(feeQuote.gross_payable_amount) : Number((amountToPay + SERVICE_FEE + PLATFORM_FEE).toFixed(2));
     idempotencyKey = buildIdempotencyKey();
+
+    const activeCustomerName =
+      (customerDetails.name && customerDetails.name !== 'Loading...' && customerDetails.name !== '—')
+        ? customerDetails.name
+        : (user?.name || siteInfo.siteName || 'Customer');
+
+    const isPhoneLike = (v: any) => /^\d{10}$/.test(String(v || '').replace(/\D/g, ''));
+    const isEmailLike = (v: any) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v || ''));
+    const rawUserIdentifier = String(user?.name || '').trim();
+
+    const customerEmail =
+      siteInfo.user?.email ||
+      user?.email ||
+      siteData?.email ||
+      (isEmailLike(rawUserIdentifier) ? rawUserIdentifier : (user?.site_name?.includes('@') ? user.site_name : 'customer@energymeter.com'));
+
+    const customerPhone =
+      siteInfo.user?.phone ||
+      siteInfo.user?.mobile ||
+      siteInfo.user?.contact ||
+      user?.phone ||
+      user?.mobile ||
+      siteData?.phone ||
+      siteData?.mobile ||
+      (isPhoneLike(rawUserIdentifier) ? rawUserIdentifier : '9999999999');
+
     const orderRequestBodies = [
       {
         amount: amountToPay,
@@ -631,6 +680,20 @@ const customerDetails = {
         gst_amount: PLATFORM_FEE,
         site_id: siteInfo.siteId,
         slug: siteInfo.slug,
+        customer_name: activeCustomerName,
+        name: activeCustomerName,
+        phone: customerPhone,
+        contact: customerPhone,
+        email: customerEmail,
+        meter_no: customerDetails.meterNo,
+        notes: {
+          customer_name: activeCustomerName,
+          name: activeCustomerName,
+          meter_no: customerDetails.meterNo,
+          account_id: customerDetails.accountId,
+          site_id: String(siteInfo.siteId || ''),
+          site_name: siteInfo.siteName || '',
+        },
       },
     ];
 
@@ -647,6 +710,7 @@ const customerDetails = {
         console.warn("Session expired (401) on recharge - logging out");
         setLoading(false);
         await logout();
+        router.replace("/(auth)/login");
         return;
       }
 
@@ -700,9 +764,18 @@ const customerDetails = {
       image: merchantLogo,
 
       prefill: {
-        email: siteInfo.user?.email || 'customer@gmail.com',
-        contact: siteInfo.user?.phone || '9999999999',
-        name: customerDetails.name || "Test User"
+        email: customerEmail,
+        contact: customerPhone,
+        name: activeCustomerName,
+      },
+
+      notes: {
+        customer_name: activeCustomerName,
+        name: activeCustomerName,
+        meter_no: customerDetails.meterNo,
+        account_id: customerDetails.accountId,
+        site_id: String(siteInfo.siteId || ''),
+        site_name: siteInfo.siteName || '',
       },
 
       theme: {
@@ -738,6 +811,11 @@ const customerDetails = {
         display_status: 'Captured',
         site_id: siteInfo.siteId,
         slug: siteInfo.slug,
+        customer_name: activeCustomerName,
+        name: activeCustomerName,
+        phone: customerPhone,
+        email: customerEmail,
+        meter_no: customerDetails.meterNo,
       }),
     });
 
@@ -745,6 +823,7 @@ const customerDetails = {
       console.warn("Session expired (401) on payment verification - logging out");
       setLoading(false);
       await logout();
+      router.replace("/(auth)/login");
       return;
     }
 
@@ -763,9 +842,6 @@ const customerDetails = {
       verifyData?.message || 'Your payment was completed and saved successfully.',
       `Payment ID: ${razorpayResult.razorpay_payment_id}`
     );
-
-    console.log("Payment Success:", razorpayResult);
-    console.log("Payment Verify:", verifyData);
 
     fetchSiteData();
 
@@ -852,7 +928,7 @@ const customerDetails = {
   /* -------------------- UI -------------------- */
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+    <View style={[styles.container, { backgroundColor: theme.background }]}>
       <StatusBar barStyle={isDarkMode ? "light-content" : "dark-content"} backgroundColor={theme.background} />
       <KeyboardAvoidingView 
         style={styles.keyboardAvoid}
@@ -861,11 +937,8 @@ const customerDetails = {
         <ScrollView 
           style={[styles.scrollView, { backgroundColor: theme.background }]}
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={[styles.scrollContent, { paddingTop: 10 }]}
         >
-          {/* HEADER */}
-          <View style={styles.header}/>
-
           {/* CUSTOMER DETAILS CARD */}
           <Animatable.View 
             animation="fadeInUp" 
@@ -890,54 +963,47 @@ const customerDetails = {
               </View>
             ) : (
               <>
-              <View style={[styles.topSiteBanner, { backgroundColor: isDarkMode ? theme.card : '#eef2ff', borderColor: theme.border }]}>
-                <Text style={[styles.topSiteLabel, { color: theme.mutedText }]}>Site Name</Text>
-                <Text numberOfLines={1} style={[styles.topSiteValue, { color: theme.text }]}>
-                  {customerDetails.meterNo}
-                </Text>
-              </View>
               <View style={styles.customerHeader}>
-  <View style={styles.avatarContainer}>
-    <Icon name="account-circle" size={40} color="#fff" />
-  </View>
-  <View style={styles.customerInfo}>
-    <Text numberOfLines={1} style={[styles.customerName, { color: theme.text }]}>{customerDetails.name}</Text>
-    <Text style={[styles.customerId, { color: theme.mutedText }]}>Account ID: {customerDetails.accountId}</Text>
-  </View>
-</View>
+                <View style={styles.avatarContainer}>
+                  <Icon name="account-circle" size={38} color="#fff" />
+                </View>
+                <View style={styles.customerInfo}>
+                  <Text numberOfLines={1} style={[styles.customerName, { color: theme.text }]}>{customerDetails.name}</Text>
+                  <Text style={[styles.customerId, { color: theme.mutedText }]}>Account ID: {customerDetails.accountId}</Text>
+                </View>
+              </View>
 
-<View style={styles.siteInfoSection}>
-  <View style={styles.siteInfoRow}>
-    <View style={[styles.siteInfoItem, { backgroundColor: theme.card }]}>
-      <Icon name="speed" size={20} color="#4f46e5" />
-      <Text style={[styles.infoLabel, { color: theme.mutedText }]}>Site Name</Text>
-      <Text numberOfLines={1} style={[styles.infoValue, { color: theme.text }]}>{customerDetails.meterNo}</Text>
-    </View>
-    <View style={[styles.siteInfoItem, { backgroundColor: theme.card }]}>
-      <Icon name="store" size={20} color="#4f46e5" />
-      <Text style={[styles.infoLabel, { color: theme.mutedText }]}>Meter Name</Text>
-      <Text numberOfLines={1} style={[styles.infoValue, { color: theme.text }]}>{customerDetails.shopName}</Text>
-    </View>
-  </View>
-</View>
+              <View style={styles.siteInfoSection}>
+                <View style={styles.siteInfoRow}>
+                  <View style={[styles.siteInfoItem, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                    <Icon name="speed" size={18} color="#4f46e5" />
+                    <Text style={[styles.infoLabel, { color: theme.mutedText }]}>Site Name</Text>
+                    <Text numberOfLines={1} style={[styles.infoValue, { color: theme.text }]}>{customerDetails.meterNo}</Text>
+                  </View>
+                  <View style={[styles.siteInfoItem, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                    <Icon name="store" size={18} color="#4f46e5" />
+                    <Text style={[styles.infoLabel, { color: theme.mutedText }]}>Meter Name</Text>
+                    <Text numberOfLines={1} style={[styles.infoValue, { color: theme.text }]}>{customerDetails.shopName}</Text>
+                  </View>
+                </View>
+              </View>
 
-<View style={styles.balanceSection}>
-  <View style={styles.balanceRow}>
-    <View style={[styles.balanceItem, { backgroundColor: isDarkMode ? '#052e2b' : '#ecfdf5', borderColor: isDarkMode ? '#14532d' : '#bbf7d0' }]}>
-      <Text style={[styles.balanceLabel, { color: theme.mutedText }]}>Available Balance</Text>
-      <Text style={styles.balanceAmount}>{customerDetails.availableBalance}</Text>
-    </View>
-    <View style={[styles.addressItem, { backgroundColor: theme.card, borderColor: theme.border }]}>
-      <View style={styles.addressContent}>
-        <Icon name="location-on" size={20} color="#4f46e5" />
-        <View style={styles.addressTextContainer}>
-          <Text style={[styles.infoLabel, { color: theme.mutedText }]}>Address</Text>
-          <Text style={[styles.infoValue, { color: theme.text }]} numberOfLines={2}>{customerDetails.address}</Text>
-        </View>
-      </View>
-    </View>
-  </View>
-</View>
+              <View style={styles.balanceSection}>
+                <View style={styles.balanceRow}>
+                  <View style={[styles.balanceItem, { backgroundColor: isDarkMode ? '#052e2b' : '#ecfdf5', borderColor: isDarkMode ? '#14532d' : '#bbf7d0' }]}>
+                    <Icon name="account-balance-wallet" size={18} color="#059669" />
+                    <Text style={[styles.balanceLabel, { color: theme.mutedText }]}>Available Balance</Text>
+                    <Text style={styles.balanceAmount}>{customerDetails.availableBalance}</Text>
+                  </View>
+                  <View style={[styles.addressItem, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                    <Icon name="location-on" size={18} color="#4f46e5" />
+                    <View style={styles.addressTextContainer}>
+                      <Text style={[styles.infoLabel, { color: theme.mutedText }]}>Address</Text>
+                      <Text style={[styles.infoValue, { color: theme.text }]} numberOfLines={1}>{customerDetails.address}</Text>
+                    </View>
+                  </View>
+                </View>
+              </View>
               </>
             )}
           </Animatable.View>
@@ -1332,7 +1398,7 @@ const customerDetails = {
         </View>
       </Modal>
 
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -1361,17 +1427,16 @@ const styles = StyleSheet.create({
   },
   customerDetailsCard: {
     backgroundColor: '#fff',
-    marginHorizontal: 20,
-    marginTop: -30,
-    padding: 20,
-    borderRadius: 22,
+    marginHorizontal: 16,
+    marginTop: 14,
+    padding: 16,
+    borderRadius: 20,
     shadowColor: '#4f46e5',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.12,
-    shadowRadius: 18,
-    elevation: 12,
-    marginBottom: 24,
-    minHeight: 250,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.1,
+    shadowRadius: 14,
+    elevation: 8,
+    marginBottom: 20,
   },
   loadingContainer: {
     flex: 1,
@@ -1408,43 +1473,46 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   topSiteBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
     borderWidth: 1,
-    borderRadius: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    marginBottom: 16,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 14,
   },
   topSiteLabel: {
     fontSize: 12,
     fontWeight: '700',
-    marginBottom: 4,
+    marginRight: 6,
   },
   topSiteValue: {
-    fontSize: 18,
+    fontSize: 13,
     fontWeight: '800',
+    flex: 1,
   },
   customerHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 18,
+    marginBottom: 14,
   },
   avatarContainer: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 14,
+    marginRight: 12,
     backgroundColor: '#4f46e5',
   },
   customerInfo: {
     flex: 1,
   },
   customerName: {
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: '800',
     color: '#1e293b',
-    marginBottom: 3,
+    marginBottom: 2,
   },
   customerId: {
     fontSize: 12,
@@ -1472,36 +1540,57 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#1e293b',
   },
+  siteInfoSection: {
+    marginBottom: 10,
+  },
+  siteInfoRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  siteInfoItem: {
+    flex: 1,
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
   balanceSection: {
-    paddingTop: 20,
-    borderTopWidth: 1,
-    borderTopColor: '#f1f5f9',
+    marginTop: 0,
   },
   balanceRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 16,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
+    gap: 10,
   },
   balanceItem: {
     flex: 1,
-    padding: 10,
-    borderRadius: 18,
+    padding: 12,
+    borderRadius: 14,
     borderWidth: 1,
-    justifyContent: 'center',
   },
   balanceLabel: {
     fontSize: 11,
     color: '#64748b',
     fontWeight: '600',
-    marginBottom: 4,
+    marginTop: 4,
+    marginBottom: 2,
   },
   balanceAmount: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '800',
     color: '#059669',
+  },
+  addressItem: {
+    flex: 1,
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  addressContent: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  addressTextContainer: {
+    flex: 1,
+    marginTop: 4,
   },
 
   lastPayment: {
@@ -2054,41 +2143,4 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '800',
   },
-
-  siteInfoSection: {
-  marginBottom: 20,
-},
-siteInfoRow: {
-  flexDirection: 'row',
-  justifyContent: 'space-between',
-},
-siteInfoItem: {
-  flex: 1,
-  backgroundColor: '#f8fafc',
-  padding: 14,
-  borderRadius: 14,
-  marginHorizontal: 4,
-  alignItems: 'center',
-},
-
-addressItem: {
-  flex: 1,
-  backgroundColor: '#f8fafc',
-  padding: 10,
-  borderRadius: 18,
-  marginLeft: 10,
-  justifyContent: 'center',
-  borderWidth: 1,
-  borderColor: '#e2e8f0',
-},
-
-addressContent: {
-  flexDirection: 'row',
-  alignItems: 'flex-start',
-},
-addressTextContainer: {
-  flex: 1,
-  marginLeft: 12,
-},
-
 });

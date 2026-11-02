@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { darkTheme, lightTheme, ThemeColors } from "../theme";
+import { darkTheme, lightTheme, ThemeColors } from "../theme/theme";
 
 const THEME_STORAGE_KEY = "app_theme_mode";
 

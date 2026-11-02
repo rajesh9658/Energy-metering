@@ -64,7 +64,7 @@ export const darkTheme: ThemeColors = {
   shadow: 'rgba(0, 0, 0, 0.42)',
 };
 
-export const getThemeColors = (isDark: boolean) => {
+export const getThemeColors = (isDark: boolean): ThemeColors => {
   return isDark ? darkTheme : lightTheme;
 };
 
