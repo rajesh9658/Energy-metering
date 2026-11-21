@@ -1,7 +1,7 @@
 // src/config/index.ts
 
-// const DEFAULT_API_BASE_URL = "https://em.sochiot.com";
-const DEFAULT_API_BASE_URL = "http://10.138.220.37:8000";
+const DEFAULT_API_BASE_URL = "https://em.sochiot.com";
+// const DEFAULT_API_BASE_URL = "http://10.157.169.25:8000";
 
 export const API_CONFIG = {
   BASE_URL: process.env.EXPO_PUBLIC_API_BASE_URL || DEFAULT_API_BASE_URL,    
